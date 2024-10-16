@@ -975,7 +975,6 @@ public class Node implements Iterable<Node> {
             case Token.VAR:
             case Token.CONST:
             case Token.LET:
-            case Token.LETEXPR:
             case Token.WITH:
             case Token.WITHEXPR:
             case Token.CATCH:

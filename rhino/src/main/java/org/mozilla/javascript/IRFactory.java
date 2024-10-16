@@ -39,7 +39,6 @@ import org.mozilla.javascript.ast.Jump;
 import org.mozilla.javascript.ast.KeywordLiteral;
 import org.mozilla.javascript.ast.Label;
 import org.mozilla.javascript.ast.LabeledStatement;
-import org.mozilla.javascript.ast.LetNode;
 import org.mozilla.javascript.ast.Name;
 import org.mozilla.javascript.ast.NewExpression;
 import org.mozilla.javascript.ast.NumberLiteral;
@@ -240,9 +239,6 @@ public final class IRFactory {
                 }
                 if (node instanceof LabeledStatement) {
                     return transformLabeledStatement((LabeledStatement) node);
-                }
-                if (node instanceof LetNode) {
-                    return transformLetNode((LetNode) node);
                 }
                 if (node instanceof XmlRef) {
                     return transformXmlRef((XmlRef) node);
@@ -589,19 +585,18 @@ public final class IRFactory {
                         AstNode rhs = (AstNode) defaultParams.get(i);
                         String name = (String) defaultParams.get(i - 1);
                         body.addChildToFront(
-                                createIf(
-                                        createBinary(
-                                                Token.SHEQ,
+                                new Node(
+                                        Token.EXPR_VOID,
+                                        createAssignment(
+                                                Token.ASSIGN,
                                                 parser.createName(name),
-                                                parser.createName("undefined")),
-                                        new Node(
-                                                Token.EXPR_VOID,
-                                                createAssignment(
-                                                        Token.ASSIGN,
-                                                        parser.createName(name),
-                                                        transform(rhs)),
-                                                body.getLineno()),
-                                        null,
+                                                createCondExpr(
+                                                        createBinary(
+                                                                Token.SHEQ,
+                                                                parser.createName(name),
+                                                                parser.createName("undefined")),
+                                                        transform(rhs),
+                                                        parser.createName(name))),
                                         body.getLineno()));
                     }
                     i -= 2;
@@ -619,7 +614,7 @@ public final class IRFactory {
             }
 
             if (destructuring != null) {
-                body.addChildToFront(new Node(Token.EXPR_VOID, destructuring, lineno));
+                body.addChildToFront(new Node(Token.BLOCK, destructuring, lineno));
             }
 
             int syntheticType = fn.getFunctionType();
@@ -844,21 +839,6 @@ public final class IRFactory {
         label.target = breakTarget;
 
         return block;
-    }
-
-    private Node transformLetNode(LetNode node) {
-        parser.pushScope(node);
-        try {
-            Node vars = transformVariableInitializers(node.getVariables());
-            node.addChildToBack(vars);
-            boolean letExpr = node.getType() == Token.LETEXPR;
-            if (node.getBody() != null) {
-                node.addChildToBack(transform(node.getBody()));
-            }
-            return node;
-        } finally {
-            parser.popScope();
-        }
     }
 
     private Node transformLiteral(AstNode node) {
@@ -1132,11 +1112,13 @@ public final class IRFactory {
     }
 
     private Node transformVariables(VariableDeclaration node) {
-        transformVariableInitializers(node);
-        return node;
+        return transformVariableInitializers(node);
     }
 
     private Node transformVariableInitializers(VariableDeclaration node) {
+
+        VariableDeclaration newDeclaration = new VariableDeclaration();
+        newDeclaration.setType(node.getType());
         List<VariableInitializer> vars = node.getVariables();
         for (VariableInitializer var : vars) {
             AstNode target = var.getTarget();
@@ -1159,11 +1141,34 @@ public final class IRFactory {
                     node.addChildToBack(left);
                 } else {
                     astNodePos.push(var);
+
+                    var tempName = parser.currentScriptOrFn.getNextTempName();
+                    var nameNode = parser.createName(Token.NAME, tempName, right);
+                    newDeclaration.addChildToBack(nameNode);
                     try {
-                        Node d =
-                                parser.createDestructuringAssignment(
-                                        node.getType(), left, right, this::transform);
-                        node.addChildToBack(d);
+                        if (false) {
+
+                            if (left instanceof ArrayLiteral) {
+                                ArrayLiteral array = (ArrayLiteral) left;
+                                var index = 0;
+                                for (AstNode n : array.getElements()) {
+                                    var newLeft = n;
+                                    var newRight =
+                                            new Node(
+                                                    Token.GETELEM,
+                                                    parser.createName(tempName),
+                                                    new NumberLiteral((double) index));
+                                    newLeft.addChildToBack(newRight);
+                                    newDeclaration.addChildToBack(newLeft);
+                                    index++;
+                                }
+                            }
+                        } else {
+                            Node d =
+                                    parser.createDestructuringAssignment(
+                                            node.getType(), left, right, null, this::transform);
+                            return d;
+                        }
                     } finally {
                         astNodePos.pop();
                     }
@@ -1173,9 +1178,10 @@ public final class IRFactory {
                     left.addChildToBack(right);
                 }
                 node.addChildToBack(left);
+                newDeclaration.addChildToBack(left);
             }
         }
-        return node;
+        return newDeclaration;
     }
 
     private Node transformWhileLoop(WhileLoop loop) {
@@ -1530,7 +1536,8 @@ public final class IRFactory {
             Node assign;
             if (destructuring != -1) {
                 assign =
-                        parser.createDestructuringAssignment(declType, lvalue, id, this::transform);
+                        parser.createDestructuringAssignment(
+                                declType, lvalue, id, null, this::transform);
                 if (!isForEach
                         && !isForOf
                         && (destructuring == Token.OBJECTLIT || destructuringLen != 2)) {
@@ -1774,7 +1781,7 @@ public final class IRFactory {
         return result;
     }
 
-    private static Node createCondExpr(Node cond, Node ifTrue, Node ifFalse) {
+    public static Node createCondExpr(Node cond, Node ifTrue, Node ifFalse) {
         int condStatus = isAlwaysDefinedBoolean(cond);
         if (condStatus == ALWAYS_TRUE_BOOLEAN) {
             return ifTrue;
@@ -1978,7 +1985,7 @@ public final class IRFactory {
         return new Node(Token.GET_REF, ref);
     }
 
-    private static Node createBinary(int nodeType, Node left, Node right) {
+    public static Node createBinary(int nodeType, Node left, Node right) {
         switch (nodeType) {
             case Token.ADD:
                 // numerical addition and string concatenation
@@ -2108,7 +2115,7 @@ public final class IRFactory {
         return new Node(nodeType, left, right);
     }
 
-    private Node createAssignment(int assignType, Node left, Node right) {
+    public Node createAssignment(int assignType, Node left, Node right) {
         Node ref = makeReference(left);
         if (ref == null) {
             if (left.getType() == Token.ARRAYLIT || left.getType() == Token.OBJECTLIT) {
@@ -2116,7 +2123,8 @@ public final class IRFactory {
                     parser.reportError("msg.bad.destruct.op");
                     return right;
                 }
-                return parser.createDestructuringAssignment(-1, left, right, this::transform);
+
+                return parser.createDestructuringAssignment(-1, left, right, null, this::transform);
             }
             parser.reportError("msg.bad.assign.left");
             return right;

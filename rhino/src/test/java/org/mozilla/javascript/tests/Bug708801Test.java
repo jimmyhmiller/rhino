@@ -243,9 +243,6 @@ public class Bug708801Test {
                         assertNumberVars("var b = void(1,1)");
                         // nested assignment
                         assertNumberVars("var b = 1; var f = (b = 'a')");
-                        // let expression:
-                        assertNumberVars("var b = let(x=1) x", "b", "x");
-                        assertNumberVars("var b = let(x=1,y=1) x,y", "b", "x", "y");
                         // conditional operator:
                         assertNumberVars("var b = 0 ? 1 : 2", "b");
                         assertNumberVars("var b = 'a' ? 1 : 2", "b");

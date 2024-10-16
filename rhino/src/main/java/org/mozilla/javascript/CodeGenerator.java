@@ -118,6 +118,7 @@ class CodeGenerator extends Icode {
             itsData.isES6Generator = true;
         }
 
+        theFunction.toStringTree(theFunction);
         generateICodeFromTree(theFunction.getLastChild());
     }
 

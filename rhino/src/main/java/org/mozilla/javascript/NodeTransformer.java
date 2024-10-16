@@ -11,7 +11,6 @@ import static org.mozilla.javascript.Context.reportError;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
-import java.util.List;
 import org.mozilla.javascript.ast.FunctionNode;
 import org.mozilla.javascript.ast.Jump;
 import org.mozilla.javascript.ast.Name;
@@ -92,7 +91,8 @@ public class NodeTransformer {
                 if (newScope.getSymbolTable() != null) {
                     // transform to let statement so we get a with statement
                     // created to contain scoped let variables
-                    Node let = new Node(type == Token.ARRAYCOMP ? Token.LETEXPR : Token.LET);
+                    // TODO(jimmy) Figure out what to do about Array Comprehensions
+                    Node let = new Node(Token.LET);
                     Node innerLet = new Node(Token.LET);
                     let.addChildToBack(innerLet);
                     for (String name : newScope.getSymbolTable().keySet()) {
@@ -255,7 +255,6 @@ public class NodeTransformer {
                     visitNew(node, tree);
                     break;
 
-                case Token.LETEXPR:
                 case Token.LET:
                     {
                         Node child = node.getFirstChild();
@@ -294,8 +293,11 @@ public class NodeTransformer {
                                                 init);
                             } else {
                                 // May be a destructuring assignment already transformed
-                                // to a LETEXPR
-                                if (n.getType() != Token.LETEXPR) throw Kit.codeBug();
+                                // to a LET___EXPR
+                                // TODO(jimmy): What should go here?
+                                //                                if (n.getType() !=
+                                // Token.LET____EXPR && n.getType() != Token.SETNAME) throw
+                                // Kit.codeBug();
                             }
                             Node pop = new Node(Token.EXPR_VOID, n, node.getLineno());
                             result.addChildToBack(pop);
@@ -437,41 +439,17 @@ public class NodeTransformer {
         Node body = vars.getNext();
         scopeNode.removeChild(vars);
         scopeNode.removeChild(body);
-        boolean isExpression = scopeNode.getType() == Token.LETEXPR;
         Node result;
         Node newVars;
         if (createWith) {
-            result = new Node(isExpression ? Token.WITHEXPR : Token.BLOCK);
+            result = new Node(Token.BLOCK);
             result = replaceCurrent(parent, previous, scopeNode, result);
             ArrayList<Object> list = new ArrayList<>();
             Node objectLiteral = new Node(Token.OBJECTLIT);
             for (Node v = vars.getFirstChild(); v != null; v = v.getNext()) {
-                Node current = v;
-                if (current.getType() == Token.LETEXPR) {
-                    // destructuring in let expr, e.g. let ([x, y] = [3, 4]) {}
-                    List<?> destructuringNames =
-                            (List<?>) current.getProp(Node.DESTRUCTURING_NAMES);
-                    Node c = current.getFirstChild();
-                    if (c.getType() != Token.LET) throw Kit.codeBug();
-                    // Add initialization code to front of body
-                    if (isExpression) {
-                        body = new Node(Token.COMMA, c.getNext(), body);
-                    } else {
-                        body = new Node(Token.BLOCK, new Node(Token.EXPR_VOID, c.getNext()), body);
-                    }
-                    // Update "list" and "objectLiteral" for the variables
-                    // defined in the destructuring assignment
-                    if (destructuringNames != null) {
-                        list.addAll(destructuringNames);
-                        for (int i = 0; i < destructuringNames.size(); i++) {
-                            objectLiteral.addChildToBack(new Node(Token.VOID, Node.newNumber(0.0)));
-                        }
-                    }
-                    current = c.getFirstChild(); // should be a NAME, checked below
-                }
-                if (current.getType() != Token.NAME) throw Kit.codeBug();
-                list.add(ScriptRuntime.getIndexObject(current.getString()));
-                Node init = current.getFirstChild();
+                if (v.getType() != Token.NAME) throw Kit.codeBug();
+                list.add(ScriptRuntime.getIndexObject(v.getString()));
+                Node init = v.getFirstChild();
                 if (init == null) {
                     init = new Node(Token.VOID, Node.newNumber(0.0));
                 }
@@ -483,54 +461,27 @@ public class NodeTransformer {
             result.addChildToBack(new Node(Token.WITH, body));
             result.addChildToBack(new Node(Token.LEAVEWITH));
         } else {
-            result = new Node(isExpression ? Token.COMMA : Token.BLOCK);
+            result = new Node(Token.BLOCK);
             result = replaceCurrent(parent, previous, scopeNode, result);
             newVars = new Node(Token.COMMA);
             for (Node v = vars.getFirstChild(); v != null; v = v.getNext()) {
-                Node current = v;
-                if (current.getType() == Token.LETEXPR) {
-                    // destructuring in let expr, e.g. let ([x, y] = [3, 4]) {}
-                    Node c = current.getFirstChild();
-                    if (c.getType() != Token.LET) throw Kit.codeBug();
-                    // Add initialization code to front of body
-                    if (isExpression) {
-                        body = new Node(Token.COMMA, c.getNext(), body);
-                    } else {
-                        body = new Node(Token.BLOCK, new Node(Token.EXPR_VOID, c.getNext()), body);
-                    }
-                    // We're removing the LETEXPR, so move the symbols
-                    Scope.joinScopes((Scope) current, (Scope) scopeNode);
-                    current = c.getFirstChild(); // should be a NAME, checked below
-                }
-                if (current.getType() != Token.NAME) throw Kit.codeBug();
-                Node stringNode = Node.newString(current.getString());
+                if (v.getType() != Token.NAME) throw Kit.codeBug();
+                Node stringNode = Node.newString(v.getString());
                 stringNode.setScope((Scope) scopeNode);
-                Node init = current.getFirstChild();
+                Node init = v.getFirstChild();
                 if (init == null) {
                     init = new Node(Token.VOID, Node.newNumber(0.0));
                 }
                 newVars.addChildToBack(new Node(Token.SETVAR, stringNode, init));
             }
-            if (isExpression) {
-                result.addChildToBack(newVars);
-                scopeNode.setType(Token.COMMA);
-                result.addChildToBack(scopeNode);
-                scopeNode.addChildToBack(body);
-                if (body instanceof Scope) {
-                    Scope scopeParent = ((Scope) body).getParentScope();
-                    ((Scope) body).setParentScope((Scope) scopeNode);
-                    ((Scope) scopeNode).setParentScope(scopeParent);
-                }
-            } else {
-                result.addChildToBack(new Node(Token.EXPR_VOID, newVars));
-                scopeNode.setType(Token.BLOCK);
-                result.addChildToBack(scopeNode);
-                scopeNode.addChildrenToBack(body);
-                if (body instanceof Scope) {
-                    Scope scopeParent = ((Scope) body).getParentScope();
-                    ((Scope) body).setParentScope((Scope) scopeNode);
-                    ((Scope) scopeNode).setParentScope(scopeParent);
-                }
+            result.addChildToBack(new Node(Token.EXPR_VOID, newVars));
+            scopeNode.setType(Token.BLOCK);
+            result.addChildToBack(scopeNode);
+            scopeNode.addChildrenToBack(body);
+            if (body instanceof Scope) {
+                Scope scopeParent = ((Scope) body).getParentScope();
+                ((Scope) body).setParentScope((Scope) scopeNode);
+                ((Scope) scopeNode).setParentScope(scopeParent);
             }
         }
         return result;
