@@ -39,7 +39,7 @@ public final class Interpreter extends Icode implements Evaluator {
     static final int EXCEPTION_SLOT_SIZE = 6;
 
     /** Class to hold data corresponding to one interpreted call stack frame. */
-    private static class CallFrame implements Cloneable, Serializable {
+    private static class CallFrame implements Cloneable, Serializable, ICallFrame {
         private static final long serialVersionUID = -2843792508994958978L;
 
         // fields marked "final" in a comment are effectively final except when they're modified
@@ -492,6 +492,28 @@ public final class Interpreter extends Icode implements Evaluator {
             } else {
                 stack[offset] = value;
             }
+        }
+
+        // ICallFrame implementation
+
+        @Override
+        public int getFrameIndex() {
+            return frameIndex;
+        }
+
+        @Override
+        public ICallFrame getParentFrame() {
+            return parentFrame;
+        }
+
+        @Override
+        public int getPcSourceLineStart() {
+            return pcSourceLineStart;
+        }
+
+        @Override
+        public DebuggableScript getData() {
+            return fnOrScript.getDescriptor();
         }
     }
 
