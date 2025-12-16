@@ -6,7 +6,11 @@
 
 package org.mozilla.javascript;
 
+import static org.mozilla.javascript.UniqueTag.DOUBLE_MARK;
+
+import java.math.BigInteger;
 import org.mozilla.javascript.ast.ScriptNode;
+import org.mozilla.javascript.interpreterv2.operand.Operand;
 
 /**
  * InterpreterV2 is the instruction-based interpreter for Rhino.
@@ -37,6 +41,89 @@ public class InterpreterV2 implements Evaluator {
     public static void initFunction(
             Context cx, Scriptable scope, InterpretedFunctionV2 parent, int index) {
         // Stub implementation - will be expanded later
+    }
+
+    /**
+     * Perform shallow equality comparison (===).
+     *
+     * @param cx The context
+     * @param frame The current call frame
+     * @param left The left operand
+     * @param right The right operand
+     * @return true if strictly equal
+     */
+    public static boolean doShallowEquals(
+            Context cx, CallFrameV2 frame, Operand left, Operand right) {
+        Object rhs;
+        double rDouble = 0.0;
+        if (right.isDouble(frame)) {
+            rDouble = right.retrieveDouble(frame);
+            rhs = DOUBLE_MARK;
+        } else {
+            rhs = right.retrieve(cx, frame);
+        }
+        Object lhs;
+        double lDouble = 0.0;
+        if (left.isDouble(frame)) {
+            lDouble = left.retrieveDouble(frame);
+            lhs = DOUBLE_MARK;
+        } else {
+            lhs = left.retrieve(cx, frame);
+        }
+        if (rhs == DOUBLE_MARK) {
+            if (lhs instanceof Number && !(lhs instanceof BigInteger)) {
+                lDouble = ((Number) lhs).doubleValue();
+            } else if (lhs != DOUBLE_MARK) {
+                return false;
+            }
+        } else if (lhs == DOUBLE_MARK) {
+            if (rhs instanceof Number && !(rhs instanceof BigInteger)) {
+                rDouble = ((Number) rhs).doubleValue();
+            } else {
+                return false;
+            }
+        } else {
+            return ScriptRuntime.shallowEq(lhs, rhs);
+        }
+        return (lDouble == rDouble);
+    }
+
+    /**
+     * Perform equality comparison (==).
+     *
+     * @param cx The context
+     * @param frame The current call frame
+     * @param left The left operand
+     * @param right The right operand
+     * @return true if equal
+     */
+    public static boolean doEquals(Context cx, CallFrameV2 frame, Operand left, Operand right) {
+        Object rhs;
+        double rDouble = 0.0;
+        if (right.isDouble(frame)) {
+            rDouble = right.retrieveDouble(frame);
+            rhs = DOUBLE_MARK;
+        } else {
+            rhs = right.retrieve(cx, frame);
+        }
+        Object lhs;
+        double lDouble = 0.0;
+        if (left.isDouble(frame)) {
+            lDouble = left.retrieveDouble(frame);
+            lhs = DOUBLE_MARK;
+        } else {
+            lhs = left.retrieve(cx, frame);
+        }
+        if (rhs == DOUBLE_MARK) {
+            if (lhs == DOUBLE_MARK) {
+                return (lDouble == rDouble);
+            }
+            return ScriptRuntime.eqNumber(rDouble, lhs);
+        }
+        if (lhs == DOUBLE_MARK) {
+            return ScriptRuntime.eqNumber(lDouble, rhs);
+        }
+        return ScriptRuntime.eq(lhs, rhs);
     }
 
     @Override
