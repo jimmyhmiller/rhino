@@ -8,32 +8,28 @@ package org.mozilla.javascript.interpreterv2.instruction;
 
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
-import org.mozilla.javascript.ScriptRuntime;
-import org.mozilla.javascript.interpreterv2.operand.Operand;
 
-/** Typeof operator instruction. */
-public class Typeof implements Instruction {
-    private final Operand obj;
+public class GetVar implements Instruction {
+    private final int index;
 
-    public Typeof(Operand obj) {
-        this.obj = obj;
+    public GetVar(int index) {
+        this.index = index;
     }
 
     @Override
     public void interpret(Context cx, CallFrameV2 frame) {
         frame.pc += 1;
 
-        var obj = this.obj.retrieveAndWrap(cx, frame);
-        frame.push(ScriptRuntime.typeof(obj));
+        if (!frame.useActivation) {
+            frame.push(frame.getVar(index), frame.getVarDouble(index));
+        } else {
+            String stringReg = frame.compilerData.argNames[index];
+            frame.push(frame.scope.get(stringReg, frame.scope));
+        }
     }
 
     @Override
     public int stackChange() {
-        return 1 + obj.stackChange();
-    }
-
-    @Override
-    public String toDebugString() {
-        return "Typeof{obj=" + obj + "}";
+        return 1;
     }
 }

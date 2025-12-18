@@ -11,29 +11,33 @@ import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
-/** Typeof operator instruction. */
-public class Typeof implements Instruction {
-    private final Operand obj;
+public class SetProp implements Instruction {
+    private final Operand lhs;
+    private final String property;
+    private final Operand rhs;
 
-    public Typeof(Operand obj) {
-        this.obj = obj;
+    public SetProp(Operand lhs, String property, Operand rhs) {
+        this.lhs = lhs;
+        this.property = property;
+        this.rhs = rhs;
     }
 
     @Override
     public void interpret(Context cx, CallFrameV2 frame) {
         frame.pc += 1;
 
-        var obj = this.obj.retrieveAndWrap(cx, frame);
-        frame.push(ScriptRuntime.typeof(obj));
+        var rhs = this.rhs.retrieveAndWrap(cx, frame);
+        var lhs = this.lhs.retrieveAndWrap(cx, frame);
+        frame.push(ScriptRuntime.setObjectProp(lhs, property, rhs, cx, frame.scope));
     }
 
     @Override
     public int stackChange() {
-        return 1 + obj.stackChange();
+        return 1 + lhs.stackChange() + rhs.stackChange();
     }
 
     @Override
     public String toDebugString() {
-        return "Typeof{obj=" + obj + "}";
+        return "SetProp(lhs=" + lhs + ", property=" + property + ", rhs=" + rhs + ")";
     }
 }

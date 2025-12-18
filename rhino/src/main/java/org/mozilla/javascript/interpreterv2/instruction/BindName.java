@@ -9,31 +9,27 @@ package org.mozilla.javascript.interpreterv2.instruction;
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ScriptRuntime;
-import org.mozilla.javascript.interpreterv2.operand.Operand;
 
-/** Typeof operator instruction. */
-public class Typeof implements Instruction {
-    private final Operand obj;
+public class BindName implements Instruction {
+    private final String name;
 
-    public Typeof(Operand obj) {
-        this.obj = obj;
+    public BindName(String name) {
+        this.name = name;
     }
 
     @Override
     public void interpret(Context cx, CallFrameV2 frame) {
+        frame.push(ScriptRuntime.bind(cx, frame.scope, name));
         frame.pc += 1;
-
-        var obj = this.obj.retrieveAndWrap(cx, frame);
-        frame.push(ScriptRuntime.typeof(obj));
     }
 
     @Override
     public int stackChange() {
-        return 1 + obj.stackChange();
+        return 1;
     }
 
     @Override
     public String toDebugString() {
-        return "Typeof{obj=" + obj + "}";
+        return "BindName(name=" + name + ")";
     }
 }
