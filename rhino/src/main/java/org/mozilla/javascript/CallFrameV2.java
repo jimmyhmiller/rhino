@@ -42,6 +42,8 @@ public class CallFrameV2 implements ICallFrame {
     public CallFrameV2 varSource;
     public final int localShift;
     public final int emptyStackTop;
+    public Object throwable;
+    public int pcPrevBranch;
 
     /** Minimal constructor for stub implementation. */
     public CallFrameV2() {
@@ -192,6 +194,26 @@ public class CallFrameV2 implements ICallFrame {
         for (int i = 0; i < n; i++) {
             pop();
         }
+    }
+
+    public void saveExceptionScope(int exceptionIndex, Scriptable scope) {
+        stack[localShift + exceptionIndex] = scope;
+    }
+
+    public void saveSubRoutineReturnPC(int returnPcOffset, double subRoutineReturnPC) {
+        stack[localShift + returnPcOffset] = subRoutineReturnPC;
+    }
+
+    public boolean hasSubRoutineReturnPC(int returnPcOffset) {
+        Object value = stack[localShift + returnPcOffset];
+        return value instanceof Double;
+    }
+
+    public double getSubRoutineReturnPC(int returnPcOffset) {
+        if (!hasSubRoutineReturnPC(returnPcOffset)) {
+            throw new IllegalStateException("Use hasSubRoutineReturnPC first");
+        }
+        return (Double) stack[localShift + returnPcOffset];
     }
 
     @Override
