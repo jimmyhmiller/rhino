@@ -11,7 +11,7 @@ import java.util.Optional;
 import java.util.Set;
 import org.mozilla.javascript.interpreterv2.instruction.Instruction;
 
-/** Performs optimization passes on instruction sequences. */
+/** Provides instruction simplification and type analysis for the interpreter. */
 public class InstructionSimplification {
     private final List<Instruction> instructions;
     private final Set<Integer> jumpTargets;
@@ -23,7 +23,6 @@ public class InstructionSimplification {
         this.jumpTargets = jumpTargets;
     }
 
-    /** Run simplification passes over all instructions. */
     public void simplify() {
         for (int pc = 0; pc < instructions.size(); pc++) {
             this.currentPc = pc;
@@ -38,12 +37,6 @@ public class InstructionSimplification {
         }
     }
 
-    /**
-     * Get the known type of a value at a given stack offset.
-     *
-     * @param stackOffset Offset from current stack top (0 = top)
-     * @return The known type, or UNKNOWN if not determinable
-     */
     public KnownType getStackValueType(int stackOffset) {
         var producerPc = findStackProducer(stackOffset);
         if (producerPc.isEmpty()) {
@@ -58,21 +51,10 @@ public class InstructionSimplification {
         return type;
     }
 
-    /**
-     * Check if a given PC is a jump target.
-     *
-     * @param pc The program counter
-     * @return true if this PC is a jump target
-     */
     public boolean isJumpTarget(int pc) {
         return jumpTargets.contains(pc);
     }
 
-    /**
-     * Record that stack values have been consumed.
-     *
-     * @param count Number of values consumed
-     */
     public void consumeStack(int count) {
         currentStackOffset += count;
     }
