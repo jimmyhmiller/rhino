@@ -17,7 +17,8 @@ import org.mozilla.javascript.interpreterv2.instruction.Instruction;
  * InterpreterDataV2 holds the compiled instruction data for InterpreterV2. It extends JSCode to
  * integrate with the existing function object infrastructure.
  */
-final class InterpreterDataV2<T extends ScriptOrFn<T>> extends JSCode<T> implements Serializable {
+public final class InterpreterDataV2<T extends ScriptOrFn<T>> extends JSCode<T>
+        implements Serializable {
     private static final long serialVersionUID = 5067677351589230235L;
 
     static final int INITIAL_STRINGTABLE_SIZE = 64;
@@ -214,6 +215,14 @@ final class InterpreterDataV2<T extends ScriptOrFn<T>> extends JSCode<T> impleme
 
         public void setLineNumberTable(LineNumberTable lineNumberTable) {
             this.lineNumberTable = lineNumberTable;
+        }
+
+        public void setStringTable(String[] stringTable) {
+            this.stringTable = stringTable;
+        }
+
+        public void setDoubleTable(double[] doubleTable) {
+            this.doubleTable = doubleTable;
         }
     }
 }
