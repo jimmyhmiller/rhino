@@ -45,6 +45,10 @@ public class CallFrameV2 implements ICallFrame {
     public Object throwable;
     public int pcPrevBranch;
 
+    // Additional fields for future generator support
+    public boolean isContinuationsTopFrame;
+    public boolean shouldYieldToParent;
+
     /** Minimal constructor for stub implementation. */
     public CallFrameV2() {
         this.useActivation = false;
