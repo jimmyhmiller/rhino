@@ -64,7 +64,16 @@ public class InterpretedFunctionV2 extends NativeFunction implements Script {
 
     @Override
     public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
-        throw new UnsupportedOperationException("Stub implementation");
+        if (!ScriptRuntime.hasTopCall(cx)) {
+            return ScriptRuntime.doTopCall(
+                    this,
+                    cx,
+                    scope,
+                    thisObj,
+                    args,
+                    compilerData.functionType == CompilerData.FunctionType.Script);
+        }
+        return InterpreterV2.interpret(this, idata, cx, scope, thisObj, args);
     }
 
     @Override
@@ -74,6 +83,10 @@ public class InterpretedFunctionV2 extends NativeFunction implements Script {
 
     @Override
     public Object exec(Context cx, Scriptable scope, Scriptable thisObj) {
+        if (compilerData.functionType != CompilerData.FunctionType.Script) {
+            // Only scripts can be executed
+            throw new IllegalStateException("Not a script");
+        }
         return call(cx, scope, thisObj, ScriptRuntime.emptyArgs);
     }
 }
