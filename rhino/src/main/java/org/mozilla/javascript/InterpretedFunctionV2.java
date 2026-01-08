@@ -16,9 +16,15 @@ import org.mozilla.javascript.interpreterv2.CompilerData;
 public class InterpretedFunctionV2 extends NativeFunction implements Script {
 
     public CompilerData compilerData;
+    public InterpreterDataV2<?> idata;
 
     public InterpretedFunctionV2(CompilerData compilerData) {
         this.compilerData = compilerData;
+    }
+
+    public InterpretedFunctionV2(InterpreterDataV2<?> idata) {
+        this.idata = idata;
+        this.compilerData = idata.compilerData;
     }
 
     @Override
