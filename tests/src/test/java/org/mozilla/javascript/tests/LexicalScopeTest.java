@@ -809,4 +809,185 @@ public class LexicalScopeTest {
                         + "for (var v of gen()) results.push(v);\n"
                         + "JSON.stringify(results);");
     }
+
+    // ===================== Syntax Error Tests (Test262 Compliance) =====================
+
+    @Test
+    public void constWithoutInitializerThrowsSyntaxError() {
+        // const declarations must have an initializer
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "missing = in const declaration",
+                "const x;");
+    }
+
+    @Test
+    public void constWithoutInitializerInBlockThrowsSyntaxError() {
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "missing = in const declaration",
+                "{ const x; }");
+    }
+
+    @Test
+    public void constMultipleDeclarationsWithoutInitializerThrowsSyntaxError() {
+        // const a = 1, b; - b is missing initializer
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "missing = in const declaration",
+                "const a = 1, b;");
+    }
+
+    @Test
+    public void constMixedInitializersThrowsSyntaxError() {
+        // const a, b = 1; - a is missing initializer
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "missing = in const declaration",
+                "const a, b = 1;");
+    }
+
+    @Test
+    public void letInIfStatementThrowsSyntaxError() {
+        // Lexical declarations are not allowed in statement position
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "lexical declarations",
+                "if (true) let x = 1;");
+    }
+
+    @Test
+    public void letInIfElseStatementThrowsSyntaxError() {
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "lexical declarations",
+                "if (true) let x = 1; else let y = 2;");
+    }
+
+    @Test
+    public void constInIfStatementThrowsSyntaxError() {
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "lexical declarations",
+                "if (true) const x = 1;");
+    }
+
+    @Test
+    public void letInLabeledStatementThrowsSyntaxError() {
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "lexical declarations",
+                "label: let x = 1;");
+    }
+
+    @Test
+    public void constInLabeledStatementThrowsSyntaxError() {
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "lexical declarations",
+                "label: const x = 1;");
+    }
+
+    @Test
+    public void letInWhileBodyThrowsSyntaxError() {
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "let declaration not directly within block",
+                "while (false) let x = 1;");
+    }
+
+    @Test
+    public void letInForBodyThrowsSyntaxError() {
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EvaluatorException.class,
+                "let declaration not directly within block",
+                "for (;;) let x = 1;");
+    }
+
+    @Test
+    public void letInBlockIsAllowed() {
+        // let inside a block is fine
+        Utils.assertWithAllModes_ES6(1.0, "if (true) { let x = 1; x; }");
+    }
+
+    @Test
+    public void constInBlockIsAllowed() {
+        // const inside a block is fine
+        Utils.assertWithAllModes_ES6(1.0, "if (true) { const x = 1; x; }");
+    }
+
+    @Test
+    public void constReassignmentInForLoopNextExpressionThrowsTypeError() {
+        // for (const i = 0; i < 1; i++) - i++ should throw TypeError
+        Utils.assertException(
+                Context.VERSION_ES6,
+                EcmaError.class,
+                "TypeError",
+                "for (const i = 0; i < 1; i++) {}");
+    }
+
+    @Test
+    public void constInForOfIsAllowed() {
+        // for (const x of [1,2,3]) is allowed - new binding each iteration
+        Utils.assertWithAllModes_ES6(6.0, "var sum = 0; for (const x of [1,2,3]) sum += x; sum;");
+    }
+
+    @Test
+    public void constInForInIsAllowed() {
+        // for (const k in {a:1}) is allowed - new binding each iteration
+        Utils.assertWithAllModes_ES6("a", "var result; for (const k in {a:1}) result = k; result;");
+    }
+
+    @Test
+    public void constOuterInnerBindings() {
+        // Outer const should be unchanged by inner const in for loop
+        Utils.assertWithAllModes_ES6(
+                "outer_x",
+                "const x = 'outer_x';\n"
+                        + "for (var i = 0; i < 1; i++) {\n"
+                        + "    const x = 'inner_x';\n"
+                        + "}\n"
+                        + "x;");
+    }
+
+    @Test
+    public void letClosureInsideForCondition() {
+        // Closure created in for loop condition should capture per-iteration binding
+        Utils.assertWithAllModes_ES6(
+                "[0,1,2,3,4]",
+                "var a = [];\n"
+                        + "for (let i = 0; a.push(function() { return i; }), i < 5; ++i) {}\n"
+                        + "JSON.stringify(a.map(function(f) { return f(); }));");
+    }
+
+    @Test
+    public void letClosureInsideForInitialization() {
+        // Closure created in for loop initialization
+        Utils.assertWithAllModes_ES6(
+                0.0,
+                "var f;\n"
+                        + "for (let i = 0, g = function() { return i; }; i < 1; i++) { f = g; }\n"
+                        + "f();");
+    }
+
+    @Test
+    public void letClosureInsideForNextExpression() {
+        // Closure created in for loop next expression
+        Utils.assertWithAllModes_ES6(
+                "[1,2,3,4,5]",
+                "var a = [];\n"
+                        + "for (let i = 0; i < 5; a.push(function() { return i; }), ++i) {}\n"
+                        + "JSON.stringify(a.map(function(f) { return f(); }));");
+    }
 }

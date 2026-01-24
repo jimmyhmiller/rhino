@@ -1716,7 +1716,7 @@ public final class IRFactory {
             int destructuringLen = 0;
             Node lvalue;
             int type = lhs.getType();
-            if (type == Token.VAR || type == Token.LET) {
+            if (type == Token.VAR || type == Token.LET || type == Token.CONST) {
                 Node kid = lhs.getLastChild();
                 int kidType = kid.getType();
                 if (kidType == Token.ARRAYLIT || kidType == Token.OBJECTLIT) {

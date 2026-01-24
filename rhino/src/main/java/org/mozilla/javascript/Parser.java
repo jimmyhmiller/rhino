@@ -1633,6 +1633,14 @@ public class Parser {
                 body.setInlineComment(commentNode);
             }
         }
+        // Lexical declarations (let/const) are not allowed as the body of control structures
+        // They must be wrapped in a block. ES6 13.6.0.1, 13.7.0.1, etc.
+        if (body instanceof VariableDeclaration) {
+            VariableDeclaration vd = (VariableDeclaration) body;
+            if (vd.getType() == Token.LET || vd.getType() == Token.CONST) {
+                reportError("msg.lexical.decl.not.in.block");
+            }
+        }
         return body;
     }
 
@@ -1771,7 +1779,7 @@ public class Parser {
                 init = new EmptyExpression(ts.tokenBeg, 1);
                 // We haven't consumed the token, so we need the CURRENT lexer position
                 init.setLineColumnNumber(ts.getLineno(), ts.getTokenColumn());
-            } else if (tt == Token.VAR || tt == Token.LET) {
+            } else if (tt == Token.VAR || tt == Token.LET || tt == Token.CONST) {
                 consumeToken();
                 init = variables(tt, ts.tokenBeg, false);
             } else {
@@ -2301,6 +2309,13 @@ public class Parser {
             currentLabel = bundle;
             if (stmt == null) {
                 stmt = statementHelper();
+                // Lexical declarations cannot be the body of a labeled statement
+                if (stmt instanceof VariableDeclaration) {
+                    VariableDeclaration vd = (VariableDeclaration) stmt;
+                    if (vd.getType() == Token.LET || vd.getType() == Token.CONST) {
+                        reportError("msg.lexical.decl.not.in.block");
+                    }
+                }
                 int ntt = peekToken();
                 if (ntt == Token.COMMENT
                         && stmt.getLineno()
@@ -2399,6 +2414,10 @@ public class Parser {
                 vi.setTarget(destructuring);
             } else {
                 vi.setTarget(name);
+                // const declarations must have an initializer (except in for-in/for-of)
+                if (declType == Token.CONST && init == null && !inForInit) {
+                    reportError("msg.const.no.init");
+                }
             }
             vi.setInitializer(init);
             vi.setType(declType);
