@@ -845,6 +845,14 @@ public class Codegen implements Evaluator {
                 "Ljava/lang/Object;");
     }
 
+    static void pushTDZ(ClassFileWriter cfw) {
+        cfw.add(
+                ByteCode.GETSTATIC,
+                "org/mozilla/javascript/Undefined",
+                "TDZ_VALUE",
+                "Ljava/lang/Object;");
+    }
+
     int getIndex(ScriptNode n) {
         return scriptOrFnIndexes.get(n);
     }

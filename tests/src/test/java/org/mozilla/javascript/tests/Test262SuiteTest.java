@@ -118,6 +118,8 @@ public class Test262SuiteTest {
                             "upsert",
                             "u180e"));
 
+    private static final Pattern test262FilterPattern;
+
     static {
         String propFile = System.getProperty("test262properties");
         testProperties =
@@ -143,6 +145,15 @@ public class Test262SuiteTest {
             }
         } else {
             updateTest262Properties = rollUpEnabled = statsEnabled = includeUnsupported = false;
+        }
+
+        String filterProp = System.getProperty("test262filter");
+        if (filterProp != null && !filterProp.isEmpty()) {
+            // Convert glob pattern to regex: * -> .*, ? -> .
+            String regex = filterProp.replace(".", "\\.").replace("*", ".*").replace("?", ".");
+            test262FilterPattern = Pattern.compile(regex);
+        } else {
+            test262FilterPattern = null;
         }
     }
 
@@ -584,6 +595,13 @@ public class Test262SuiteTest {
         fileLoop:
         for (File testFile : testFiles) {
             String caseShortPath = testDir.toPath().relativize(testFile.toPath()).toString();
+
+            // Apply test262filter if specified
+            if (test262FilterPattern != null
+                    && !test262FilterPattern.matcher(caseShortPath).find()) {
+                continue;
+            }
+
             boolean markedAsFailing = failingFiles.containsKey(testFile);
             String comment = markedAsFailing ? failingFiles.get(testFile) : null;
 

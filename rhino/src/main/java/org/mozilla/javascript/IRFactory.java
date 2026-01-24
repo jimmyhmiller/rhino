@@ -1629,7 +1629,22 @@ public final class IRFactory {
             Scope let = Scope.splitScope(loop);
             let.setType(Token.LET);
             let.addChildrenToBack(init);
-            let.addChildToBack(createLoop(loop, LOOP_FOR, body, test, new Node(Token.EMPTY), incr));
+            Node innerLoop = createLoop(loop, LOOP_FOR, body, test, new Node(Token.EMPTY), incr);
+
+            // Mark the loop for per-iteration bindings (ES6 let in for loop semantics)
+            // Collect variable names from the LET init
+            java.util.List<String> varNames = new java.util.ArrayList<>();
+            for (Node n = init.getFirstChild(); n != null; n = n.getNext()) {
+                if (n.getType() == Token.NAME) {
+                    varNames.add(n.getString());
+                }
+            }
+            if (!varNames.isEmpty()) {
+                loop.putIntProp(Node.PER_ITERATION_SCOPE_PROP, 1);
+                loop.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
+            }
+
+            let.addChildToBack(innerLoop);
             return let;
         }
         return createLoop(loop, LOOP_FOR, body, test, init, incr);
@@ -1767,6 +1782,19 @@ public final class IRFactory {
             loop = createLoop((Jump) loop, LOOP_WHILE, newBody, cond, null, null);
             loop.addChildToFront(init);
             if (type == Token.VAR || type == Token.LET) loop.addChildToFront(lhs);
+
+            // Mark for-in/for-of loops with let for per-iteration bindings
+            if (type == Token.LET && destructuring == -1) {
+                // Get the variable name from lhs
+                Node kid = lhs.getLastChild();
+                if (kid != null && kid.getType() == Token.NAME) {
+                    java.util.List<String> varNames = new java.util.ArrayList<>();
+                    varNames.add(kid.getString());
+                    loop.putIntProp(Node.PER_ITERATION_SCOPE_PROP, 1);
+                    loop.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
+                }
+            }
+
             localBlock.addChildToBack(loop);
 
             return localBlock;

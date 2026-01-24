@@ -69,7 +69,14 @@ public class Slot implements Serializable {
 
     public boolean setValue(Object value, Scriptable owner, Scriptable start, boolean isThrow) {
         if ((attributes & ScriptableObject.READONLY) != 0) {
-            if (isThrow) {
+            // In ES6+, const bindings always throw TypeError on reassignment
+            // In pre-ES6 mode, only throw in strict mode (silently fail otherwise)
+            boolean isES6 = false;
+            Context cx = Context.getCurrentContext();
+            if (cx != null) {
+                isES6 = cx.getLanguageVersion() >= Context.VERSION_ES6;
+            }
+            if (isThrow || (isES6 && (attributes & ScriptableObject.CONST_BINDING) != 0)) {
                 throw ScriptRuntime.typeErrorById("msg.modify.readonly", name);
             }
             return true;

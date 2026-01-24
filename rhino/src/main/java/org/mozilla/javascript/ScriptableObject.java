@@ -100,7 +100,14 @@ public abstract class ScriptableObject extends SlotMapOwner
      */
     public static final int UNINITIALIZED_CONST = 0x08;
 
-    public static final int CONST = PERMANENT | READONLY | UNINITIALIZED_CONST;
+    /**
+     * Property attribute indicating that this is an ES6 const binding. Unlike UNINITIALIZED_CONST,
+     * this flag persists after initialization and causes reassignment to always throw TypeError,
+     * regardless of strict mode.
+     */
+    public static final int CONST_BINDING = 0x10;
+
+    public static final int CONST = PERMANENT | READONLY | UNINITIALIZED_CONST | CONST_BINDING;
 
     /** The prototype of this object. */
     private Scriptable prototypeObject;
@@ -139,7 +146,7 @@ public abstract class ScriptableObject extends SlotMapOwner
     }
 
     static void checkValidAttributes(int attributes) {
-        final int mask = READONLY | DONTENUM | PERMANENT | UNINITIALIZED_CONST;
+        final int mask = READONLY | DONTENUM | PERMANENT | UNINITIALIZED_CONST | CONST_BINDING;
         if ((attributes & ~mask) != 0) {
             throw new IllegalArgumentException(String.valueOf(attributes));
         }
@@ -3051,6 +3058,20 @@ public abstract class ScriptableObject extends SlotMapOwner
             if (slot == null) {
                 return false;
             }
+            // Handle const initialization when accessed through a WITH scope
+            int attr = slot.getAttributes();
+            if ((attr & READONLY) != 0) {
+                if ((attr & UNINITIALIZED_CONST) != 0) {
+                    slot.value = value;
+                    // clear the bit on const initialization
+                    if (constFlag != UNINITIALIZED_CONST) {
+                        slot.setAttributes(attr & ~UNINITIALIZED_CONST);
+                    }
+                    return true;
+                }
+                // Const is already initialized, throw error on reassignment
+                throw ScriptRuntime.typeErrorById("msg.const.redecl", name);
+            }
         } else if (!isExtensible()) {
             slot = getMap().query(name, index);
             if (slot == null) {
@@ -3061,8 +3082,21 @@ public abstract class ScriptableObject extends SlotMapOwner
             // either const hoisted declaration or initialization
             slot = getMap().modify(this, name, index, CONST);
             int attr = slot.getAttributes();
-            if ((attr & READONLY) == 0)
-                throw Context.reportRuntimeErrorById("msg.var.redecl", name);
+            if ((attr & READONLY) == 0) {
+                // Slot exists but not marked as const - this happens when initializing
+                // a const through a WITH scope (block/script level let/const).
+                // Set up const attributes and initialize with the value.
+                slot.value = value;
+                if (constFlag != UNINITIALIZED_CONST) {
+                    // Full initialization: set READONLY | PERMANENT | CONST_BINDING
+                    slot.setAttributes(READONLY | PERMANENT | CONST_BINDING);
+                } else {
+                    // Just defining the const (hoisting): set READONLY | PERMANENT |
+                    // UNINITIALIZED_CONST | CONST_BINDING
+                    slot.setAttributes(READONLY | PERMANENT | UNINITIALIZED_CONST | CONST_BINDING);
+                }
+                return true;
+            }
             if ((attr & UNINITIALIZED_CONST) != 0) {
                 slot.value = value;
                 // clear the bit on const initialization

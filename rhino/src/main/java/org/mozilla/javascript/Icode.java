@@ -165,8 +165,18 @@ abstract class Icode {
             // spread
             Icode_SPREAD = Icode_DELPROP_SUPER - 1,
 
+            // Load TDZ (Temporal Dead Zone) marker value for let/const
+            Icode_TDZ = Icode_SPREAD - 1,
+
+            // GETVAR with TDZ check for let/const variables
+            Icode_GETVAR1_TDZ = Icode_TDZ - 1,
+            Icode_GETVAR_TDZ = Icode_GETVAR1_TDZ - 1,
+
+            // Copy per-iteration loop variables from WITH scope to parent scope
+            Icode_COPY_PER_ITER_SCOPE = Icode_GETVAR_TDZ - 1,
+
             // Last icode
-            MIN_ICODE = Icode_SPREAD;
+            MIN_ICODE = Icode_COPY_PER_ITER_SCOPE;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -358,6 +368,14 @@ abstract class Icode {
                 return "DELPROP_SUPER";
             case Icode_SPREAD:
                 return "SPREAD";
+            case Icode_TDZ:
+                return "TDZ";
+            case Icode_GETVAR1_TDZ:
+                return "GETVAR1_TDZ";
+            case Icode_GETVAR_TDZ:
+                return "GETVAR_TDZ";
+            case Icode_COPY_PER_ITER_SCOPE:
+                return "COPY_PER_ITER_SCOPE";
         }
 
         // icode without name

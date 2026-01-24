@@ -893,6 +893,10 @@ public final class Interpreter extends Icode implements Evaluator {
                 case Icode_SPARE_ARRAYLIT:
                     out.println(tname + " " + idata.literalIds[indexReg]);
                     break;
+                case Icode_COPY_PER_ITER_SCOPE:
+                    out.println(
+                            tname + " " + Arrays.toString((String[]) idata.literalIds[indexReg]));
+                    break;
                 case Icode_CLOSURE_EXPR:
                 case Icode_CLOSURE_STMT:
                 case Icode_METHOD_EXPR:
@@ -1035,6 +1039,7 @@ public final class Interpreter extends Icode implements Evaluator {
                         break;
                     }
                 case Icode_GETVAR1:
+                case Icode_GETVAR1_TDZ:
                 case Icode_SETVAR1:
                 case Icode_SETCONSTVAR1:
                     indexReg = iCode[pc];
@@ -1178,6 +1183,7 @@ public final class Interpreter extends Icode implements Evaluator {
                 return 1 + 4;
 
             case Icode_GETVAR1:
+            case Icode_GETVAR1_TDZ:
             case Icode_SETVAR1:
             case Icode_SETCONSTVAR1:
                 // byte var index
@@ -1699,6 +1705,8 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.SETVAR] = new DoSetVar();
         instructionObjs[base + Icode_GETVAR1] = new DoGetVar1();
         instructionObjs[base + Token.GETVAR] = new DoGetVar();
+        instructionObjs[base + Icode_GETVAR1_TDZ] = new DoGetVar1Tdz();
+        instructionObjs[base + Icode_GETVAR_TDZ] = new DoGetVarTdz();
         instructionObjs[base + Icode_VAR_INC_DEC] = new DoVarIncDec();
         instructionObjs[base + Icode_ZERO] = new DoZero();
         instructionObjs[base + Icode_ONE] = new DoOne();
@@ -1709,8 +1717,10 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.FALSE] = new DoFalse();
         instructionObjs[base + Token.TRUE] = new DoTrue();
         instructionObjs[base + Icode_UNDEF] = new DoUndef();
+        instructionObjs[base + Icode_TDZ] = new DoTdz();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
+        instructionObjs[base + Icode_COPY_PER_ITER_SCOPE] = new DoCopyPerIterScope();
         instructionObjs[base + Token.CATCH_SCOPE] = new DoCatchScope();
         instructionObjs[base + Token.ENUM_INIT_KEYS] = new DoEnumInit();
         instructionObjs[base + Token.ENUM_INIT_VALUES] = new DoEnumInit();
@@ -4002,6 +4012,43 @@ public final class Interpreter extends Icode implements Evaluator {
         }
     }
 
+    private static class DoGetVar1Tdz extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            state.indexReg = frame.idata.itsICode[frame.pc++];
+            var vars = frame.varSource.stack;
+            var varDbls = frame.varSource.sDbl;
+            Object value = vars[state.indexReg];
+            if (value == Undefined.TDZ_VALUE) {
+                String name = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                throw ScriptRuntime.constructError(
+                        "ReferenceError", "Cannot access '" + name + "' before initialization");
+            }
+            ++state.stackTop;
+            frame.stack[state.stackTop] = value;
+            frame.sDbl[state.stackTop] = varDbls[state.indexReg];
+            return null;
+        }
+    }
+
+    private static class DoGetVarTdz extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            var vars = frame.varSource.stack;
+            var varDbls = frame.varSource.sDbl;
+            Object value = vars[state.indexReg];
+            if (value == Undefined.TDZ_VALUE) {
+                String name = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                throw ScriptRuntime.constructError(
+                        "ReferenceError", "Cannot access '" + name + "' before initialization");
+            }
+            ++state.stackTop;
+            frame.stack[state.stackTop] = value;
+            frame.sDbl[state.stackTop] = varDbls[state.indexReg];
+            return null;
+        }
+    }
+
     private static class DoVarIncDec extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
@@ -4158,6 +4205,14 @@ public final class Interpreter extends Icode implements Evaluator {
         }
     }
 
+    private static class DoTdz extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            frame.stack[++state.stackTop] = Undefined.TDZ_VALUE;
+            return null;
+        }
+    }
+
     private static class DoEnterWith extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
@@ -4173,6 +4228,15 @@ public final class Interpreter extends Icode implements Evaluator {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
             frame.scope = ScriptRuntime.leaveWith(frame.scope);
+            return null;
+        }
+    }
+
+    private static class DoCopyPerIterScope extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            String[] varNames = (String[]) frame.idata.literalIds[state.indexReg];
+            ScriptRuntime.copyPerIterationScopeVars(frame.scope, varNames);
             return null;
         }
     }

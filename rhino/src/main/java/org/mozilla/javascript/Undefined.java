@@ -29,6 +29,32 @@ public class Undefined implements Serializable {
 
     private static final int instanceHash = System.identityHashCode(instance);
 
+    /**
+     * Sentinel value for the Temporal Dead Zone (TDZ). Used to mark let/const variables that have
+     * been hoisted but not yet initialized. Accessing such a variable should throw a
+     * ReferenceError.
+     */
+    public static final Object TDZ_VALUE =
+            new Object() {
+                @Override
+                public String toString() {
+                    return "TDZ";
+                }
+            };
+
+    /**
+     * Check if a value is the TDZ sentinel, and if so throw a ReferenceError.
+     *
+     * @param value the value to check
+     * @param name the variable name for the error message
+     */
+    public static void checkTDZ(Object value, String name) {
+        if (value == TDZ_VALUE) {
+            throw ScriptRuntime.constructError(
+                    "ReferenceError", "Cannot access '" + name + "' before initialization");
+        }
+    }
+
     private Undefined() {}
 
     public Object readResolve() {

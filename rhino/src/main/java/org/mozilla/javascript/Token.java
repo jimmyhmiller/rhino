@@ -245,7 +245,9 @@ public class Token {
             DOTDOTDOT = TAGGED_TEMPLATE_LITERAL + 1, // spread/rest ...
             NULLISH_COALESCING = DOTDOTDOT + 1, // nullish coalescing (??)
             QUESTION_DOT = NULLISH_COALESCING + 1, // optional chaining operator (?.)
-            LAST_TOKEN = QUESTION_DOT + 1;
+            TDZ = QUESTION_DOT + 1, // Temporal Dead Zone marker for let/const
+            COPY_PER_ITER_SCOPE = TDZ + 1, // Copy loop vars from per-iteration WITH scope to parent
+            LAST_TOKEN = COPY_PER_ITER_SCOPE + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -648,6 +650,10 @@ public class Token {
                 return "DOTDOTDOT";
             case QUESTION_DOT:
                 return "QUESTION_DOT";
+            case TDZ:
+                return "TDZ";
+            case COPY_PER_ITER_SCOPE:
+                return "COPY_PER_ITER_SCOPE";
         }
 
         // Token without name

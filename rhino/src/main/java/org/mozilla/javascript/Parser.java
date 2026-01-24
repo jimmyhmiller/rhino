@@ -2469,21 +2469,36 @@ public class Parser {
         Scope definingScope = currentScope.getDefiningScope(name);
         Symbol symbol = definingScope != null ? definingScope.getSymbol(name) : null;
         int symDeclType = symbol != null ? symbol.getDeclType() : -1;
+        // Check for let/const redeclaration errors:
+        // 1. Redeclaring const is always an error
+        // 2. Declaring const to redeclare anything is an error
+        // 3. let can't redeclare let in same scope
+        // 4. let can't redeclare var in same scope (var is function-scoped)
         if (symbol != null
                 && (symDeclType == Token.CONST
                         || declType == Token.CONST
-                        || (definingScope == currentScope && symDeclType == Token.LET))) {
-            addError(
-                    symDeclType == Token.CONST
-                            ? "msg.const.redecl"
-                            : symDeclType == Token.LET
-                                    ? "msg.let.redecl"
-                                    : symDeclType == Token.VAR
-                                            ? "msg.var.redecl"
-                                            : symDeclType == Token.FUNCTION
-                                                    ? "msg.fn.redecl"
-                                                    : "msg.parm.redecl",
-                    name);
+                        || (definingScope == currentScope && symDeclType == Token.LET)
+                        || (definingScope == currentScope
+                                && declType == Token.LET
+                                && symDeclType == Token.VAR))) {
+            // Choose the error message based on what's being redeclared
+            String errorId;
+            if (symDeclType == Token.CONST) {
+                errorId = "msg.const.redecl";
+            } else if (symDeclType == Token.LET) {
+                // Use different message when var tries to redeclare let
+                errorId =
+                        (declType == Token.VAR || declType == Token.FUNCTION)
+                                ? "msg.let.redecl.by.var"
+                                : "msg.let.redecl";
+            } else if (symDeclType == Token.VAR) {
+                errorId = "msg.var.redecl";
+            } else if (symDeclType == Token.FUNCTION) {
+                errorId = "msg.fn.redecl";
+            } else {
+                errorId = "msg.parm.redecl";
+            }
+            addError(errorId, name);
             return;
         }
         switch (declType) {
@@ -2496,12 +2511,29 @@ public class Parser {
                 currentScope.putSymbol(new Symbol(declType, name));
                 return;
 
-            case Token.VAR:
             case Token.CONST:
+                if (!ignoreNotInBlock
+                        && ((currentScope.getType() == Token.IF) || currentScope instanceof Loop)) {
+                    addError("msg.const.decl.not.in.block");
+                    return;
+                }
+                currentScope.putSymbol(new Symbol(declType, name));
+                return;
+
+            case Token.VAR:
             case Token.FUNCTION:
                 if (symbol != null) {
-                    if (symDeclType == Token.VAR) addStrictWarning("msg.var.redecl", name);
-                    else if (symDeclType == Token.LP) {
+                    // Check if var/function tries to redeclare a let/const
+                    if (symDeclType == Token.LET || symDeclType == Token.CONST) {
+                        addError(
+                                symDeclType == Token.LET
+                                        ? "msg.let.redecl.by.var"
+                                        : "msg.const.redecl",
+                                name);
+                        return;
+                    } else if (symDeclType == Token.VAR) {
+                        addStrictWarning("msg.var.redecl", name);
+                    } else if (symDeclType == Token.LP) {
                         addStrictWarning("msg.var.hides.arg", name);
                     }
                 } else {
@@ -4814,14 +4846,11 @@ public class Parser {
         Node right = null;
         if (left.getType() == Token.NAME) {
             String name = left.getString();
-            // x = (x == undefined) ?
-            //          (($1[0] == undefined) ?
-            //              1
-            //              : $1[0])
-            //          : x
 
             right = (transformer != null) ? transformer.transform(n.getRight()) : n.getRight();
 
+            // Inner condition checks if the destructured value is undefined:
+            // ($1[0] === undefined) ? defaultValue : $1[0]
             Node cond_inner =
                     new Node(
                             Token.HOOK,
@@ -4832,22 +4861,34 @@ public class Parser {
                             right,
                             rightElem);
 
-            Node cond =
-                    new Node(
-                            Token.HOOK,
-                            new Node(
-                                    Token.SHEQ,
-                                    new KeywordLiteral().setType(Token.UNDEFINED),
-                                    createName(name)),
-                            cond_inner,
-                            left);
+            Node valueToAssign;
+            if (variableType != -1) {
+                // Declaration context (let/const/var): just use the inner condition.
+                // The variable doesn't exist yet, so we can't check if it's undefined.
+                // Pattern: name = (rightElem === undefined) ? defaultValue : rightElem
+                valueToAssign = cond_inner;
+            } else {
+                // Assignment context: check if variable already has a value.
+                // Pattern: name = (name === undefined) ? cond_inner : name
+                // This preserves existing values when reassigning.
+                valueToAssign =
+                        new Node(
+                                Token.HOOK,
+                                new Node(
+                                        Token.SHEQ,
+                                        new KeywordLiteral().setType(Token.UNDEFINED),
+                                        createName(name)),
+                                cond_inner,
+                                left);
+            }
 
             // store it to be transformed later
             if (transformer == null) {
                 currentScriptOrFn.putDestructuringRvalues(cond_inner, right);
             }
 
-            parent.addChildToBack(new Node(setOp, createName(Token.BINDNAME, name, null), cond));
+            parent.addChildToBack(
+                    new Node(setOp, createName(Token.BINDNAME, name, null), valueToAssign));
             if (variableType != -1) {
                 defineSymbol(variableType, name, true);
                 destructuringNames.add(name);

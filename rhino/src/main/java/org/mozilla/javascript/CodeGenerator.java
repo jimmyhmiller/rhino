@@ -332,6 +332,15 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 addToken(Token.LEAVEWITH);
                 break;
 
+            case Token.COPY_PER_ITER_SCOPE:
+                {
+                    String[] varNames = (String[]) node.getProp(Node.PER_ITERATION_NAMES_PROP);
+                    int index = literalIds.size();
+                    literalIds.add(varNames);
+                    addIndexOp(Icode_COPY_PER_ITER_SCOPE, index);
+                }
+                break;
+
             case Token.LOCAL_BLOCK:
                 {
                     int local = allocLocal();
@@ -980,7 +989,12 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 {
                     if (builder.requiresActivationFrame) Kit.codeBug();
                     int index = scriptOrFn.getIndexForNameNode(node);
-                    addVarOp(Token.GETVAR, index);
+                    // Use TDZ-checking variant for let/const variables
+                    if (scriptOrFn.isParamOrVarLetOrConst(index)) {
+                        addVarOp(Icode_GETVAR_TDZ, index);
+                    } else {
+                        addVarOp(Token.GETVAR, index);
+                    }
                     stackChange(1);
                 }
                 break;
@@ -1017,6 +1031,11 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
 
             case Token.UNDEFINED:
                 addIcode(Icode_UNDEF);
+                stackChange(1);
+                break;
+
+            case Token.TDZ:
+                addIcode(Icode_TDZ);
                 stackChange(1);
                 break;
 
@@ -1800,6 +1819,14 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     return;
                 }
                 addIndexOp(Icode_SETCONSTVAR, varIndex);
+                return;
+            case Icode_GETVAR_TDZ:
+                if (varIndex < 128) {
+                    addIcode(Icode_GETVAR1_TDZ);
+                    addUint8(varIndex);
+                    return;
+                }
+                addIndexOp(Icode_GETVAR_TDZ, varIndex);
                 return;
             case Token.GETVAR:
             case Token.SETVAR:

@@ -202,6 +202,13 @@ class BodyCodegen {
         localsMax = 5; // number of parms + "this"
         firstFreeLocal = 5;
 
+        // For generators, variableObjectLocal must always be saved at yield points.
+        // Initialize its reference count to 1 so ENTERWITH/LEAVEWITH cycles never
+        // drop it to 0, which would cause it to be excluded from generateSaveLocals().
+        if (isGenerator) {
+            locals[variableObjectLocal] = 1;
+        }
+
         popvLocal = -1;
         argsLocal = -1;
         itsZeroArgArray = -1;
@@ -210,6 +217,8 @@ class BodyCodegen {
         enterAreaStartLabel = -1;
         generatorStateLocal = -1;
         savedHomeObjectLocal = -1;
+        generatorInitLabel = 0;
+        generatorBodyStartLabel = 0;
     }
 
     /** Generate the prologue for a function or script. */
@@ -302,7 +311,14 @@ class BodyCodegen {
 
                 // generate dispatch table
                 generatorSwitch = cfw.addTableSwitch(0, targets.size() + GENERATOR_START);
-                generateCheckForThrowOrClose(-1, false, GENERATOR_START);
+                // Acquire labels for deferred local initialization
+                generatorInitLabel = cfw.acquireLabel();
+                generatorBodyStartLabel = cfw.acquireLabel();
+                // Case 0 (initial entry) goes to init label first (defined in epilogue)
+                cfw.markTableSwitchCase(generatorSwitch, GENERATOR_START);
+                cfw.add(ByteCode.GOTO, generatorInitLabel);
+                // Generate throw/close handlers, with re-entry at generatorBodyStartLabel
+                generateCheckForThrowOrClose(generatorBodyStartLabel, false, -1);
             }
         }
 
@@ -527,14 +543,28 @@ class BodyCodegen {
     private void generateEpilogue() {
         if (compilerEnv.isGenerateObserverCount()) addInstructionCount();
         if (isGenerator) {
-            // generate locals initialization
+            // Generate initialization and restoration code for ALL yield resume points.
+            // Every resume entry must initialize all dynamic locals to ensure JVM
+            // verification passes (locals must have consistent types at all entry points).
             Map<Node, int[]> liveLocals = ((FunctionNode) scriptOrFn).getLiveLocals();
-            if (liveLocals != null) {
-                List<Node> nodes = ((FunctionNode) scriptOrFn).getResumptionPoints();
+            List<Node> nodes = ((FunctionNode) scriptOrFn).getResumptionPoints();
+            int fixedLocals = 7; // 0-6 are fixed generator locals
+
+            if (nodes != null) {
                 for (Node node : nodes) {
-                    int[] live = liveLocals.get(node);
+                    int[] live = liveLocals != null ? liveLocals.get(node) : null;
+
+                    // Mark the switch case for this resume state
+                    cfw.markTableSwitchCase(generatorSwitch, getNextGeneratorState(node));
+
+                    // Initialize all dynamic locals to null first
+                    for (int i = fixedLocals; i < localsMax; i++) {
+                        cfw.add(ByteCode.ACONST_NULL);
+                        cfw.addAStore(i);
+                    }
+
+                    // Then restore any saved locals (overwriting the nulls)
                     if (live != null) {
-                        cfw.markTableSwitchCase(generatorSwitch, getNextGeneratorState(node));
                         generateGetGeneratorLocalsState();
                         for (int j = 0; j < live.length; j++) {
                             cfw.add(ByteCode.DUP);
@@ -543,9 +573,20 @@ class BodyCodegen {
                             cfw.addAStore(live[j]);
                         }
                         cfw.add(ByteCode.POP);
-                        cfw.add(ByteCode.GOTO, getTargetLabel(node));
                     }
+
+                    cfw.add(ByteCode.GOTO, getTargetLabel(node));
                 }
+            }
+
+            // Generate initialization code for the initial generator entry (case 0).
+            if (generatorInitLabel != 0) {
+                cfw.markLabel(generatorInitLabel);
+                for (int i = fixedLocals; i < localsMax; i++) {
+                    cfw.add(ByteCode.ACONST_NULL);
+                    cfw.addAStore(i);
+                }
+                cfw.add(ByteCode.GOTO, generatorBodyStartLabel);
             }
 
             // generate dispatch tables for finally
@@ -669,11 +710,8 @@ class BodyCodegen {
                 {
                     boolean prevLocal = inLocalBlock;
                     inLocalBlock = true;
+                    // For generators, getNewWordLocal() already initializes the local to null
                     int local = getNewWordLocal();
-                    if (isGenerator) {
-                        cfw.add(ByteCode.ACONST_NULL);
-                        cfw.addAStore(local);
-                    }
                     node.putIntProp(Node.LOCAL_PROP, local);
                     while (child != null) {
                         generateStatement(child);
@@ -806,6 +844,28 @@ class BodyCodegen {
                                 + ")Lorg/mozilla/javascript/Scriptable;");
                 cfw.addAStore(variableObjectLocal);
                 decReferenceWordLocal(variableObjectLocal);
+                break;
+
+            case Token.COPY_PER_ITER_SCOPE:
+                {
+                    String[] varNames = (String[]) node.getProp(Node.PER_ITERATION_NAMES_PROP);
+                    if (varNames == null || varNames.length == 0) {
+                        break; // Nothing to copy
+                    }
+                    cfw.addALoad(variableObjectLocal);
+                    // Create the String[] array
+                    cfw.addPush(varNames.length);
+                    cfw.add(ByteCode.ANEWARRAY, "java/lang/String");
+                    for (int i = 0; i < varNames.length; i++) {
+                        cfw.add(ByteCode.DUP);
+                        cfw.addPush(i);
+                        cfw.addPush(varNames[i]);
+                        cfw.add(ByteCode.AASTORE);
+                    }
+                    addScriptRuntimeInvoke(
+                            "copyPerIterationScopeVars",
+                            "(Lorg/mozilla/javascript/Scriptable;[Ljava/lang/String;)V");
+                }
                 break;
 
             case Token.ENUM_INIT_KEYS:
@@ -1110,6 +1170,10 @@ class BodyCodegen {
 
             case Token.UNDEFINED:
                 Codegen.pushUndefined(cfw);
+                break;
+
+            case Token.TDZ:
+                Codegen.pushTDZ(cfw);
                 break;
 
             case Token.TRUE:
@@ -1902,10 +1966,9 @@ class BodyCodegen {
         // mark the re-entry point
         // jump here after initializing the locals
         if (label != -1) cfw.markLabel(label);
-        if (!hasLocals) {
-            // jump here directly if there are no locals
-            cfw.markTableSwitchCase(generatorSwitch, nextState);
-        }
+        // Note: For generators, switch cases for resume states are now all marked in the
+        // epilogue where we initialize locals. This ensures all entry points have locals
+        // properly initialized for JVM verification.
 
         // see if we need to dispatch for .close() or .throw()
         cfw.addILoad(operationLocal);
@@ -4793,10 +4856,21 @@ class BodyCodegen {
 
     // This is a valid call only for a local that is allocated by default.
     private void decReferenceWordLocal(int local) {
+        // For generators, don't decrement below 1 - locals must remain "live"
+        // so they're saved at all yield points.
+        if (isGenerator && locals[local] <= 1) {
+            return;
+        }
         locals[local]--;
     }
 
     private void releaseWordLocal(int local) {
+        // For generators, don't actually release locals - they must remain "live" so they're
+        // saved at all yield points. This prevents JVM StackMapTable verification errors when
+        // a yield occurs after a local's scope has ended but the slot was previously used.
+        if (isGenerator) {
+            return;
+        }
         if (local < firstFreeLocal) firstFreeLocal = local;
         locals[local] = 0;
     }
@@ -4848,6 +4922,8 @@ class BodyCodegen {
 
     private boolean isGenerator;
     private int generatorSwitch;
+    private int generatorInitLabel;
+    private int generatorBodyStartLabel;
     private int maxLocals = 0;
     private int maxStack = 0;
 

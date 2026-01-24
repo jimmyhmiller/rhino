@@ -2260,7 +2260,9 @@ public class ScriptRuntime {
                         firstXMLObject = xmlObj;
                     }
                 } else {
-                    result = ScriptableObject.getProperty(withObj, name);
+                    // Use scope.get() instead of ScriptableObject.getProperty(withObj, ...)
+                    // so that TDZ checks in NativeWith.get() are triggered
+                    result = scope.get(name, scope);
                     if (result != Scriptable.NOT_FOUND) {
                         // function this should be the target object of with
                         thisObj = withObj;
@@ -2436,7 +2438,9 @@ public class ScriptRuntime {
                     }
                 } else {
                     if (ScriptableObject.hasProperty(withObj, id)) {
-                        return withObj;
+                        // Return the NativeWith scope instead of withObj so that
+                        // property access goes through NativeWith.get() for TDZ checks
+                        return scope;
                     }
                 }
                 scope = parent;
@@ -5250,6 +5254,31 @@ public class ScriptRuntime {
     public static Scriptable leaveWith(Scriptable scope) {
         NativeWith nw = (NativeWith) scope;
         return nw.getParentScope();
+    }
+
+    /**
+     * Copy per-iteration loop variables from a WITH scope back to the parent scope. This is needed
+     * when a labeled break/continue exits through a per-iteration WITH scope, to ensure that
+     * modifications to loop variables are visible to the loop condition.
+     *
+     * @param scope The current WITH scope
+     * @param varNames The names of the loop variables to copy
+     */
+    public static void copyPerIterationScopeVars(Scriptable scope, String[] varNames) {
+        if (!(scope instanceof NativeWith)) {
+            return; // Not a WITH scope, nothing to do
+        }
+        NativeWith nw = (NativeWith) scope;
+        Scriptable prototype = nw.getPrototype();
+        Scriptable parent = nw.getParentScope();
+        if (parent != null && prototype != null) {
+            for (String varName : varNames) {
+                Object value = ScriptableObject.getProperty(prototype, varName);
+                if (value != Scriptable.NOT_FOUND) {
+                    ScriptableObject.putProperty(parent, varName, value);
+                }
+            }
+        }
     }
 
     public static Scriptable enterDotQuery(Object value, Scriptable scope) {

@@ -49,6 +49,7 @@ test {
     jvmArgs += ['--add-opens', 'java.base/java.lang=ALL-UNNAMED']
 
     systemProperty 'test262properties', System.getProperty('test262properties')
+    systemProperty 'test262filter', System.getProperty('test262filter')
     if (System.getProperty('updateTest262properties') != null) {
         if (System.getenv("RHINO_TEST_JAVA_VERSION") != "11") {
             System.out.println("Test262 properties update is only accurate on Java 11 and you have " + JavaVersion.current())

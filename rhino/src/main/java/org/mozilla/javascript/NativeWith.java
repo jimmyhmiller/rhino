@@ -12,7 +12,8 @@ import java.io.Serializable;
  * This class implements the object lookup required for the {@code with} statement. It simply
  * delegates every action to its prototype except for operations on its parent.
  */
-public class NativeWith implements Scriptable, SymbolScriptable, IdFunctionCall, Serializable {
+public class NativeWith
+        implements Scriptable, SymbolScriptable, IdFunctionCall, ConstProperties, Serializable {
     private static final long serialVersionUID = 1L;
 
     static void init(Scriptable scope, boolean sealed) {
@@ -64,7 +65,13 @@ public class NativeWith implements Scriptable, SymbolScriptable, IdFunctionCall,
         if (start == this) {
             start = prototype;
         }
-        return prototype.get(id, start);
+        // Use ScriptableObject.getProperty to walk the prototype chain
+        Object value = ScriptableObject.getProperty(prototype, id);
+        if (value == Undefined.TDZ_VALUE) {
+            throw ScriptRuntime.constructError(
+                    "ReferenceError", "Cannot access '" + id + "' before initialization");
+        }
+        return value;
     }
 
     @Override
@@ -72,10 +79,8 @@ public class NativeWith implements Scriptable, SymbolScriptable, IdFunctionCall,
         if (start == this) {
             start = prototype;
         }
-        if (prototype instanceof SymbolScriptable) {
-            return ((SymbolScriptable) prototype).get(key, start);
-        }
-        return Scriptable.NOT_FOUND;
+        // Use ScriptableObject.getProperty to walk the prototype chain
+        return ScriptableObject.getProperty(prototype, key);
     }
 
     @Override
@@ -83,7 +88,8 @@ public class NativeWith implements Scriptable, SymbolScriptable, IdFunctionCall,
         if (start == this) {
             start = prototype;
         }
-        return prototype.get(index, start);
+        // Use ScriptableObject.getProperty to walk the prototype chain
+        return ScriptableObject.getProperty(prototype, index);
     }
 
     @Override
@@ -181,6 +187,35 @@ public class NativeWith implements Scriptable, SymbolScriptable, IdFunctionCall,
         if (functionObj instanceof IdFunctionObject) {
             IdFunctionObject f = (IdFunctionObject) functionObj;
             return f.hasTag(FTAG) && f.methodId() == Id_constructor;
+        }
+        return false;
+    }
+
+    // ConstProperties implementation - delegate to prototype
+    @Override
+    public void putConst(String name, Scriptable start, Object value) {
+        if (start == this) {
+            start = prototype;
+        }
+        if (prototype instanceof ConstProperties) {
+            ((ConstProperties) prototype).putConst(name, start, value);
+        }
+    }
+
+    @Override
+    public void defineConst(String name, Scriptable start) {
+        if (start == this) {
+            start = prototype;
+        }
+        if (prototype instanceof ConstProperties) {
+            ((ConstProperties) prototype).defineConst(name, start);
+        }
+    }
+
+    @Override
+    public boolean isConst(String name) {
+        if (prototype instanceof ConstProperties) {
+            return ((ConstProperties) prototype).isConst(name);
         }
         return false;
     }

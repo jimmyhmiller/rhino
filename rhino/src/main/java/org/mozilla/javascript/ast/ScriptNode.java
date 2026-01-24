@@ -34,6 +34,7 @@ public class ScriptNode extends Scope {
     private int paramCount = 0;
     private String[] variableNames;
     private boolean[] isConsts;
+    private boolean[] isLets;
 
     private Object compilerData;
     private int tempNumber = 0;
@@ -244,6 +245,17 @@ public class ScriptNode extends Scope {
         return isConsts;
     }
 
+    public boolean[] getParamAndVarLet() {
+        if (variableNames == null) codeBug();
+        return isLets;
+    }
+
+    /** Returns true if the variable at the given index is a let or const declaration. */
+    public boolean isParamOrVarLetOrConst(int index) {
+        if (variableNames == null) codeBug();
+        return isLets[index] || isConsts[index];
+    }
+
     public boolean hasRestParameter() {
         return false;
     }
@@ -303,10 +315,12 @@ public class ScriptNode extends Scope {
         }
         variableNames = new String[symbols.size()];
         isConsts = new boolean[symbols.size()];
+        isLets = new boolean[symbols.size()];
         for (int i = 0; i < symbols.size(); i++) {
             Symbol symbol = symbols.get(i);
             variableNames[i] = symbol.getName();
             isConsts[i] = symbol.getDeclType() == Token.CONST;
+            isLets[i] = symbol.getDeclType() == Token.LET;
             symbol.setIndex(i);
         }
     }

@@ -109,10 +109,26 @@ public class NodeTransformer {
             switch (type) {
                 case Token.LABEL:
                 case Token.SWITCH:
-                case Token.LOOP:
                     loops.push(node);
                     loopEnds.push(((Jump) node).target);
                     break;
+
+                case Token.LOOP:
+                    {
+                        // Check if this loop needs per-iteration scope for let bindings
+                        if (createScopeObjects
+                                && node.getIntProp(Node.PER_ITERATION_SCOPE_PROP, 0) == 1) {
+                            @SuppressWarnings("unchecked")
+                            List<String> varNames =
+                                    (List<String>) node.getProp(Node.PER_ITERATION_NAMES_PROP);
+                            if (varNames != null && !varNames.isEmpty()) {
+                                wrapLoopBodyWithPerIterationScope(node, varNames);
+                            }
+                        }
+                        loops.push(node);
+                        loopEnds.push(((Jump) node).target);
+                        break;
+                    }
 
                 case Token.WITH:
                     {
@@ -228,6 +244,18 @@ public class NodeTransformer {
 
                             int elemtype = n.getType();
                             if (elemtype == Token.WITH) {
+                                // Check if this is a per-iteration scope WITH
+                                @SuppressWarnings("unchecked")
+                                List<String> perIterVars =
+                                        (List<String>) n.getProp(Node.PER_ITERATION_NAMES_PROP);
+                                if (perIterVars != null && !perIterVars.isEmpty()) {
+                                    // Copy each loop variable back to parent scope before leaving
+                                    Node copyNode = new Node(Token.COPY_PER_ITER_SCOPE);
+                                    copyNode.putProp(
+                                            Node.PER_ITERATION_NAMES_PROP,
+                                            perIterVars.toArray(new String[0]));
+                                    previous = addBeforeCurrent(parent, previous, node, copyNode);
+                                }
                                 Node leave = new Node(Token.LEAVEWITH);
                                 previous = addBeforeCurrent(parent, previous, node, leave);
                             } else if (elemtype == Token.TRY) {
@@ -282,9 +310,18 @@ public class NodeTransformer {
                             Node n = cursor;
                             cursor = cursor.getNext();
                             if (n.getType() == Token.NAME) {
-                                if (!n.hasChildren()) continue;
                                 Node init = n.getFirstChild();
-                                n.removeChild(init);
+                                if (init != null) {
+                                    n.removeChild(init);
+                                } else if (type == Token.VAR) {
+                                    // For var without initializer, skip (no TDZ for var)
+                                    continue;
+                                } else {
+                                    // For let/const without initializer, assign undefined
+                                    // to exit the TDZ. (const without initializer is a
+                                    // syntax error, but we handle it here for robustness)
+                                    init = new Node(Token.VOID, Node.newNumber(0.0));
+                                }
                                 n.setType(Token.BINDNAME);
                                 n =
                                         new Node(
@@ -464,6 +501,10 @@ public class NodeTransformer {
                     if (destructuringNames != null) {
                         list.addAll(destructuringNames);
                         for (int i = 0; i < destructuringNames.size(); i++) {
+                            // For destructuring, initialize to undefined - the actual values
+                            // are set by the destructuring assignment that's added to the body.
+                            // We don't use TDZ here because the destructuring assignment will
+                            // run immediately after entering the WITH scope.
                             objectLiteral.addChildToBack(new Node(Token.VOID, Node.newNumber(0.0)));
                         }
                     }
@@ -472,10 +513,15 @@ public class NodeTransformer {
                 if (current.getType() != Token.NAME) throw Kit.codeBug();
                 list.add(ScriptRuntime.getIndexObject(current.getString()));
                 Node init = current.getFirstChild();
-                if (init == null) {
-                    init = new Node(Token.VOID, Node.newNumber(0.0));
+                if (init != null) {
+                    // Has an initializer (e.g., for loop: let i = 0)
+                    // Use the initializer value directly
+                    objectLiteral.addChildToBack(init);
+                } else {
+                    // No initializer - initialize to TDZ for temporal dead zone semantics.
+                    // The actual initialization happens when the declaration is executed.
+                    objectLiteral.addChildToBack(new Node(Token.TDZ));
                 }
-                objectLiteral.addChildToBack(init);
             }
             objectLiteral.putProp(Node.OBJECT_IDS_PROP, list.toArray());
             newVars = new Node(Token.ENTERWITH, objectLiteral);
@@ -559,6 +605,96 @@ public class NodeTransformer {
             parent.replaceChild(current, replacement);
         }
         return replacement;
+    }
+
+    /**
+     * Wrap the body portion of a loop with per-iteration scope for ES6 let semantics. This ensures
+     * that closures created inside the loop capture a fresh binding for each iteration.
+     */
+    private void wrapLoopBodyWithPerIterationScope(Node loop, List<String> varNames) {
+        // Find the body portion of the loop.
+        // Loop structure after createLoop:
+        // LOOP { init/GOTO, TARGET(body), body..., TARGET(incr/cond), ... }
+        // We need to find body nodes (between first TARGET and second TARGET)
+
+        Node bodyTarget = null;
+        Node bodyStart = null;
+        Node bodyEnd = null;
+        Node afterBody = null;
+
+        for (Node child = loop.getFirstChild(); child != null; child = child.getNext()) {
+            if (child.getType() == Token.TARGET) {
+                if (bodyTarget == null) {
+                    bodyTarget = child;
+                    bodyStart = child.getNext();
+                } else {
+                    // Found the second TARGET - this marks end of body
+                    afterBody = child;
+                    break;
+                }
+            }
+            if (bodyStart != null && afterBody == null) {
+                bodyEnd = child;
+            }
+        }
+
+        if (bodyStart == null || bodyEnd == null || afterBody == null) {
+            return; // Can't find body structure, skip transformation
+        }
+
+        // Collect body nodes (from bodyStart to bodyEnd, not including afterBody)
+        List<Node> bodyNodes = new ArrayList<>();
+        for (Node n = bodyStart; n != null && n != afterBody; n = n.getNext()) {
+            bodyNodes.add(n);
+        }
+
+        if (bodyNodes.isEmpty()) {
+            return;
+        }
+
+        // Remove body nodes from loop
+        for (Node n : bodyNodes) {
+            loop.removeChild(n);
+        }
+
+        // Create object literal for WITH scope: { var1: var1, var2: var2, ... }
+        // The NAME references will resolve to the outer scope's values
+        Node objectLiteral = new Node(Token.OBJECTLIT);
+        ArrayList<Object> propIds = new ArrayList<>();
+        for (String name : varNames) {
+            propIds.add(ScriptRuntime.getIndexObject(name));
+            // Reference the outer variable - NAME lookup goes to outer scope
+            objectLiteral.addChildToBack(Node.newString(Token.NAME, name));
+        }
+        objectLiteral.putProp(Node.OBJECT_IDS_PROP, propIds.toArray());
+
+        // Create the per-iteration scope structure
+        Node enterWith = new Node(Token.ENTERWITH, objectLiteral);
+        Node withBody = new Node(Token.BLOCK);
+        for (Node n : bodyNodes) {
+            withBody.addChildToBack(n);
+        }
+        // Copy variables back to parent scope before leaving (for normal loop iteration)
+        // This must be inside the WITH body so it executes before LEAVEWITH
+        Node copyNode = new Node(Token.COPY_PER_ITER_SCOPE);
+        copyNode.putProp(Node.PER_ITERATION_NAMES_PROP, varNames.toArray(new String[0]));
+        withBody.addChildToBack(copyNode);
+
+        Node withNode = new Node(Token.WITH, withBody);
+        // Store variable names on the WITH node so break/continue handling
+        // can copy values back to parent scope before leaving
+        withNode.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
+
+        Node leaveWith = new Node(Token.LEAVEWITH);
+
+        // Create wrapper block: { ENTERWITH; WITH { body; COPY }; LEAVEWITH }
+        Node wrapper = new Node(Token.BLOCK);
+        wrapper.addChildToBack(enterWith);
+        wrapper.addChildToBack(withNode);
+        wrapper.addChildToBack(leaveWith);
+
+        // Insert wrapper after bodyTarget
+        loop.addChildAfter(wrapper, bodyTarget);
     }
 
     private Deque<Node> loops;
