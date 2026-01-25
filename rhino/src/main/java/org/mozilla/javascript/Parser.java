@@ -4806,8 +4806,16 @@ public class Parser {
             reportError("msg.bad.assign.left");
         }
         if (empty) {
-            // Don't want a COMMA node with no children. Just add a zero.
-            comma.addChildToBack(createNumber(0));
+            if (left instanceof ObjectLiteral) {
+                // For empty object patterns like `let {} = value`, we still need to check
+                // that value is object-coercible (throws TypeError for null/undefined).
+                // Use REQ_OBJ_COERCIBLE which checks without accessing any properties.
+                Node checkNode = new Node(Token.REQ_OBJ_COERCIBLE, createName(tempName));
+                comma.addChildToBack(checkNode);
+            } else {
+                // Don't want a COMMA node with no children. Just add a zero.
+                comma.addChildToBack(createNumber(0));
+            }
         }
 
         // Add iterator closing to the comma sequence if needed
@@ -5170,6 +5178,13 @@ public class Parser {
             setOp = Token.SETNAME;
         }
         boolean defaultValuesSetup = false;
+
+        // For empty patterns like `{} = defaultValue`, we still need to set up default values
+        // even though the loop below won't execute
+        if (node.getElements().isEmpty() && defaultValue != null) {
+            setupDefaultValues(tempName, parent, defaultValue, setOp, transformer);
+            defaultValuesSetup = true;
+        }
 
         for (AbstractObjectProperty abstractProp : node.getElements()) {
             if (abstractProp instanceof SpreadObjectProperty) {

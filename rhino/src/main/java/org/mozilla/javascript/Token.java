@@ -252,7 +252,9 @@ public class Token {
             SWITCH_PER_ITER_SCOPE =
                     COPY_PER_ITER_SCOPE
                             + 1, // Switch to new per-iteration scope (leave old, enter new)
-            LAST_TOKEN = SWITCH_PER_ITER_SCOPE + 1;
+            REQ_OBJ_COERCIBLE =
+                    SWITCH_PER_ITER_SCOPE + 1, // RequireObjectCoercible check for destructuring
+            LAST_TOKEN = REQ_OBJ_COERCIBLE + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in

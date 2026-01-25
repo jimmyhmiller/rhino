@@ -1078,6 +1078,13 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 stackChange(1);
                 break;
 
+            case Token.REQ_OBJ_COERCIBLE:
+                // Check that the value is object-coercible (throws for null/undefined)
+                visitExpression(node.getFirstChild(), 0);
+                addIcode(Icode_REQ_OBJ_COERCIBLE);
+                // Stack: value -> value (unchanged)
+                break;
+
             case Token.ENUM_NEXT:
             case Token.ENUM_ID:
                 addIndexOp(type, getLocalBlockRef(node));

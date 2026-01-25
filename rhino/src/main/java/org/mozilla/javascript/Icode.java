@@ -186,8 +186,11 @@ abstract class Icode {
             // ENTERWITH with const names - marks specified properties as READONLY
             Icode_ENTERWITH_CONST = Icode_SWITCH_PER_ITER_SCOPE - 1,
 
+            // RequireObjectCoercible check for destructuring (throws for null/undefined)
+            Icode_REQ_OBJ_COERCIBLE = Icode_ENTERWITH_CONST - 1,
+
             // Last icode
-            MIN_ICODE = Icode_ENTERWITH_CONST;
+            MIN_ICODE = Icode_REQ_OBJ_COERCIBLE;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -397,6 +400,8 @@ abstract class Icode {
                 return "SWITCH_PER_ITER_SCOPE";
             case Icode_ENTERWITH_CONST:
                 return "ENTERWITH_CONST";
+            case Icode_REQ_OBJ_COERCIBLE:
+                return "REQ_OBJ_COERCIBLE";
         }
 
         // icode without name

@@ -1294,6 +1294,20 @@ public class ScriptRuntime {
     }
 
     /**
+     * ES6 RequireObjectCoercible - throws TypeError if value is null or undefined. Used by
+     * destructuring patterns to validate the source value before property access.
+     */
+    public static Object requireObjectCoercible(Object val) {
+        if (val == null) {
+            throw typeErrorById("msg.null.to.object");
+        }
+        if (Undefined.isUndefined(val)) {
+            throw typeErrorById("msg.undef.to.object");
+        }
+        return val;
+    }
+
+    /**
      * @deprecated Use {@link #toObject(Context, Scriptable, Object)} instead.
      */
     @Deprecated

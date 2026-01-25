@@ -1239,6 +1239,14 @@ class BodyCodegen {
                 Codegen.pushTDZ(cfw);
                 break;
 
+            case Token.REQ_OBJ_COERCIBLE:
+                // Generate code for the value expression
+                generateExpression(child, node);
+                // Call requireObjectCoercible which throws for null/undefined, returns value
+                addScriptRuntimeInvoke(
+                        "requireObjectCoercible", "(Ljava/lang/Object;)Ljava/lang/Object;");
+                break;
+
             case Token.TRUE:
                 cfw.add(ByteCode.GETSTATIC, "java/lang/Boolean", "TRUE", "Ljava/lang/Boolean;");
                 break;

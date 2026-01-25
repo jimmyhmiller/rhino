@@ -1730,6 +1730,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.TRUE] = new DoTrue();
         instructionObjs[base + Icode_UNDEF] = new DoUndef();
         instructionObjs[base + Icode_TDZ] = new DoTdz();
+        instructionObjs[base + Icode_REQ_OBJ_COERCIBLE] = new DoReqObjCoercible();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
@@ -4300,6 +4301,18 @@ public final class Interpreter extends Icode implements Evaluator {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
             frame.stack[++state.stackTop] = Undefined.TDZ_VALUE;
+            return null;
+        }
+    }
+
+    private static class DoReqObjCoercible extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            Object value = frame.stack[state.stackTop];
+            if (value == DOUBLE_MARK) value = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            // Check that value is object-coercible (throws TypeError for null/undefined)
+            ScriptRuntime.requireObjectCoercible(value);
+            // Value stays on stack unchanged
             return null;
         }
     }
