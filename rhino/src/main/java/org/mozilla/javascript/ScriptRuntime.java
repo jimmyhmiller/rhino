@@ -2229,7 +2229,8 @@ public class ScriptRuntime {
                 throw notFoundError(scope, name);
             }
             // TDZ check for let/const variables at top level
-            if (result == Undefined.TDZ_VALUE) {
+            // Skip TDZ check for internal temp variables (used by destructuring)
+            if (result == Undefined.TDZ_VALUE && !name.startsWith("$")) {
                 throw constructError(
                         "ReferenceError", "Cannot access '" + name + "' before initialization");
             }
@@ -2280,7 +2281,8 @@ public class ScriptRuntime {
                 result = scope.get(name, scope);
                 if (result != Scriptable.NOT_FOUND) {
                     // TDZ check for let/const variables accessed through closures
-                    if (result == Undefined.TDZ_VALUE) {
+                    // Skip TDZ check for internal temp variables (used by destructuring)
+                    if (result == Undefined.TDZ_VALUE && !name.startsWith("$")) {
                         throw constructError(
                                 "ReferenceError",
                                 "Cannot access '" + name + "' before initialization");
@@ -2298,7 +2300,8 @@ public class ScriptRuntime {
                 result = ScriptableObject.getProperty(scope, name);
                 if (result != Scriptable.NOT_FOUND) {
                     // TDZ check for let/const variables accessed through closures
-                    if (result == Undefined.TDZ_VALUE) {
+                    // Skip TDZ check for internal temp variables (used by destructuring)
+                    if (result == Undefined.TDZ_VALUE && !name.startsWith("$")) {
                         throw constructError(
                                 "ReferenceError",
                                 "Cannot access '" + name + "' before initialization");
@@ -2322,7 +2325,8 @@ public class ScriptRuntime {
                     result = firstXMLObject.get(name, firstXMLObject);
                 }
                 // TDZ check for let/const variables at top level
-                if (result == Undefined.TDZ_VALUE) {
+                // Skip TDZ check for internal temp variables (used by destructuring)
+                if (result == Undefined.TDZ_VALUE && !name.startsWith("$")) {
                     throw constructError(
                             "ReferenceError", "Cannot access '" + name + "' before initialization");
                 }
@@ -2387,7 +2391,8 @@ public class ScriptRuntime {
                 result = scope.get(name, scope);
                 if (result != Scriptable.NOT_FOUND) {
                     // TDZ check for let/const variables accessed through closures
-                    if (result == Undefined.TDZ_VALUE) {
+                    // Skip TDZ check for internal temp variables (used by destructuring)
+                    if (result == Undefined.TDZ_VALUE && !name.startsWith("$")) {
                         throw constructError(
                                 "ReferenceError",
                                 "Cannot access '" + name + "' before initialization");
@@ -2403,7 +2408,8 @@ public class ScriptRuntime {
                 result = ScriptableObject.getProperty(scope, name);
                 if (result != Scriptable.NOT_FOUND) {
                     // TDZ check for let/const variables accessed through closures
-                    if (result == Undefined.TDZ_VALUE) {
+                    // Skip TDZ check for internal temp variables (used by destructuring)
+                    if (result == Undefined.TDZ_VALUE && !name.startsWith("$")) {
                         throw constructError(
                                 "ReferenceError",
                                 "Cannot access '" + name + "' before initialization");
@@ -2420,7 +2426,8 @@ public class ScriptRuntime {
                     throw notFoundError(scope, name);
                 }
                 // TDZ check for let/const variables at top level
-                if (result == Undefined.TDZ_VALUE) {
+                // Skip TDZ check for internal temp variables (used by destructuring)
+                if (result == Undefined.TDZ_VALUE && !name.startsWith("$")) {
                     throw constructError(
                             "ReferenceError", "Cannot access '" + name + "' before initialization");
                 }
@@ -2514,6 +2521,16 @@ public class ScriptRuntime {
     public static Object setName(
             Scriptable bound, Object value, Context cx, Scriptable scope, String id) {
         if (bound != null) {
+            // TDZ write check: cannot assign to a let/const variable before initialization
+            // Skip TDZ check for internal temp variables (used by destructuring, array
+            // comprehensions)
+            if (!id.startsWith("$")) {
+                Object currentValue = ScriptableObject.getProperty(bound, id);
+                if (currentValue == Undefined.TDZ_VALUE) {
+                    throw constructError(
+                            "ReferenceError", "Cannot access '" + id + "' before initialization");
+                }
+            }
             // TODO: we used to special-case XMLObject here, but putProperty
             // seems to work for E4X and it's better to optimize  the common case
             ScriptableObject.putProperty(bound, id, value);
@@ -2538,6 +2555,12 @@ public class ScriptRuntime {
     public static Object strictSetName(
             Scriptable bound, Object value, Context cx, Scriptable scope, String id) {
         if (bound != null) {
+            // TDZ write check: cannot assign to a let/const variable before initialization
+            Object currentValue = ScriptableObject.getProperty(bound, id);
+            if (currentValue == Undefined.TDZ_VALUE) {
+                throw constructError(
+                        "ReferenceError", "Cannot access '" + id + "' before initialization");
+            }
             // TODO: The LeftHandSide also may not be a reference to a
             // data property with the attribute value {[[Writable]]:false},
             // to an accessor property with the attribute value
@@ -2559,6 +2582,27 @@ public class ScriptRuntime {
             bound.put(id, bound, value);
         } else {
             ScriptableObject.putConstProperty(bound, id, value);
+        }
+        return value;
+    }
+
+    /**
+     * Initialize a let variable, clearing its TDZ state. This is used for let declarations, not for
+     * regular assignments to let variables.
+     */
+    public static Object setLetInit(
+            Scriptable bound, Object value, Context cx, Scriptable scope, String id) {
+        // Let initialization always succeeds - just set the value directly
+        // This clears the TDZ because we're replacing TDZ_VALUE with the actual value
+        if (bound != null) {
+            bound.put(id, bound, value);
+        } else {
+            // Fallback: find the top scope
+            bound = ScriptableObject.getTopLevelScope(scope);
+            if (cx.useDynamicScope) {
+                bound = checkDynamicScope(cx.topCallScope, bound);
+            }
+            bound.put(id, bound, value);
         }
         return value;
     }
@@ -4972,8 +5016,17 @@ public class ScriptRuntime {
                                         | ScriptableObject.CONST_BINDING);
                     } else if (isLetOrConst) {
                         // Initialize let variables to TDZ_VALUE for temporal dead zone
-                        ScriptableObject.defineProperty(
-                                varScope, name, Undefined.TDZ_VALUE, ScriptableObject.PERMANENT);
+                        // Skip TDZ for internal temp variables (used by destructuring)
+                        if (name.startsWith("$")) {
+                            ScriptableObject.defineProperty(
+                                    varScope, name, Undefined.instance, ScriptableObject.PERMANENT);
+                        } else {
+                            ScriptableObject.defineProperty(
+                                    varScope,
+                                    name,
+                                    Undefined.TDZ_VALUE,
+                                    ScriptableObject.PERMANENT);
+                        }
                     } else if (!evalScript) {
                         if (desc.hasFunctionNamed(name)) {
                             // Global var definitions are supposed to be DONTDELETE

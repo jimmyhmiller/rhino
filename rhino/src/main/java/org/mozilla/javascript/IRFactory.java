@@ -1800,17 +1800,18 @@ public final class IRFactory {
                     parser.reportError("msg.bad.for.in.destruct");
                 }
             } else {
-                assign = parser.simpleAssignment(lvalue, id);
+                assign = parser.simpleAssignment(lvalue, id, this::transform, declType);
             }
             newBody.addChildToBack(new Node(Token.EXPR_VOID, assign));
             newBody.addChildToBack(body);
 
             loop = createLoop((Jump) loop, LOOP_WHILE, newBody, cond, null, null);
             loop.addChildToFront(init);
-            if (type == Token.VAR || type == Token.LET) loop.addChildToFront(lhs);
+            if (type == Token.VAR || type == Token.LET || type == Token.CONST)
+                loop.addChildToFront(lhs);
 
-            // Mark for-in/for-of loops with let for per-iteration bindings
-            if (type == Token.LET && destructuring == -1) {
+            // Mark for-in/for-of loops with let/const for per-iteration bindings
+            if ((type == Token.LET || type == Token.CONST) && destructuring == -1) {
                 // Get the variable name from lhs
                 Node kid = lhs.getLastChild();
                 if (kid != null && kid.getType() == Token.NAME) {
@@ -1818,6 +1819,9 @@ public final class IRFactory {
                     varNames.add(kid.getString());
                     loop.putIntProp(Node.PER_ITERATION_SCOPE_PROP, 1);
                     loop.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
+                    // Mark the declaration so NodeTransformer doesn't initialize it
+                    // (it should stay in TDZ until assigned by the iterator)
+                    lhs.putIntProp(Node.FOR_IN_OF_LOOP_VAR, 1);
                 }
             }
 

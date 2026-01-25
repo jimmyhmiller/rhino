@@ -313,6 +313,14 @@ public class NodeTransformer {
                 case Token.CONST:
                 case Token.VAR:
                     {
+                        // For for-in/for-of loop variables, skip initialization here.
+                        // The variable stays in TDZ until assigned by the iterator.
+                        // The TDZ scope is set up in wrapLoopBodyWithPerIterationScope.
+                        if (node.getIntProp(Node.FOR_IN_OF_LOOP_VAR, 0) == 1) {
+                            // Remove the declaration node - it will be handled by the TDZ scope
+                            node = replaceCurrent(parent, previous, node, new Node(Token.EMPTY));
+                            break;
+                        }
                         Node result = new Node(Token.BLOCK);
                         for (Node cursor = node.getFirstChild(); cursor != null; ) {
                             // Move cursor to next before createAssignment gets chance
@@ -333,13 +341,15 @@ public class NodeTransformer {
                                     init = new Node(Token.VOID, Node.newNumber(0.0));
                                 }
                                 n.setType(Token.BINDNAME);
-                                n =
-                                        new Node(
-                                                type == Token.CONST
-                                                        ? Token.SETCONST
-                                                        : Token.SETNAME,
-                                                n,
-                                                init);
+                                int setType;
+                                if (type == Token.CONST) {
+                                    setType = Token.SETCONST;
+                                } else if (type == Token.LET) {
+                                    setType = Token.SETLETINIT;
+                                } else {
+                                    setType = Token.SETNAME;
+                                }
+                                n = new Node(setType, n, init);
                             } else if (n.getType() == Token.LETEXPR) {
                                 // Destructuring assignment already transformed to a LETEXPR
                             } else if (n.getType() == Token.LOOP) {
@@ -411,6 +421,7 @@ public class NodeTransformer {
                 /* fall through */
                 case Token.NAME:
                 case Token.SETCONST:
+                case Token.SETLETINIT:
                 case Token.DELPROP:
                     {
                         // Turn name to var for faster access if possible
@@ -443,6 +454,9 @@ public class NodeTransformer {
                                 nameSource.setType(Token.STRING);
                             } else if (type == Token.SETCONST) {
                                 node.setType(Token.SETCONSTVAR);
+                                nameSource.setType(Token.STRING);
+                            } else if (type == Token.SETLETINIT) {
+                                node.setType(Token.SETLETVAR);
                                 nameSource.setType(Token.STRING);
                             } else if (type == Token.DELPROP) {
                                 // Local variables are by definition permanent
@@ -811,8 +825,11 @@ public class NodeTransformer {
             loop.removeChild(n);
         }
 
-        // Create object literal for WITH scope
-        Node objectLiteral = createPerIterObjectLiteral(varNames);
+        // Create object literal for WITH scope with TDZ values.
+        // For for-in/for-of loops, we initialize with TDZ_VALUE because the variable
+        // is in TDZ until assigned by the iterator. The SETLETINIT in the body will
+        // assign the iterator value and exit the TDZ.
+        Node objectLiteral = createPerIterTdzObjectLiteral(varNames);
 
         // Create the per-iteration scope structure
         Node enterWith = new Node(Token.ENTERWITH, objectLiteral);
@@ -820,10 +837,9 @@ public class NodeTransformer {
         for (Node n : bodyNodes) {
             withBody.addChildToBack(n);
         }
-        // Copy variables back at end of iteration
-        Node copyNode = new Node(Token.COPY_PER_ITER_SCOPE);
-        copyNode.putProp(Node.PER_ITERATION_NAMES_PROP, varNames.toArray(new String[0]));
-        withBody.addChildToBack(copyNode);
+        // Note: Unlike regular for loops, for-in/for-of loops don't need COPY_PER_ITER_SCOPE
+        // because each iteration gets a fresh value from the iterator. The per-iteration
+        // scope is discarded at the end of each iteration and doesn't need to be copied back.
 
         Node withNode = new Node(Token.WITH, withBody);
         withNode.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
@@ -846,6 +862,23 @@ public class NodeTransformer {
         for (String name : varNames) {
             propIds.add(ScriptRuntime.getIndexObject(name));
             objectLiteral.addChildToBack(Node.newString(Token.NAME, name));
+        }
+        objectLiteral.putProp(Node.OBJECT_IDS_PROP, propIds.toArray());
+        return objectLiteral;
+    }
+
+    /**
+     * Creates an object literal for per-iteration scope where each property is initialized to
+     * TDZ_VALUE. This is used for for-in/for-of loops where the variable starts in TDZ until
+     * assigned by the iterator.
+     */
+    private Node createPerIterTdzObjectLiteral(List<String> varNames) {
+        Node objectLiteral = new Node(Token.OBJECTLIT);
+        ArrayList<Object> propIds = new ArrayList<>();
+        for (String name : varNames) {
+            propIds.add(ScriptRuntime.getIndexObject(name));
+            // Use TDZ token instead of NAME lookup to avoid TDZ error during object creation
+            objectLiteral.addChildToBack(new Node(Token.TDZ));
         }
         objectLiteral.putProp(Node.OBJECT_IDS_PROP, propIds.toArray());
         return objectLiteral;
