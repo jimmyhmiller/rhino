@@ -88,7 +88,21 @@ public final class NativeCall extends IdScriptableObject {
             for (int i = paramCount; i < paramAndVarCount; ++i) {
                 String name = function.getParamOrVarName(i);
                 if (!super.has(name, this)) {
-                    if (function.hasFunctionNamed(name)) {
+                    if (function.getParamOrVarConst(i)) {
+                        // Initialize const to TDZ_VALUE with proper const flags
+                        // UNINITIALIZED_CONST allows first assignment, then becomes READONLY
+                        // CONST_BINDING ensures reassignment throws in ES6 non-strict mode
+                        defineProperty(
+                                name,
+                                Undefined.TDZ_VALUE,
+                                PERMANENT | READONLY | UNINITIALIZED_CONST | CONST_BINDING);
+                    } else if (function.getParamOrVarLetOrConst(i)) {
+                        // Initialize let variables to TDZ_VALUE for temporal dead zone
+                        defineProperty(name, Undefined.TDZ_VALUE, PERMANENT);
+                    } else if (function.hasFunctionNamed(name)) {
+                        defineProperty(name, Undefined.instance, PERMANENT);
+                    } else {
+                        // Regular var - define but don't initialize
                         defineProperty(name, Undefined.instance, PERMANENT);
                     }
                 }

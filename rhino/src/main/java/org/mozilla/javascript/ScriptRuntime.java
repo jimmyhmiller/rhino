@@ -2228,6 +2228,11 @@ public class ScriptRuntime {
             if (result == Scriptable.NOT_FOUND) {
                 throw notFoundError(scope, name);
             }
+            // TDZ check for let/const variables at top level
+            if (result == Undefined.TDZ_VALUE) {
+                throw constructError(
+                        "ReferenceError", "Cannot access '" + name + "' before initialization");
+            }
             return result;
         }
 
@@ -2274,6 +2279,12 @@ public class ScriptRuntime {
                 // can be called directly.
                 result = scope.get(name, scope);
                 if (result != Scriptable.NOT_FOUND) {
+                    // TDZ check for let/const variables accessed through closures
+                    if (result == Undefined.TDZ_VALUE) {
+                        throw constructError(
+                                "ReferenceError",
+                                "Cannot access '" + name + "' before initialization");
+                    }
                     if (asFunctionCall) {
                         // ECMA 262 requires that this for nested funtions
                         // should be top scope
@@ -2286,6 +2297,12 @@ public class ScriptRuntime {
                 // scopes are useful for what ever reasons.
                 result = ScriptableObject.getProperty(scope, name);
                 if (result != Scriptable.NOT_FOUND) {
+                    // TDZ check for let/const variables accessed through closures
+                    if (result == Undefined.TDZ_VALUE) {
+                        throw constructError(
+                                "ReferenceError",
+                                "Cannot access '" + name + "' before initialization");
+                    }
                     thisObj = scope;
                     break;
                 }
@@ -2303,6 +2320,11 @@ public class ScriptRuntime {
                     // not function. The result should be an empty XMLList
                     // in name context.
                     result = firstXMLObject.get(name, firstXMLObject);
+                }
+                // TDZ check for let/const variables at top level
+                if (result == Undefined.TDZ_VALUE) {
+                    throw constructError(
+                            "ReferenceError", "Cannot access '" + name + "' before initialization");
                 }
                 // For top scope thisObj for functions is always scope itself.
                 thisObj = scope;
@@ -2364,6 +2386,12 @@ public class ScriptRuntime {
                 // can be called directly.
                 result = scope.get(name, scope);
                 if (result != Scriptable.NOT_FOUND) {
+                    // TDZ check for let/const variables accessed through closures
+                    if (result == Undefined.TDZ_VALUE) {
+                        throw constructError(
+                                "ReferenceError",
+                                "Cannot access '" + name + "' before initialization");
+                    }
                     // ECMA 262 requires that this for nested funtions
                     // should be top scope
                     thisObj = ScriptableObject.getTopLevelScope(parentScope);
@@ -2374,6 +2402,12 @@ public class ScriptRuntime {
                 // scopes are useful for what ever reasons.
                 result = ScriptableObject.getProperty(scope, name);
                 if (result != Scriptable.NOT_FOUND) {
+                    // TDZ check for let/const variables accessed through closures
+                    if (result == Undefined.TDZ_VALUE) {
+                        throw constructError(
+                                "ReferenceError",
+                                "Cannot access '" + name + "' before initialization");
+                    }
                     thisObj = scope;
                     break;
                 }
@@ -2384,6 +2418,11 @@ public class ScriptRuntime {
                 result = topScopeName(cx, scope, name);
                 if (result == Scriptable.NOT_FOUND) {
                     throw notFoundError(scope, name);
+                }
+                // TDZ check for let/const variables at top level
+                if (result == Undefined.TDZ_VALUE) {
+                    throw constructError(
+                            "ReferenceError", "Cannot access '" + name + "' before initialization");
                 }
                 // For top scope thisObj for functions is always scope itself.
                 thisObj = scope;
@@ -4915,11 +4954,26 @@ public class ScriptRuntime {
             for (int i = varCount; i-- != 0; ) {
                 String name = desc.getParamOrVarName(i);
                 boolean isConst = desc.getParamOrVarConst(i);
+                boolean isLetOrConst = desc.getParamOrVarLetOrConst(i);
                 // Don't overwrite existing def if already defined in object
                 // or prototypes of object.
                 if (!ScriptableObject.hasProperty(scope, name)) {
                     if (isConst) {
-                        ScriptableObject.defineConstProperty(varScope, name);
+                        // Initialize const to TDZ_VALUE with proper const flags
+                        // UNINITIALIZED_CONST allows first assignment, then becomes READONLY
+                        // CONST_BINDING ensures reassignment throws in ES6 non-strict mode
+                        ScriptableObject.defineProperty(
+                                varScope,
+                                name,
+                                Undefined.TDZ_VALUE,
+                                ScriptableObject.PERMANENT
+                                        | ScriptableObject.READONLY
+                                        | ScriptableObject.UNINITIALIZED_CONST
+                                        | ScriptableObject.CONST_BINDING);
+                    } else if (isLetOrConst) {
+                        // Initialize let variables to TDZ_VALUE for temporal dead zone
+                        ScriptableObject.defineProperty(
+                                varScope, name, Undefined.TDZ_VALUE, ScriptableObject.PERMANENT);
                     } else if (!evalScript) {
                         if (desc.hasFunctionNamed(name)) {
                             // Global var definitions are supposed to be DONTDELETE

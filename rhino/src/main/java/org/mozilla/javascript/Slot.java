@@ -69,6 +69,16 @@ public class Slot implements Serializable {
 
     public boolean setValue(Object value, Scriptable owner, Scriptable start, boolean isThrow) {
         if ((attributes & ScriptableObject.READONLY) != 0) {
+            // Handle first assignment to const (UNINITIALIZED_CONST allows it)
+            if ((attributes & ScriptableObject.UNINITIALIZED_CONST) != 0) {
+                if (owner == start) {
+                    this.value = value;
+                    // Clear UNINITIALIZED_CONST - subsequent assignments will throw
+                    attributes &= ~ScriptableObject.UNINITIALIZED_CONST;
+                    return true;
+                }
+                return false;
+            }
             // In ES6+, const bindings always throw TypeError on reassignment
             // In pre-ES6 mode, only throw in strict mode (silently fail otherwise)
             boolean isES6 = false;

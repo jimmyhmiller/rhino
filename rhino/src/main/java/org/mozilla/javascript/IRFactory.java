@@ -1353,6 +1353,12 @@ public final class IRFactory {
                 inferNameIfMissing(left, right, null);
                 if (right != null) {
                     left.addChildToBack(right);
+                } else if (node.getType() == Token.LET) {
+                    // For let declarations without initializers, explicitly initialize to undefined
+                    // to clear the TDZ state. The TDZ ends at the declaration point.
+                    Node undef = new Node(Token.VOID);
+                    undef.addChildToBack(Node.newNumber(0));
+                    left.addChildToBack(undef);
                 }
                 node.addChildToBack(left);
             }

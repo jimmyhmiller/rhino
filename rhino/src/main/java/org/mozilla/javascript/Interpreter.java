@@ -3941,9 +3941,16 @@ public final class Interpreter extends Icode implements Evaluator {
                         frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg));
             }
             if ((varAttributes[state.indexReg] & ScriptableObject.UNINITIALIZED_CONST) != 0) {
-                vars[state.indexReg] = frame.stack[state.stackTop];
+                Object value = frame.stack[state.stackTop];
+                vars[state.indexReg] = value;
                 varAttributes[state.indexReg] &= ~ScriptableObject.UNINITIALIZED_CONST;
                 varDbls[state.indexReg] = frame.sDbl[state.stackTop];
+                // Sync const variables with NativeCall for closure access
+                if (frame.useActivation) {
+                    String varName =
+                            frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                    frame.scope.put(varName, frame.scope, value);
+                }
             }
             return null;
         }
@@ -3961,9 +3968,16 @@ public final class Interpreter extends Icode implements Evaluator {
                         frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg));
             }
             if ((varAttributes[state.indexReg] & ScriptableObject.UNINITIALIZED_CONST) != 0) {
-                vars[state.indexReg] = frame.stack[state.stackTop];
+                Object value = frame.stack[state.stackTop];
+                vars[state.indexReg] = value;
                 varAttributes[state.indexReg] &= ~ScriptableObject.UNINITIALIZED_CONST;
                 varDbls[state.indexReg] = frame.sDbl[state.stackTop];
+                // Sync const variables with NativeCall for closure access
+                if (frame.useActivation) {
+                    String varName =
+                            frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                    frame.scope.put(varName, frame.scope, value);
+                }
             }
             return null;
         }
@@ -3977,8 +3991,18 @@ public final class Interpreter extends Icode implements Evaluator {
             var vars = frame.varSource.stack;
             var varDbls = frame.varSource.sDbl;
             if ((varAttributes[state.indexReg] & ScriptableObject.READONLY) == 0) {
-                vars[state.indexReg] = frame.stack[state.stackTop];
+                Object value = frame.stack[state.stackTop];
+                vars[state.indexReg] = value;
                 varDbls[state.indexReg] = frame.sDbl[state.stackTop];
+                // Sync let/const variables with NativeCall for closure access
+                if (frame.useActivation
+                        && frame.fnOrScript
+                                .getDescriptor()
+                                .getParamOrVarLetOrConst(state.indexReg)) {
+                    String varName =
+                            frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                    frame.scope.put(varName, frame.scope, value);
+                }
             }
             return null;
         }
@@ -3991,8 +4015,18 @@ public final class Interpreter extends Icode implements Evaluator {
             var vars = frame.varSource.stack;
             var varDbls = frame.varSource.sDbl;
             if ((varAttributes[state.indexReg] & ScriptableObject.READONLY) == 0) {
-                vars[state.indexReg] = frame.stack[state.stackTop];
+                Object value = frame.stack[state.stackTop];
+                vars[state.indexReg] = value;
                 varDbls[state.indexReg] = frame.sDbl[state.stackTop];
+                // Sync let/const variables with NativeCall for closure access
+                if (frame.useActivation
+                        && frame.fnOrScript
+                                .getDescriptor()
+                                .getParamOrVarLetOrConst(state.indexReg)) {
+                    String varName =
+                            frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                    frame.scope.put(varName, frame.scope, value);
+                }
             }
             return null;
         }
