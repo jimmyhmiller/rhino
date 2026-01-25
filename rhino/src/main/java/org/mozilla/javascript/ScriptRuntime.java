@@ -3967,6 +3967,24 @@ public class ScriptRuntime {
             } while (scopeChain != null);
             throw notFoundError(null, id);
         }
+
+        // Check if the scope variable is READONLY (const) before modifying
+        // For const variables, we should throw TypeError regardless of strict mode
+        Scriptable checkTarget = target;
+        // If target is a NativeWith, check its prototype (the actual scope object)
+        if (checkTarget instanceof NativeWith) {
+            checkTarget = checkTarget.getPrototype();
+        }
+        if (checkTarget instanceof ScriptableObject) {
+            ScriptableObject so = (ScriptableObject) checkTarget;
+            if (so.has(id, so)) {
+                int attrs = so.getAttributes(id);
+                if ((attrs & ScriptableObject.READONLY) != 0) {
+                    throw typeErrorById("msg.modify.readonly", id);
+                }
+            }
+        }
+
         return doScriptableIncrDecr(target, id, scopeChain, value, incrDecrMask);
     }
 
@@ -5243,6 +5261,33 @@ public class ScriptRuntime {
         Scriptable sobj = toObjectOrNull(cx, obj, scope);
         if (sobj == null) {
             throw typeErrorById("msg.undef.with", toString(obj));
+        }
+        if (sobj instanceof XMLObject) {
+            XMLObject xmlObject = (XMLObject) sobj;
+            return xmlObject.enterWith(scope);
+        }
+        return new NativeWith(scope, sobj);
+    }
+
+    /**
+     * Enter a WITH scope and mark specified properties as READONLY (const). This is used for
+     * let/const block scopes in scripts where scope objects are created.
+     */
+    public static Scriptable enterWithConst(
+            Object obj, Context cx, Scriptable scope, String[] constNames) {
+        Scriptable sobj = toObjectOrNull(cx, obj, scope);
+        if (sobj == null) {
+            throw typeErrorById("msg.undef.with", toString(obj));
+        }
+        // Mark const properties as READONLY
+        if (constNames != null && sobj instanceof ScriptableObject) {
+            ScriptableObject so = (ScriptableObject) sobj;
+            for (String name : constNames) {
+                if (so.has(name, so)) {
+                    int attrs = so.getAttributes(name);
+                    so.setAttributes(name, attrs | ScriptableObject.READONLY);
+                }
+            }
         }
         if (sobj instanceof XMLObject) {
             XMLObject xmlObject = (XMLObject) sobj;

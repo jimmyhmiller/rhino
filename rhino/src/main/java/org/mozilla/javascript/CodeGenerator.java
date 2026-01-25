@@ -324,7 +324,16 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
 
             case Token.ENTERWITH:
                 visitExpression(child, 0);
-                addToken(Token.ENTERWITH);
+                {
+                    String[] constNames = (String[]) node.getProp(Node.CONST_NAMES_PROP);
+                    if (constNames != null && constNames.length > 0) {
+                        int index = literalIds.size();
+                        literalIds.add(constNames);
+                        addIndexOp(Icode.Icode_ENTERWITH_CONST, index);
+                    } else {
+                        addToken(Token.ENTERWITH);
+                    }
+                }
                 stackChange(-1);
                 break;
 

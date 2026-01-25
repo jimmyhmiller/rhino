@@ -1622,17 +1622,31 @@ public final class IRFactory {
     }
 
     private static Node createFor(Scope loop, Node init, Node test, Node incr, Node body) {
-        if (init.getType() == Token.LET) {
+        int initType = init.getType();
+        if (initType == Token.LET || initType == Token.CONST) {
             // rewrite "for (let i=s; i < N; i++)..." as
             // "let (i=s) { for (; i < N; i++)..." so that "s" is evaluated
             // outside the scope of the for.
+            // Same for const, though const in increment will throw TypeError at runtime.
             Scope let = Scope.splitScope(loop);
             let.setType(Token.LET);
-            let.addChildrenToBack(init);
+            // Add init's children to let. Use addChildrenToBack for LET,
+            // but manually iterate for CONST (which has issues with addChildrenToBack)
+            if (initType == Token.LET) {
+                let.addChildrenToBack(init);
+            } else {
+                for (Node child = init.getFirstChild(); child != null; ) {
+                    Node nextChild = child.getNext();
+                    let.addChildToBack(child);
+                    child = nextChild;
+                }
+            }
             Node innerLoop = createLoop(loop, LOOP_FOR, body, test, new Node(Token.EMPTY), incr);
 
             // Mark the loop for per-iteration bindings (ES6 let in for loop semantics)
-            // Collect variable names from the LET init
+            // Collect variable names from the LET/CONST init
+            // Note: for const, the per-iteration scope doesn't help since reassignment
+            // will throw anyway, but we still need the correct scoping.
             java.util.List<String> varNames = new java.util.ArrayList<>();
             for (Node n = init.getFirstChild(); n != null; n = n.getNext()) {
                 if (n.getType() == Token.NAME) {
@@ -1640,8 +1654,14 @@ public final class IRFactory {
                 }
             }
             if (!varNames.isEmpty()) {
-                loop.putIntProp(Node.PER_ITERATION_SCOPE_PROP, 1);
-                loop.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
+                if (initType == Token.LET) {
+                    // Mark per-iteration bindings for let
+                    loop.putIntProp(Node.PER_ITERATION_SCOPE_PROP, 1);
+                    loop.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
+                } else if (initType == Token.CONST) {
+                    // Mark wrapper scope for const enforcement in NodeTransformer
+                    let.putIntProp(Node.CONST_FOR_LOOP_SCOPE, 1);
+                }
             }
 
             let.addChildToBack(innerLoop);

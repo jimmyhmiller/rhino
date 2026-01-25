@@ -826,12 +826,34 @@ class BodyCodegen {
                 generateExpression(child, node);
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
-                addScriptRuntimeInvoke(
-                        "enterWith",
-                        "(Ljava/lang/Object;"
-                                + "Lorg/mozilla/javascript/Context;"
-                                + "Lorg/mozilla/javascript/Scriptable;"
-                                + ")Lorg/mozilla/javascript/Scriptable;");
+                {
+                    String[] constNames = (String[]) node.getProp(Node.CONST_NAMES_PROP);
+                    if (constNames != null && constNames.length > 0) {
+                        // Pass const names to mark them as READONLY
+                        cfw.addPush(constNames.length);
+                        cfw.add(ByteCode.ANEWARRAY, "java/lang/String");
+                        for (int i = 0; i < constNames.length; i++) {
+                            cfw.add(ByteCode.DUP);
+                            cfw.addPush(i);
+                            cfw.addPush(constNames[i]);
+                            cfw.add(ByteCode.AASTORE);
+                        }
+                        addScriptRuntimeInvoke(
+                                "enterWithConst",
+                                "(Ljava/lang/Object;"
+                                        + "Lorg/mozilla/javascript/Context;"
+                                        + "Lorg/mozilla/javascript/Scriptable;"
+                                        + "[Ljava/lang/String;"
+                                        + ")Lorg/mozilla/javascript/Scriptable;");
+                    } else {
+                        addScriptRuntimeInvoke(
+                                "enterWith",
+                                "(Ljava/lang/Object;"
+                                        + "Lorg/mozilla/javascript/Context;"
+                                        + "Lorg/mozilla/javascript/Scriptable;"
+                                        + ")Lorg/mozilla/javascript/Scriptable;");
+                    }
+                }
                 cfw.addAStore(variableObjectLocal);
                 incReferenceWordLocal(variableObjectLocal);
                 break;

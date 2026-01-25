@@ -71,7 +71,9 @@ public class Node implements Iterable<Node> {
             NUMBER_OF_SPREAD = 32,
             PER_ITERATION_SCOPE_PROP = 33,
             PER_ITERATION_NAMES_PROP = 34,
-            LAST_PROP = PER_ITERATION_NAMES_PROP,
+            CONST_NAMES_PROP = 35,
+            CONST_FOR_LOOP_SCOPE = 36,
+            LAST_PROP = CONST_FOR_LOOP_SCOPE,
             FIRST_PROP = FUNCTION_PROP;
 
     // values of ISNUMBER_PROP to specify
@@ -463,6 +465,10 @@ public class Node implements Iterable<Node> {
                 return "per_iteration_scope";
             case PER_ITERATION_NAMES_PROP:
                 return "per_iteration_names";
+            case CONST_NAMES_PROP:
+                return "const_names";
+            case CONST_FOR_LOOP_SCOPE:
+                return "const_for_loop_scope";
 
             default:
                 Kit.codeBug();

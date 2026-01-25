@@ -147,6 +147,10 @@ public class Parser {
     Scope currentScope;
     private int endFlags;
     private boolean inForInit; // bound temporarily during forStatement()
+    // Tracks when we're parsing a single statement context (like if/while/for body without braces)
+    // where lexical declarations are forbidden. In non-strict mode, 'let' followed by newline
+    // should be treated as an identifier in such contexts.
+    private boolean inSingleStatementContext;
     private Map<String, LabeledStatement> labelSet;
     private List<Loop> loopSet;
     private List<Jump> loopAndSwitchSet;
@@ -1359,7 +1363,7 @@ public class Parser {
                 break;
 
             case Token.LET:
-                pn = letStatement();
+                pn = letStatementOrIdentifier();
                 if (pn instanceof VariableDeclaration && peekToken() == Token.SEMI) break;
                 return pn;
 
@@ -1623,25 +1627,50 @@ public class Parser {
     }
 
     private AstNode getNextStatementAfterInlineComments(AstNode pn) throws IOException {
-        AstNode body = statement();
-        if (Token.COMMENT == body.getType()) {
-            AstNode commentNode = body;
-            body = statement();
-            if (pn != null) {
-                pn.setInlineComment(commentNode);
-            } else {
-                body.setInlineComment(commentNode);
+        boolean savedSingleStatementContext = inSingleStatementContext;
+        inSingleStatementContext = true;
+        try {
+            AstNode body = statement();
+            if (Token.COMMENT == body.getType()) {
+                AstNode commentNode = body;
+                body = statement();
+                if (pn != null) {
+                    pn.setInlineComment(commentNode);
+                } else {
+                    body.setInlineComment(commentNode);
+                }
             }
-        }
-        // Lexical declarations (let/const) are not allowed as the body of control structures
-        // They must be wrapped in a block. ES6 13.6.0.1, 13.7.0.1, etc.
-        if (body instanceof VariableDeclaration) {
-            VariableDeclaration vd = (VariableDeclaration) body;
-            if (vd.getType() == Token.LET || vd.getType() == Token.CONST) {
-                reportError("msg.lexical.decl.not.in.block");
+            // Lexical declarations (let/const) are not allowed as the body of control structures
+            // They must be wrapped in a block. ES6 13.6.0.1, 13.7.0.1, etc.
+            // Only enforce this in ES6+ mode; older versions allow non-standard behavior.
+            if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                    && body instanceof VariableDeclaration) {
+                VariableDeclaration vd = (VariableDeclaration) body;
+                if (vd.getType() == Token.LET || vd.getType() == Token.CONST) {
+                    reportError("msg.lexical.decl.not.in.block");
+                }
             }
+            // Labelled function statements are not allowed as the body of control structures.
+            // ES6 13.7.0.1 - It is a Syntax Error if IsLabelledFunction(Statement) is true.
+            if (isLabelledFunction(body)) {
+                reportError("msg.labelled.function.stmt");
+            }
+            return body;
+        } finally {
+            inSingleStatementContext = savedSingleStatementContext;
         }
-        return body;
+    }
+
+    /**
+     * Checks if the given node is a labelled function, i.e., a LabeledStatement whose ultimate
+     * statement is a function declaration. ES6 IsLabelledFunction abstract operation.
+     */
+    private boolean isLabelledFunction(AstNode node) {
+        if (node instanceof LabeledStatement) {
+            AstNode stmt = ((LabeledStatement) node).getStatement();
+            return stmt instanceof FunctionNode || isLabelledFunction(stmt);
+        }
+        return false;
     }
 
     private Loop forLoop() throws IOException {
@@ -1721,9 +1750,19 @@ public class Parser {
             if (isForIn || isForOf) {
                 ForInLoop fis = new ForInLoop(forPos);
                 if (init instanceof VariableDeclaration) {
+                    VariableDeclaration varDecl = (VariableDeclaration) init;
                     // check that there was only one variable given
-                    if (((VariableDeclaration) init).getVariables().size() > 1) {
+                    if (varDecl.getVariables().size() > 1) {
                         reportError("msg.mult.index");
+                    }
+                    // check that let/const declarations don't have initializers in for-in/for-of
+                    if (varDecl.getType() == Token.LET || varDecl.getType() == Token.CONST) {
+                        for (VariableInitializer vi : varDecl.getVariables()) {
+                            if (vi.getInitializer() != null) {
+                                reportError("msg.invalid.for.in.init");
+                                break;
+                            }
+                        }
                     }
                 }
                 if (isForOf && isForEach) {
@@ -2101,6 +2140,94 @@ public class Parser {
         return pn;
     }
 
+    /**
+     * Handle LET which can be either a declaration keyword or an identifier in non-strict mode. Per
+     * ES6 spec: - 'let [' is always a declaration (lookahead restriction applies even across
+     * newlines) - 'let {' with newline: ASI applies, 'let' is identifier, '{}' is a block - 'let
+     * <identifier>' with newline in single-statement context: ASI applies - 'let <identifier>' with
+     * newline in block context: it's a declaration - 'let' followed by something that can't start a
+     * binding with newline: ASI applies
+     */
+    private AstNode letStatementOrIdentifier() throws IOException {
+        if (currentToken != Token.LET) codeBug();
+
+        // In strict mode, 'let' is always a keyword
+        if (inUseStrictDirective) {
+            return letStatement();
+        }
+
+        // Consume the 'let' token first so we can peek at what follows
+        consumeToken();
+        int letPos = ts.tokenBeg;
+        int letLineno = lineNumber();
+        int letColumn = columnNumber();
+
+        // Check what follows 'let' and if there's a line break
+        int nextToken = peekTokenOrEOL();
+        boolean hasLineBreak = (nextToken == Token.EOL);
+
+        // Get the actual next token (ignoring line breaks)
+        int actualNextToken = peekToken();
+
+        // 'let [' is always a declaration - the lookahead restriction applies even across newlines
+        if (actualNextToken == Token.LB) {
+            return letStatementAfterConsume(letPos, letLineno, letColumn);
+        }
+
+        // 'let {' with newline: ASI applies, 'let' is identifier
+        if (hasLineBreak && actualNextToken == Token.LC) {
+            return letAsIdentifierExpression(letPos, letLineno, letColumn);
+        }
+
+        // Check if next token can start a binding (identifier, {, yield, await)
+        boolean canStartBinding =
+                actualNextToken == Token.NAME
+                        || actualNextToken == Token.LC
+                        || actualNextToken == Token.YIELD
+                        || actualNextToken == Token.LET;
+
+        if (canStartBinding) {
+            // In single-statement context with line break: ASI applies, 'let' is identifier
+            if (hasLineBreak && inSingleStatementContext) {
+                return letAsIdentifierExpression(letPos, letLineno, letColumn);
+            }
+            // Otherwise, it's a let declaration
+            return letStatementAfterConsume(letPos, letLineno, letColumn);
+        }
+
+        // If followed by line break and next token can't start a binding, ASI applies
+        if (hasLineBreak) {
+            return letAsIdentifierExpression(letPos, letLineno, letColumn);
+        }
+
+        // Default: parse as let declaration/expression
+        return letStatementAfterConsume(letPos, letLineno, letColumn);
+    }
+
+    /**
+     * Parse 'let' as an identifier in an expression statement. Used in non-strict mode when ASI
+     * applies after 'let'. Called after 'let' token has been consumed.
+     */
+    private AstNode letAsIdentifierExpression(int pos, int lineno, int column) throws IOException {
+        Name letName = new Name(pos, ts.tokenEnd - pos, "let");
+        letName.setLineColumnNumber(lineno, column);
+        AstNode pn = new ExpressionStatement(letName, !insideFunctionBody());
+        pn.setLineColumnNumber(lineno, column);
+        return pn;
+    }
+
+    /** Continue parsing let statement/expression after 'let' token has been consumed. */
+    private AstNode letStatementAfterConsume(int pos, int lineno, int column) throws IOException {
+        AstNode pn;
+        if (peekToken() == Token.LP) {
+            pn = let(true, pos);
+        } else {
+            pn = variables(Token.LET, pos, true);
+        }
+        pn.setLineColumnNumber(lineno, column);
+        return pn;
+    }
+
     private AstNode letStatement() throws IOException {
         if (currentToken != Token.LET) codeBug();
         consumeToken();
@@ -2309,8 +2436,9 @@ public class Parser {
             currentLabel = bundle;
             if (stmt == null) {
                 stmt = statementHelper();
-                // Lexical declarations cannot be the body of a labeled statement
-                if (stmt instanceof VariableDeclaration) {
+                // Lexical declarations cannot be the body of a labeled statement (ES6+)
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && stmt instanceof VariableDeclaration) {
                     VariableDeclaration vd = (VariableDeclaration) stmt;
                     if (vd.getType() == Token.LET || vd.getType() == Token.CONST) {
                         reportError("msg.lexical.decl.not.in.block");
@@ -2415,7 +2543,11 @@ public class Parser {
             } else {
                 vi.setTarget(name);
                 // const declarations must have an initializer (except in for-in/for-of)
-                if (declType == Token.CONST && init == null && !inForInit) {
+                // Only enforce in ES6+ mode; older versions allow non-standard behavior.
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && declType == Token.CONST
+                        && init == null
+                        && !inForInit) {
                     reportError("msg.const.no.init");
                 }
             }
@@ -2489,17 +2621,21 @@ public class Parser {
         Symbol symbol = definingScope != null ? definingScope.getSymbol(name) : null;
         int symDeclType = symbol != null ? symbol.getDeclType() : -1;
         // Check for let/const redeclaration errors:
-        // 1. Redeclaring const is always an error
-        // 2. Declaring const to redeclare anything is an error
-        // 3. let can't redeclare let in same scope
-        // 4. let can't redeclare var in same scope (var is function-scoped)
+        // 1. const can't redeclare const in SAME scope (but can shadow in nested scope)
+        // 2. let can't redeclare let in same scope
+        // 3. let/const can't redeclare var that was declared in the same block (even though var
+        //    hoists, the conflict is detected at the block level per ES6 spec)
+        boolean varInSameBlock =
+                (declType == Token.LET || declType == Token.CONST)
+                        && currentScope.hasVarNameInBlock(name);
         if (symbol != null
-                && (symDeclType == Token.CONST
-                        || declType == Token.CONST
+                && ((definingScope == currentScope && symDeclType == Token.CONST)
                         || (definingScope == currentScope && symDeclType == Token.LET)
+                        || (definingScope == currentScope && declType == Token.CONST)
                         || (definingScope == currentScope
                                 && declType == Token.LET
-                                && symDeclType == Token.VAR))) {
+                                && symDeclType == Token.VAR)
+                        || varInSameBlock)) {
             // Choose the error message based on what's being redeclared
             String errorId;
             if (symDeclType == Token.CONST) {
@@ -2557,6 +2693,17 @@ public class Parser {
                     }
                 } else {
                     currentScriptOrFn.putSymbol(new Symbol(declType, name));
+                }
+                // Record var declaration in all enclosing block scopes for let/const conflict
+                // detection.
+                // This is needed because var hoists to function scope, but the ES6 spec requires
+                // detecting conflicts with let/const at the block level. Since var hoists through
+                // nested blocks, we need to mark the var name in all parent scopes up to the
+                // function.
+                for (Scope s = currentScope;
+                        s != null && s != currentScriptOrFn;
+                        s = s.getParentScope()) {
+                    s.addVarNameInBlock(name);
                 }
                 return;
 

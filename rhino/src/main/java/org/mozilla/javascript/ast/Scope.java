@@ -8,9 +8,11 @@ package org.mozilla.javascript.ast;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.mozilla.javascript.Node;
 import org.mozilla.javascript.Token;
 
@@ -26,6 +28,11 @@ public class Scope extends Jump {
     protected ScriptNode top; // current script or function scope
 
     private List<Scope> childScopes;
+
+    // Tracks var names that were lexically declared in this block (even though
+    // var hoists to function scope). Used for detecting let/const conflicts with
+    // var declarations in the same block.
+    private Set<String> varNamesInBlock;
 
     {
         this.type = Token.BLOCK;
@@ -187,6 +194,25 @@ public class Scope extends Jump {
     /** Sets the symbol table for this scope. May be {@code null}. */
     public void setSymbolTable(Map<String, Symbol> table) {
         symbolTable = table;
+    }
+
+    /**
+     * Records that a var declaration with the given name was lexically declared in this block. This
+     * is used for detecting conflicts with let/const in the same block, since var hoists to
+     * function scope but the conflict check needs to happen at the block level.
+     */
+    public void addVarNameInBlock(String name) {
+        if (varNamesInBlock == null) {
+            varNamesInBlock = new HashSet<>();
+        }
+        varNamesInBlock.add(name);
+    }
+
+    /**
+     * Returns true if a var declaration with the given name was lexically declared in this block.
+     */
+    public boolean hasVarNameInBlock(String name) {
+        return varNamesInBlock != null && varNamesInBlock.contains(name);
     }
 
     private Map<String, Symbol> ensureSymbolTable() {

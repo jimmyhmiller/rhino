@@ -175,8 +175,11 @@ abstract class Icode {
             // Copy per-iteration loop variables from WITH scope to parent scope
             Icode_COPY_PER_ITER_SCOPE = Icode_GETVAR_TDZ - 1,
 
+            // ENTERWITH with const names - marks specified properties as READONLY
+            Icode_ENTERWITH_CONST = Icode_COPY_PER_ITER_SCOPE - 1,
+
             // Last icode
-            MIN_ICODE = Icode_COPY_PER_ITER_SCOPE;
+            MIN_ICODE = Icode_ENTERWITH_CONST;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -376,6 +379,8 @@ abstract class Icode {
                 return "GETVAR_TDZ";
             case Icode_COPY_PER_ITER_SCOPE:
                 return "COPY_PER_ITER_SCOPE";
+            case Icode_ENTERWITH_CONST:
+                return "ENTERWITH_CONST";
         }
 
         // icode without name

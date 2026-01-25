@@ -161,6 +161,12 @@ public class Test262SuiteTest {
     public static void setUpClass() {
         CTX_FACTORY.setLanguageVersion(Context.VERSION_ES6);
         TestUtils.setGlobalContextFactory(CTX_FACTORY);
+        // Clear progress file at start of test run
+        try {
+            new File(PROGRESS_FILE).delete();
+        } catch (Exception e) {
+            // Ignore
+        }
     }
 
     @AfterAll
@@ -341,6 +347,16 @@ public class Test262SuiteTest {
         return exceptionName;
     }
 
+    private static final String PROGRESS_FILE = "/tmp/test262-progress.txt";
+
+    private static void logProgress(String message) {
+        try (FileWriter fw = new FileWriter(PROGRESS_FILE, true)) {
+            fw.write(System.currentTimeMillis() + " " + message + "\n");
+        } catch (IOException e) {
+            // Ignore errors writing progress
+        }
+    }
+
     @ParameterizedTest
     @MethodSource("test262SuiteValues")
     public void test262Case(
@@ -349,6 +365,8 @@ public class Test262SuiteTest {
             boolean useStrict,
             Test262Case testCase,
             boolean markedAsFailing) {
+        String testId = testFilePath + " " + testMode + " strict=" + useStrict;
+        logProgress("START " + testId);
         try (Context cx = Context.enter()) {
             cx.setInterpretedMode(testMode == TestMode.INTERPRETED);
             // Ensure maximum compatibility, including future strict mode and "const" checks
@@ -387,7 +405,10 @@ public class Test262SuiteTest {
                 }
             } catch (RhinoException ex) {
                 if (!testCase.isNegative()) {
-                    if (markedAsFailing) return;
+                    if (markedAsFailing) {
+                        logProgress("END " + testId);
+                        return;
+                    }
 
                     fail(String.format("%s%n%s", ex.getMessage(), ex.getScriptStackTrace()));
                 }
@@ -395,7 +416,10 @@ public class Test262SuiteTest {
                 String errorName = extractJSErrorName(ex);
 
                 if (testCase.hasEarlyError && !failedEarly) {
-                    if (markedAsFailing) return;
+                    if (markedAsFailing) {
+                        logProgress("END " + testId);
+                        return;
+                    }
 
                     fail(
                             String.format(
@@ -406,7 +430,10 @@ public class Test262SuiteTest {
                 try {
                     assertEquals(ex.details(), testCase.expectedError, errorName);
                 } catch (AssertionError aex) {
-                    if (markedAsFailing) return;
+                    if (markedAsFailing) {
+                        logProgress("END " + testId);
+                        return;
+                    }
 
                     throw aex;
                 }
@@ -424,15 +451,22 @@ public class Test262SuiteTest {
                 // ex.printStackTrace();
 
                 // Ignore the failed assertion if the test is marked as failing
-                if (markedAsFailing) return;
+                if (markedAsFailing) {
+                    logProgress("END " + testId);
+                    return;
+                }
 
                 throw ex;
             } catch (AssertionError ex) {
                 // Ignore the failed assertion if the test is marked as failing
-                if (markedAsFailing) return;
+                if (markedAsFailing) {
+                    logProgress("END " + testId);
+                    return;
+                }
 
                 throw ex;
             }
+            logProgress("END " + testId);
         }
     }
 

@@ -1719,6 +1719,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_UNDEF] = new DoUndef();
         instructionObjs[base + Icode_TDZ] = new DoTdz();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
+        instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
         instructionObjs[base + Icode_COPY_PER_ITER_SCOPE] = new DoCopyPerIterScope();
         instructionObjs[base + Token.CATCH_SCOPE] = new DoCatchScope();
@@ -4058,6 +4059,13 @@ public final class Interpreter extends Icode implements Evaluator {
             // indexReg : varindex
             ++state.stackTop;
             int incrDecrMask = frame.idata.itsICode[frame.pc];
+
+            // Check if the variable is readonly (const) before any modification
+            if ((varAttributes[state.indexReg] & ScriptableObject.READONLY) != 0) {
+                String varName = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                throw ScriptRuntime.typeErrorById("msg.modify.readonly", varName);
+            }
+
             Object varValue = vars[state.indexReg];
             double d = 0.0;
             BigInteger bi = null;
@@ -4075,21 +4083,12 @@ public final class Interpreter extends Icode implements Evaluator {
                 // double
                 double d2 = ((incrDecrMask & Node.DECR_FLAG) == 0) ? d + 1.0 : d - 1.0;
                 boolean post = ((incrDecrMask & Node.POST_FLAG) != 0);
-                if ((varAttributes[state.indexReg] & ScriptableObject.READONLY) == 0) {
-                    if (varValue != DOUBLE_MARK) {
-                        vars[state.indexReg] = DOUBLE_MARK;
-                    }
-                    varDbls[state.indexReg] = d2;
-                    frame.stack[state.stackTop] = DOUBLE_MARK;
-                    frame.sDbl[state.stackTop] = post ? d : d2;
-                } else {
-                    if (post && varValue != DOUBLE_MARK) {
-                        frame.stack[state.stackTop] = varValue;
-                    } else {
-                        frame.stack[state.stackTop] = DOUBLE_MARK;
-                        frame.sDbl[state.stackTop] = post ? d : d2;
-                    }
+                if (varValue != DOUBLE_MARK) {
+                    vars[state.indexReg] = DOUBLE_MARK;
                 }
+                varDbls[state.indexReg] = d2;
+                frame.stack[state.stackTop] = DOUBLE_MARK;
+                frame.sDbl[state.stackTop] = post ? d : d2;
             } else {
                 // BigInt
                 BigInteger result;
@@ -4100,16 +4099,8 @@ public final class Interpreter extends Icode implements Evaluator {
                 }
 
                 boolean post = ((incrDecrMask & Node.POST_FLAG) != 0);
-                if ((varAttributes[state.indexReg] & ScriptableObject.READONLY) == 0) {
-                    vars[state.indexReg] = result;
-                    frame.stack[state.stackTop] = post ? bi : result;
-                } else {
-                    if (post && varValue != DOUBLE_MARK) {
-                        frame.stack[state.stackTop] = varValue;
-                    } else {
-                        frame.stack[state.stackTop] = post ? bi : result;
-                    }
-                }
+                vars[state.indexReg] = result;
+                frame.stack[state.stackTop] = post ? bi : result;
             }
             ++frame.pc;
             return null;
@@ -4219,6 +4210,18 @@ public final class Interpreter extends Icode implements Evaluator {
             Object lhs = frame.stack[state.stackTop];
             if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
             frame.scope = ScriptRuntime.enterWith(lhs, cx, frame.scope);
+            state.stackTop--;
+            return null;
+        }
+    }
+
+    private static class DoEnterWithConst extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            Object lhs = frame.stack[state.stackTop];
+            if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            String[] constNames = (String[]) frame.idata.literalIds[state.indexReg];
+            frame.scope = ScriptRuntime.enterWithConst(lhs, cx, frame.scope, constNames);
             state.stackTop--;
             return null;
         }

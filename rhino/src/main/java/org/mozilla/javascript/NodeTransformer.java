@@ -297,6 +297,16 @@ public class NodeTransformer {
                             node = visitLet(createWith, parent, previous, node);
                             break;
                         }
+                        // For LET scopes from for-loop with const (marked by IRFactory),
+                        // we need to create a WITH scope when createScopeObjects is true.
+                        if (createScopeObjects
+                                && node instanceof Scope
+                                && node.getIntProp(Node.CONST_FOR_LOOP_SCOPE, 0) == 1) {
+                            Scope letScope = (Scope) node;
+                            // Transform to WITH scope for proper const enforcement
+                            node = visitLetScopeWithConst(parent, previous, node, letScope);
+                            break;
+                        }
                         // fall through to process let declaration...
                     }
                 /* fall through */
@@ -330,10 +340,16 @@ public class NodeTransformer {
                                                         : Token.SETNAME,
                                                 n,
                                                 init);
+                            } else if (n.getType() == Token.LETEXPR) {
+                                // Destructuring assignment already transformed to a LETEXPR
+                            } else if (n.getType() == Token.LOOP) {
+                                // For a for-loop with let/const init, the LET wrapper scope
+                                // contains both declarations and the loop body.
+                                // The loop body will be processed recursively after this switch.
+                                result.addChildToBack(n);
+                                continue;
                             } else {
-                                // May be a destructuring assignment already transformed
-                                // to a LETEXPR
-                                if (n.getType() != Token.LETEXPR) throw Kit.codeBug();
+                                throw Kit.codeBug();
                             }
                             Node pop = new Node(Token.EXPR_VOID, n);
                             pop.setLineColumnNumber(node.getLineno(), node.getColumn());
@@ -481,6 +497,7 @@ public class NodeTransformer {
             result = new Node(isExpression ? Token.WITHEXPR : Token.BLOCK);
             result = replaceCurrent(parent, previous, scopeNode, result);
             ArrayList<Object> list = new ArrayList<>();
+            ArrayList<String> constNames = new ArrayList<>();
             Node objectLiteral = new Node(Token.OBJECTLIT);
             for (Node v = vars.getFirstChild(); v != null; v = v.getNext()) {
                 Node current = v;
@@ -511,7 +528,16 @@ public class NodeTransformer {
                     current = c.getFirstChild(); // should be a NAME, checked below
                 }
                 if (current.getType() != Token.NAME) throw Kit.codeBug();
-                list.add(ScriptRuntime.getIndexObject(current.getString()));
+                String varName = current.getString();
+                list.add(ScriptRuntime.getIndexObject(varName));
+                // Check if this variable is a const declaration
+                if (scopeNode instanceof Scope) {
+                    Scope scope = (Scope) scopeNode;
+                    org.mozilla.javascript.ast.Symbol sym = scope.getSymbol(varName);
+                    if (sym != null && sym.getDeclType() == Token.CONST) {
+                        constNames.add(varName);
+                    }
+                }
                 Node init = current.getFirstChild();
                 if (init != null) {
                     // Has an initializer (e.g., for loop: let i = 0)
@@ -525,6 +551,10 @@ public class NodeTransformer {
             }
             objectLiteral.putProp(Node.OBJECT_IDS_PROP, list.toArray());
             newVars = new Node(Token.ENTERWITH, objectLiteral);
+            // Pass const variable names to runtime so they can be marked READONLY
+            if (!constNames.isEmpty()) {
+                newVars.putProp(Node.CONST_NAMES_PROP, constNames.toArray(new String[0]));
+            }
             result.addChildToBack(newVars);
             result.addChildToBack(new Node(Token.WITH, body));
             result.addChildToBack(new Node(Token.LEAVEWITH));
@@ -579,6 +609,71 @@ public class NodeTransformer {
                 }
             }
         }
+        return result;
+    }
+
+    /**
+     * Transform a LET scope (from for-loop with const) into a WITH scope when createScopeObjects is
+     * true. This ensures const properties are marked READONLY.
+     */
+    private Node visitLetScopeWithConst(Node parent, Node previous, Node node, Scope letScope) {
+        // Create WITH scope structure: BLOCK { ENTERWITH(obj); WITH { children }; LEAVEWITH }
+        Node result = new Node(Token.BLOCK);
+        result = replaceCurrent(parent, previous, node, result);
+
+        // Create object literal with property values from NAME children
+        ArrayList<Object> list = new ArrayList<>();
+        ArrayList<String> constNames = new ArrayList<>();
+        Node objectLiteral = new Node(Token.OBJECTLIT);
+
+        // Collect NAME children with their initializers, and LOOP children for the body
+        ArrayList<Node> bodyNodes = new ArrayList<>();
+        for (Node child = node.getFirstChild(); child != null; ) {
+            Node next = child.getNext();
+            if (child.getType() == Token.NAME) {
+                String varName = child.getString();
+                list.add(ScriptRuntime.getIndexObject(varName));
+
+                // Check if this is a const declaration
+                org.mozilla.javascript.ast.Symbol sym = letScope.getSymbol(varName);
+                if (sym != null && sym.getDeclType() == Token.CONST) {
+                    constNames.add(varName);
+                }
+
+                Node init = child.getFirstChild();
+                if (init != null) {
+                    child.removeChild(init);
+                    objectLiteral.addChildToBack(init);
+                } else {
+                    objectLiteral.addChildToBack(new Node(Token.TDZ));
+                }
+            } else {
+                // LOOP or other body nodes
+                node.removeChild(child);
+                bodyNodes.add(child);
+            }
+            child = next;
+        }
+
+        objectLiteral.putProp(Node.OBJECT_IDS_PROP, list.toArray());
+        Node enterWith = new Node(Token.ENTERWITH, objectLiteral);
+        // Pass const names to runtime for READONLY marking
+        if (!constNames.isEmpty()) {
+            enterWith.putProp(Node.CONST_NAMES_PROP, constNames.toArray(new String[0]));
+        }
+        result.addChildToBack(enterWith);
+
+        // Create body node containing the LOOP and other children
+        Node body = new Node(Token.BLOCK);
+        for (Node bodyNode : bodyNodes) {
+            body.addChildToBack(bodyNode);
+        }
+        result.addChildToBack(new Node(Token.WITH, body));
+        result.addChildToBack(new Node(Token.LEAVEWITH));
+
+        // Clear the symbol table to prevent re-processing
+        letScope.setSymbolTable(null);
+
         return result;
     }
 
