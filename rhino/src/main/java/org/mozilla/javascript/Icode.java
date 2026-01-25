@@ -175,8 +175,11 @@ abstract class Icode {
             // Copy per-iteration loop variables from WITH scope to parent scope
             Icode_COPY_PER_ITER_SCOPE = Icode_GETVAR_TDZ - 1,
 
+            // Switch to new per-iteration scope (leave old, enter new with copies)
+            Icode_SWITCH_PER_ITER_SCOPE = Icode_COPY_PER_ITER_SCOPE - 1,
+
             // ENTERWITH with const names - marks specified properties as READONLY
-            Icode_ENTERWITH_CONST = Icode_COPY_PER_ITER_SCOPE - 1,
+            Icode_ENTERWITH_CONST = Icode_SWITCH_PER_ITER_SCOPE - 1,
 
             // Last icode
             MIN_ICODE = Icode_ENTERWITH_CONST;
@@ -379,6 +382,8 @@ abstract class Icode {
                 return "GETVAR_TDZ";
             case Icode_COPY_PER_ITER_SCOPE:
                 return "COPY_PER_ITER_SCOPE";
+            case Icode_SWITCH_PER_ITER_SCOPE:
+                return "SWITCH_PER_ITER_SCOPE";
             case Icode_ENTERWITH_CONST:
                 return "ENTERWITH_CONST";
         }

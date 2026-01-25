@@ -5327,6 +5327,43 @@ public class ScriptRuntime {
     }
 
     /**
+     * Switch to a new per-iteration scope for for-loop let/const bindings. This implements ES6
+     * CreatePerIterationEnvironment semantics: leaves the current WITH scope, creates a new one
+     * with copies of the specified variables, and enters it.
+     *
+     * @param cx The current context
+     * @param scope The current WITH scope
+     * @param varNames The names of the loop variables to copy
+     * @return The new WITH scope
+     */
+    public static Scriptable switchPerIterationScope(
+            Context cx, Scriptable scope, String[] varNames) {
+        if (!(scope instanceof NativeWith)) {
+            return scope; // Not a WITH scope, nothing to do
+        }
+        NativeWith nw = (NativeWith) scope;
+        Scriptable prototype = nw.getPrototype();
+        Scriptable parent = nw.getParentScope();
+        if (parent == null || prototype == null) {
+            return scope;
+        }
+
+        // Create a new object with copies of the variable values
+        Scriptable newObj = cx.newObject(parent);
+        for (String varName : varNames) {
+            Object value = ScriptableObject.getProperty(prototype, varName);
+            if (value != Scriptable.NOT_FOUND) {
+                ScriptableObject.putProperty(newObj, varName, value);
+            }
+        }
+
+        // Leave the old WITH scope and enter a new one
+        // leaveWith returns the parent scope
+        leaveWith(scope);
+        return enterWith(newObj, cx, parent);
+    }
+
+    /**
      * Throws a TypeError for attempting to modify a const variable. Used by compiled code to
      * enforce const semantics at runtime.
      */

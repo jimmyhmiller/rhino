@@ -902,6 +902,10 @@ public final class Interpreter extends Icode implements Evaluator {
                     out.println(
                             tname + " " + Arrays.toString((String[]) idata.literalIds[indexReg]));
                     break;
+                case Icode_SWITCH_PER_ITER_SCOPE:
+                    out.println(
+                            tname + " " + Arrays.toString((String[]) idata.literalIds[indexReg]));
+                    break;
                 case Icode_CLOSURE_EXPR:
                 case Icode_CLOSURE_STMT:
                 case Icode_METHOD_EXPR:
@@ -1727,6 +1731,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
         instructionObjs[base + Icode_COPY_PER_ITER_SCOPE] = new DoCopyPerIterScope();
+        instructionObjs[base + Icode_SWITCH_PER_ITER_SCOPE] = new DoSwitchPerIterScope();
         instructionObjs[base + Token.CATCH_SCOPE] = new DoCatchScope();
         instructionObjs[base + Token.ENUM_INIT_KEYS] = new DoEnumInit();
         instructionObjs[base + Token.ENUM_INIT_VALUES] = new DoEnumInit();
@@ -4245,6 +4250,15 @@ public final class Interpreter extends Icode implements Evaluator {
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
             String[] varNames = (String[]) frame.idata.literalIds[state.indexReg];
             ScriptRuntime.copyPerIterationScopeVars(frame.scope, varNames);
+            return null;
+        }
+    }
+
+    private static class DoSwitchPerIterScope extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            String[] varNames = (String[]) frame.idata.literalIds[state.indexReg];
+            frame.scope = ScriptRuntime.switchPerIterationScope(cx, frame.scope, varNames);
             return null;
         }
     }

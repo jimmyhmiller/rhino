@@ -9,10 +9,11 @@ assertEquals(NaN, v4--);
 
 const c1 = undefined, c2 = undefined, c3 = undefined, c4 = undefined;
 
-assertEquals(NaN, ++c1);
-assertEquals(NaN, --c2);
-assertEquals(NaN, c3++);
-assertEquals(NaN, c4--);
+// const increment/decrement throws TypeError (ES6+ behavior)
+assertThrows(function() { ++c1; }, TypeError);
+assertThrows(function() { --c2; }, TypeError);
+assertThrows(function() { c3++; }, TypeError);
+assertThrows(function() { c4--; }, TypeError);
 assertEquals(undefined, c1);
 assertEquals(undefined, c2);
 assertEquals(undefined, c3);

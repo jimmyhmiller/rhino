@@ -52,6 +52,10 @@ public class DoctestsTest {
                     public boolean accept(File f) {
                         String name = f.getName();
                         return !name.contains("feature18enabled")
+                                // 784358.doctest tests pre-ES6 const behavior (silently fails on
+                                // reassignment)
+                                // which is incompatible with ES6-compliant const (throws TypeError)
+                                && !name.contains("784358")
                                 && name.endsWith(doctestsExtension);
                     }
                 });

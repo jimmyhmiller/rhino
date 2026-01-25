@@ -350,6 +350,15 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 }
                 break;
 
+            case Token.SWITCH_PER_ITER_SCOPE:
+                {
+                    String[] varNames = (String[]) node.getProp(Node.PER_ITERATION_NAMES_PROP);
+                    int index = literalIds.size();
+                    literalIds.add(varNames);
+                    addIndexOp(Icode_SWITCH_PER_ITER_SCOPE, index);
+                }
+                break;
+
             case Token.LOCAL_BLOCK:
                 {
                     int local = allocLocal();

@@ -121,6 +121,10 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         return descriptor.getParamOrVarConst(index);
     }
 
+    protected boolean getParamOrVarLetOrConst(int index) {
+        return descriptor.getParamOrVarLetOrConst(index);
+    }
+
     protected String getParamOrVarName(int index) {
         return descriptor.getParamOrVarName(index);
     }

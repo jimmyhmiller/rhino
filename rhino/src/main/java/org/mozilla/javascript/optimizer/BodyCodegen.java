@@ -901,6 +901,32 @@ class BodyCodegen {
                 }
                 break;
 
+            case Token.SWITCH_PER_ITER_SCOPE:
+                {
+                    String[] varNames = (String[]) node.getProp(Node.PER_ITERATION_NAMES_PROP);
+                    if (varNames == null || varNames.length == 0) {
+                        break; // Nothing to switch
+                    }
+                    cfw.addALoad(contextLocal);
+                    cfw.addALoad(variableObjectLocal);
+                    // Create the String[] array
+                    cfw.addPush(varNames.length);
+                    cfw.add(ByteCode.ANEWARRAY, "java/lang/String");
+                    for (int i = 0; i < varNames.length; i++) {
+                        cfw.add(ByteCode.DUP);
+                        cfw.addPush(i);
+                        cfw.addPush(varNames[i]);
+                        cfw.add(ByteCode.AASTORE);
+                    }
+                    addScriptRuntimeInvoke(
+                            "switchPerIterationScope",
+                            "(Lorg/mozilla/javascript/Context;"
+                                    + "Lorg/mozilla/javascript/Scriptable;"
+                                    + "[Ljava/lang/String;)Lorg/mozilla/javascript/Scriptable;");
+                    cfw.addAStore(variableObjectLocal);
+                }
+                break;
+
             case Token.ENUM_INIT_KEYS:
             case Token.ENUM_INIT_VALUES:
             case Token.ENUM_INIT_ARRAY:

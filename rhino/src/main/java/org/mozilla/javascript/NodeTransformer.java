@@ -707,39 +707,98 @@ public class NodeTransformer {
      * that closures created inside the loop capture a fresh binding for each iteration.
      */
     private void wrapLoopBodyWithPerIterationScope(Node loop, List<String> varNames) {
-        // Find the body portion of the loop.
-        // Loop structure after createLoop:
-        // LOOP { init/GOTO, TARGET(body), body..., TARGET(incr/cond), ... }
-        // We need to find body nodes (between first TARGET and second TARGET)
+        // ES6 per-iteration bindings for let in loops.
+        //
+        // There are two types of loops:
+        // 1. Regular FOR loops: 4 TARGETs (body, incr, cond, break)
+        // 2. FOR-IN/FOR-OF loops: 3 TARGETs (body, cond, break)
+        //
+        // For regular FOR loops with 4 TARGETs, we need special handling per ES6 spec:
+        // - CreatePerIterationEnvironment is called before first test and after each body
+        // - Test and body share one environment
+        // - Increment runs in the NEXT environment
+        //
+        // For FOR-IN/FOR-OF loops, we just wrap the body since each iteration
+        // naturally gets a fresh value assigned.
 
+        // Count targets and find key nodes
+        Node gotoNode = null;
         Node bodyTarget = null;
-        Node bodyStart = null;
-        Node bodyEnd = null;
-        Node afterBody = null;
+        Node ifeqNode = null;
+        Node[] targets = new Node[4];
+        int targetCount = 0;
 
         for (Node child = loop.getFirstChild(); child != null; child = child.getNext()) {
-            if (child.getType() == Token.TARGET) {
-                if (bodyTarget == null) {
-                    bodyTarget = child;
-                    bodyStart = child.getNext();
-                } else {
-                    // Found the second TARGET - this marks end of body
-                    afterBody = child;
-                    break;
+            if (child.getType() == Token.GOTO && gotoNode == null) {
+                gotoNode = child;
+            } else if (child.getType() == Token.TARGET) {
+                if (targetCount < 4) {
+                    targets[targetCount] = child;
                 }
-            }
-            if (bodyStart != null && afterBody == null) {
-                bodyEnd = child;
+                targetCount++;
+                if (targetCount == 1) {
+                    bodyTarget = child;
+                }
+            } else if (child.getType() == Token.IFEQ) {
+                ifeqNode = child;
             }
         }
 
-        if (bodyStart == null || bodyEnd == null || afterBody == null) {
-            return; // Can't find body structure, skip transformation
+        if (gotoNode == null || bodyTarget == null || ifeqNode == null) {
+            return; // Can't find basic loop structure
         }
 
-        // Collect body nodes (from bodyStart to bodyEnd, not including afterBody)
+        if (targetCount == 4) {
+            // Regular FOR loop with increment: use ES6-spec transformation
+            wrapForLoopWithPerIterationScope(
+                    loop, varNames, gotoNode, bodyTarget, targets[1], targets[3], ifeqNode);
+        } else if (targetCount == 3) {
+            // FOR-IN/FOR-OF loop: use simple body wrapping
+            wrapLoopBodyOnly(loop, varNames, bodyTarget, targets[1]);
+        }
+        // Other structures not supported
+    }
+
+    private void wrapForLoopWithPerIterationScope(
+            Node loop,
+            List<String> varNames,
+            Node gotoNode,
+            Node bodyTarget,
+            Node incrTarget,
+            Node breakTarget,
+            Node ifeqNode) {
+        // Transform for regular FOR loops:
+        // FROM: LOOP { GOTO, TARGET(body), body, TARGET(incr), incr, EMPTY,
+        //              TARGET(cond), IFEQ, TARGET(break) }
+        // TO:   LOOP { ENTERWITH, GOTO, TARGET(body), body, SWITCH_PER_ITER_SCOPE,
+        //              TARGET(incr), incr, EMPTY, TARGET(cond), IFEQ, LEAVEWITH, TARGET(break) }
+
+        // 1. Create ENTERWITH at the start of the loop
+        Node objectLiteral = createPerIterObjectLiteral(varNames);
+        Node enterWith = new Node(Token.ENTERWITH, objectLiteral);
+        Node firstChild = loop.getFirstChild();
+        if (firstChild != null) {
+            loop.addChildBefore(enterWith, firstChild);
+        } else {
+            loop.addChildToFront(enterWith);
+        }
+
+        // 2. Create SWITCH_PER_ITER_SCOPE between body and incrTarget
+        Node switchNode = new Node(Token.SWITCH_PER_ITER_SCOPE);
+        switchNode.putProp(Node.PER_ITERATION_NAMES_PROP, varNames.toArray(new String[0]));
+        loop.addChildBefore(switchNode, incrTarget);
+
+        // 3. Create LEAVEWITH before breakTarget
+        Node leaveWith = new Node(Token.LEAVEWITH);
+        loop.addChildBefore(leaveWith, breakTarget);
+    }
+
+    private void wrapLoopBodyOnly(
+            Node loop, List<String> varNames, Node bodyTarget, Node afterBody) {
+        // Wrap loop body with ENTERWITH/WITH/LEAVEWITH for for-in/for-of loops.
+        // Find body nodes (between bodyTarget and afterBody)
         List<Node> bodyNodes = new ArrayList<>();
-        for (Node n = bodyStart; n != null && n != afterBody; n = n.getNext()) {
+        for (Node n = bodyTarget.getNext(); n != null && n != afterBody; n = n.getNext()) {
             bodyNodes.add(n);
         }
 
@@ -752,16 +811,8 @@ public class NodeTransformer {
             loop.removeChild(n);
         }
 
-        // Create object literal for WITH scope: { var1: var1, var2: var2, ... }
-        // The NAME references will resolve to the outer scope's values
-        Node objectLiteral = new Node(Token.OBJECTLIT);
-        ArrayList<Object> propIds = new ArrayList<>();
-        for (String name : varNames) {
-            propIds.add(ScriptRuntime.getIndexObject(name));
-            // Reference the outer variable - NAME lookup goes to outer scope
-            objectLiteral.addChildToBack(Node.newString(Token.NAME, name));
-        }
-        objectLiteral.putProp(Node.OBJECT_IDS_PROP, propIds.toArray());
+        // Create object literal for WITH scope
+        Node objectLiteral = createPerIterObjectLiteral(varNames);
 
         // Create the per-iteration scope structure
         Node enterWith = new Node(Token.ENTERWITH, objectLiteral);
@@ -769,20 +820,17 @@ public class NodeTransformer {
         for (Node n : bodyNodes) {
             withBody.addChildToBack(n);
         }
-        // Copy variables back to parent scope before leaving (for normal loop iteration)
-        // This must be inside the WITH body so it executes before LEAVEWITH
+        // Copy variables back at end of iteration
         Node copyNode = new Node(Token.COPY_PER_ITER_SCOPE);
         copyNode.putProp(Node.PER_ITERATION_NAMES_PROP, varNames.toArray(new String[0]));
         withBody.addChildToBack(copyNode);
 
         Node withNode = new Node(Token.WITH, withBody);
-        // Store variable names on the WITH node so break/continue handling
-        // can copy values back to parent scope before leaving
         withNode.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
 
         Node leaveWith = new Node(Token.LEAVEWITH);
 
-        // Create wrapper block: { ENTERWITH; WITH { body; COPY }; LEAVEWITH }
+        // Create wrapper block
         Node wrapper = new Node(Token.BLOCK);
         wrapper.addChildToBack(enterWith);
         wrapper.addChildToBack(withNode);
@@ -790,6 +838,17 @@ public class NodeTransformer {
 
         // Insert wrapper after bodyTarget
         loop.addChildAfter(wrapper, bodyTarget);
+    }
+
+    private Node createPerIterObjectLiteral(List<String> varNames) {
+        Node objectLiteral = new Node(Token.OBJECTLIT);
+        ArrayList<Object> propIds = new ArrayList<>();
+        for (String name : varNames) {
+            propIds.add(ScriptRuntime.getIndexObject(name));
+            objectLiteral.addChildToBack(Node.newString(Token.NAME, name));
+        }
+        objectLiteral.putProp(Node.OBJECT_IDS_PROP, propIds.toArray());
+        return objectLiteral;
     }
 
     private Deque<Node> loops;
