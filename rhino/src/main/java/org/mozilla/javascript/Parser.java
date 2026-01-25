@@ -4878,7 +4878,14 @@ public class Parser {
             Transformer transformer,
             boolean isFunctionParameter) {
         boolean empty = true;
-        int setOp = variableType == Token.CONST ? Token.SETCONST : Token.SETNAME;
+        int setOp;
+        if (variableType == Token.CONST) {
+            setOp = Token.SETCONST;
+        } else if (variableType == Token.LET) {
+            setOp = Token.SETLETINIT;
+        } else {
+            setOp = Token.SETNAME;
+        }
         int index = 0;
         boolean defaultValuesSetup = false;
         boolean iteratorSetup = false;
@@ -5154,7 +5161,14 @@ public class Parser {
             Transformer transformer,
             boolean isFunctionParameter) {
         boolean empty = true;
-        int setOp = variableType == Token.CONST ? Token.SETCONST : Token.SETNAME;
+        int setOp;
+        if (variableType == Token.CONST) {
+            setOp = Token.SETCONST;
+        } else if (variableType == Token.LET) {
+            setOp = Token.SETLETINIT;
+        } else {
+            setOp = Token.SETNAME;
+        }
         boolean defaultValuesSetup = false;
 
         for (AbstractObjectProperty abstractProp : node.getElements()) {
@@ -5285,15 +5299,27 @@ public class Parser {
     // to the object) so that it's always the same object, regardless of
     // side effects in the RHS.
     protected Node simpleAssignment(Node left, Node right) {
-        return simpleAssignment(left, right, null);
+        return simpleAssignment(left, right, null, -1);
     }
 
     protected Node simpleAssignment(Node left, Node right, Transformer transformer) {
+        return simpleAssignment(left, right, transformer, -1);
+    }
+
+    protected Node simpleAssignment(Node left, Node right, Transformer transformer, int declType) {
         int nodeType = left.getType();
+        // Determine the set operation based on declaration type
+        // For LET and CONST, use SETLETINIT to allow per-iteration bindings in for-of/for-in
+        int setOp;
+        if (declType == Token.CONST || declType == Token.LET) {
+            setOp = Token.SETLETINIT;
+        } else {
+            setOp = Token.SETNAME;
+        }
         switch (nodeType) {
             case Token.UNDEFINED:
                 left = Node.newString(Token.BINDNAME, "undefined");
-                return new Node(Token.SETNAME, left, right);
+                return new Node(setOp, left, right);
 
             case Token.NAME:
                 String name = ((Name) left).getIdentifier();
@@ -5301,7 +5327,7 @@ public class Parser {
                     reportError("msg.bad.id.strict", name);
                 }
                 left.setType(Token.BINDNAME);
-                return new Node(Token.SETNAME, left, right);
+                return new Node(setOp, left, right);
 
             case Token.GETPROP:
             case Token.GETELEM:

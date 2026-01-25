@@ -158,6 +158,7 @@ class Optimizer {
                 }
             case Token.SETVAR:
             case Token.SETCONSTVAR:
+            case Token.SETLETVAR:
                 {
                     Node lChild = n.getFirstChild();
                     Node rChild = lChild.getNext();

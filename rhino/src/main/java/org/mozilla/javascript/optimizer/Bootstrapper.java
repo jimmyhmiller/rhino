@@ -190,6 +190,11 @@ public class Bootstrapper {
                     return RhinoOperation.SETCONST
                             .withNamespace(RhinoNamespace.NAME)
                             .named(getNameSegment(tokens, name, 2));
+                case "SETLETINIT":
+                    // Initialize a let variable (clears TDZ)
+                    return RhinoOperation.SETLETINIT
+                            .withNamespace(RhinoNamespace.NAME)
+                            .named(getNameSegment(tokens, name, 2));
             }
 
         } else if ("MATH".equals(namespaceName)) {

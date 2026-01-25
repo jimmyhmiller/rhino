@@ -380,6 +380,7 @@ class Block {
                 break;
             case Token.SETVAR:
             case Token.SETCONSTVAR:
+            case Token.SETLETVAR:
                 {
                     Node lhs = n.getFirstChild();
                     Node rhs = lhs.getNext();
@@ -552,6 +553,7 @@ class Block {
             case Token.COMMA:
             case Token.SETVAR:
             case Token.SETCONSTVAR:
+            case Token.SETLETVAR:
             case Token.SETNAME:
             case Token.SETPROP:
             case Token.SETELEM:
@@ -589,6 +591,7 @@ class Block {
                 break;
             case Token.SETVAR:
             case Token.SETCONSTVAR:
+            case Token.SETLETVAR:
                 {
                     Node rValue = first.getNext();
                     int theType = findExpressionType(fn, rValue, varTypes);

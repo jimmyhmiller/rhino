@@ -175,6 +175,8 @@ class DefaultLinker implements GuardingDynamicLinker {
             mh = bindStringParameter(lookup, mType, ScriptRuntime.class, "strictSetName", 4, name);
         } else if (op.isOperation(RhinoOperation.SETCONST)) {
             mh = bindStringParameter(lookup, mType, ScriptRuntime.class, "setConst", 3, name);
+        } else if (op.isOperation(RhinoOperation.SETLETINIT)) {
+            mh = bindStringParameter(lookup, mType, ScriptRuntime.class, "setLetInit", 4, name);
         }
 
         if (mh != null) {

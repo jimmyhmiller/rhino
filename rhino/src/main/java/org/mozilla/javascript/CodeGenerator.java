@@ -966,6 +966,17 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 }
                 break;
 
+            case Token.SETLETINIT:
+                {
+                    String name = child.getString();
+                    visitExpression(child, 0);
+                    child = child.getNext();
+                    visitExpression(child, 0);
+                    addStringOp(Icode_SETLETINIT, name);
+                    stackChange(-1);
+                }
+                break;
+
             case Token.TYPEOFNAME:
                 {
                     int index = -1;
@@ -1034,6 +1045,16 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     child = child.getNext();
                     visitExpression(child, 0);
                     addVarOp(Token.SETCONSTVAR, index);
+                }
+                break;
+
+            case Token.SETLETVAR:
+                {
+                    if (builder.requiresActivationFrame) Kit.codeBug();
+                    int index = scriptOrFn.getIndexForNameNode(child);
+                    child = child.getNext();
+                    visitExpression(child, 0);
+                    addVarOp(Token.SETLETVAR, index);
                 }
                 break;
 
@@ -1837,6 +1858,14 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     return;
                 }
                 addIndexOp(Icode_SETCONSTVAR, varIndex);
+                return;
+            case Token.SETLETVAR:
+                if (varIndex < 128) {
+                    addIcode(Icode_SETLETVAR1);
+                    addUint8(varIndex);
+                    return;
+                }
+                addIndexOp(Icode_SETLETVAR, varIndex);
                 return;
             case Icode_GETVAR_TDZ:
                 if (varIndex < 128) {

@@ -962,6 +962,10 @@ class BodyCodegen {
                     /* special case this so as to avoid unnecessary
                     load's & pop's */
                     visitSetConstVar(child, child.getFirstChild(), false);
+                } else if (child.getType() == Token.SETLETVAR) {
+                    /* special case this so as to avoid unnecessary
+                    load's & pop's */
+                    visitSetLetVar(child, child.getFirstChild(), false);
                 } else if ((child.getType() == Token.YIELD)
                         || (child.getType() == Token.YIELD_STAR)) {
                     generateYieldPoint(child, false);
@@ -1585,6 +1589,14 @@ class BodyCodegen {
 
             case Token.SETCONSTVAR:
                 visitSetConstVar(node, child, true);
+                break;
+
+            case Token.SETLETINIT:
+                visitSetLetInit(node, child);
+                break;
+
+            case Token.SETLETVAR:
+                visitSetLetVar(node, child, true);
                 break;
 
             case Token.SETPROP:
@@ -4464,6 +4476,33 @@ class BodyCodegen {
         }
         cfw.addALoad(contextLocal);
         addDynamicInvoke("NAME:SETCONST:" + name, Signatures.NAME_SET_CONST);
+    }
+
+    private void visitSetLetInit(Node node, Node child) {
+        String name = node.getFirstChild().getString();
+        while (child != null) {
+            generateExpression(child, node);
+            child = child.getNext();
+        }
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(variableObjectLocal);
+        addDynamicInvoke("NAME:SETLETINIT:" + name, Signatures.NAME_SET_LETINIT);
+    }
+
+    private void visitSetLetVar(Node node, Node child, boolean needValue) {
+        // Let initialization for local variables - just set the value
+        if (!hasVarsInRegs) Kit.codeBug();
+        int varIndex = fnCurrent.getVarIndex(node);
+        generateExpression(child.getNext(), node);
+        boolean isNumber = (node.getIntProp(Node.ISNUMBER_PROP, -1) != -1);
+        int reg = varRegisters[varIndex];
+        if (isNumber) {
+            cfw.addDStore(reg);
+            if (needValue) cfw.addDLoad(reg);
+        } else {
+            cfw.addAStore(reg);
+            if (needValue) cfw.addALoad(reg);
+        }
     }
 
     private void visitGetVar(Node node) {

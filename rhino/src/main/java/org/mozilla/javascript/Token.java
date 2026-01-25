@@ -228,7 +228,9 @@ public class Token {
             CONST = LET + 1,
             SETCONST = CONST + 1,
             SETCONSTVAR = SETCONST + 1,
-            ARRAYCOMP = SETCONSTVAR + 1, // array comprehension
+            SETLETINIT = SETCONSTVAR + 1, // let initialization (clears TDZ)
+            SETLETVAR = SETLETINIT + 1, // let initialization for local variables
+            ARRAYCOMP = SETLETVAR + 1, // array comprehension
             LETEXPR = ARRAYCOMP + 1,
             WITHEXPR = LETEXPR + 1,
             DEBUGGER = WITHEXPR + 1,
@@ -619,6 +621,10 @@ public class Token {
                 return "SETCONST";
             case SETCONSTVAR:
                 return "SETCONSTVAR";
+            case SETLETINIT:
+                return "SETLETINIT";
+            case SETLETVAR:
+                return "SETLETVAR";
             case ARRAYCOMP:
                 return "ARRAYCOMP";
             case WITHEXPR:

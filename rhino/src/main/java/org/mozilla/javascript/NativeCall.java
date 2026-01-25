@@ -98,7 +98,12 @@ public final class NativeCall extends IdScriptableObject {
                                 PERMANENT | READONLY | UNINITIALIZED_CONST | CONST_BINDING);
                     } else if (function.getParamOrVarLetOrConst(i)) {
                         // Initialize let variables to TDZ_VALUE for temporal dead zone
-                        defineProperty(name, Undefined.TDZ_VALUE, PERMANENT);
+                        // Skip TDZ for internal temp variables (used by destructuring)
+                        if (name.startsWith("$")) {
+                            defineProperty(name, Undefined.instance, PERMANENT);
+                        } else {
+                            defineProperty(name, Undefined.TDZ_VALUE, PERMANENT);
+                        }
                     } else if (function.hasFunctionNamed(name)) {
                         defineProperty(name, Undefined.instance, PERMANENT);
                     } else {

@@ -1716,6 +1716,9 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.GETVAR] = new DoGetVar();
         instructionObjs[base + Icode_GETVAR1_TDZ] = new DoGetVar1Tdz();
         instructionObjs[base + Icode_GETVAR_TDZ] = new DoGetVarTdz();
+        instructionObjs[base + Icode_SETLETINIT] = new DoSetLetInit();
+        instructionObjs[base + Icode_SETLETVAR1] = new DoSetLetVar1();
+        instructionObjs[base + Icode_SETLETVAR] = new DoSetLetVar();
         instructionObjs[base + Icode_VAR_INC_DEC] = new DoVarIncDec();
         instructionObjs[base + Icode_ZERO] = new DoZero();
         instructionObjs[base + Icode_ONE] = new DoOne();
@@ -4027,6 +4030,59 @@ public final class Interpreter extends Icode implements Evaluator {
                             frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
                     frame.scope.put(varName, frame.scope, value);
                 }
+            }
+            return null;
+        }
+    }
+
+    // Let initialization for NAME lookup (activation frame)
+    private static class DoSetLetInit extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            final Object[] stack = frame.stack;
+            final double[] sDbl = frame.sDbl;
+            Object rhs = stack[state.stackTop];
+            if (rhs == DOUBLE_MARK) rhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
+            Scriptable lhs = (Scriptable) stack[state.stackTop - 1];
+            stack[state.stackTop - 1] =
+                    ScriptRuntime.setLetInit(lhs, rhs, cx, frame.scope, state.stringReg);
+            --state.stackTop;
+            return null;
+        }
+    }
+
+    // Let initialization for local variable (optimized path)
+    private static class DoSetLetVar1 extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            state.indexReg = frame.idata.itsICode[frame.pc++];
+            var vars = frame.varSource.stack;
+            var varDbls = frame.varSource.sDbl;
+            Object value = frame.stack[state.stackTop];
+            vars[state.indexReg] = value;
+            varDbls[state.indexReg] = frame.sDbl[state.stackTop];
+            // Sync let variables with NativeCall for closure access
+            if (frame.useActivation) {
+                String varName = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                frame.scope.put(varName, frame.scope, value);
+            }
+            return null;
+        }
+    }
+
+    // Let initialization for local variable (optimized path)
+    private static class DoSetLetVar extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            var vars = frame.varSource.stack;
+            var varDbls = frame.varSource.sDbl;
+            Object value = frame.stack[state.stackTop];
+            vars[state.indexReg] = value;
+            varDbls[state.indexReg] = frame.sDbl[state.stackTop];
+            // Sync let variables with NativeCall for closure access
+            if (frame.useActivation) {
+                String varName = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                frame.scope.put(varName, frame.scope, value);
             }
             return null;
         }

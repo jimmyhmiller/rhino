@@ -172,8 +172,13 @@ abstract class Icode {
             Icode_GETVAR1_TDZ = Icode_TDZ - 1,
             Icode_GETVAR_TDZ = Icode_GETVAR1_TDZ - 1,
 
+            // let initialization (clears TDZ)
+            Icode_SETLETINIT = Icode_GETVAR_TDZ - 1,
+            Icode_SETLETVAR = Icode_SETLETINIT - 1,
+            Icode_SETLETVAR1 = Icode_SETLETVAR - 1,
+
             // Copy per-iteration loop variables from WITH scope to parent scope
-            Icode_COPY_PER_ITER_SCOPE = Icode_GETVAR_TDZ - 1,
+            Icode_COPY_PER_ITER_SCOPE = Icode_SETLETVAR1 - 1,
 
             // Switch to new per-iteration scope (leave old, enter new with copies)
             Icode_SWITCH_PER_ITER_SCOPE = Icode_COPY_PER_ITER_SCOPE - 1,
@@ -380,6 +385,12 @@ abstract class Icode {
                 return "GETVAR1_TDZ";
             case Icode_GETVAR_TDZ:
                 return "GETVAR_TDZ";
+            case Icode_SETLETINIT:
+                return "SETLETINIT";
+            case Icode_SETLETVAR:
+                return "SETLETVAR";
+            case Icode_SETLETVAR1:
+                return "SETLETVAR1";
             case Icode_COPY_PER_ITER_SCOPE:
                 return "COPY_PER_ITER_SCOPE";
             case Icode_SWITCH_PER_ITER_SCOPE:

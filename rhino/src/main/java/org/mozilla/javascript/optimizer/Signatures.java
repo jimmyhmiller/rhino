@@ -206,6 +206,17 @@ interface Signatures {
                     + ")Ljava/lang/Object;";
 
     /**
+     * NAME:SETLETINIT:name - Name will be split off and passed as the fifth argument to
+     * ScriptRuntime.setLetInit.
+     */
+    String NAME_SET_LETINIT =
+            "(Lorg/mozilla/javascript/Scriptable;"
+                    + "Ljava/lang/Object;"
+                    + "Lorg/mozilla/javascript/Context;"
+                    + "Lorg/mozilla/javascript/Scriptable;"
+                    + ")Ljava/lang/Object;";
+
+    /**
      * MATH:ADD: Add the first two arguments on the stack, which could be numbers, strings, or
      * really just about anything.
      */
