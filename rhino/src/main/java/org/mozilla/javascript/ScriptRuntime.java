@@ -2522,13 +2522,24 @@ public class ScriptRuntime {
             Scriptable bound, Object value, Context cx, Scriptable scope, String id) {
         if (bound != null) {
             // TDZ write check: cannot assign to a let/const variable before initialization
-            // Skip TDZ check for internal temp variables (used by destructuring, array
-            // comprehensions)
+            // Skip for internal temp variables (used by destructuring, array comprehensions)
             if (!id.startsWith("$")) {
                 Object currentValue = ScriptableObject.getProperty(bound, id);
                 if (currentValue == Undefined.TDZ_VALUE) {
-                    throw constructError(
-                            "ReferenceError", "Cannot access '" + id + "' before initialization");
+                    // Check if the current scope is inside bound - if not, this might be
+                    // an eval var trying to access a let from a nested scope
+                    boolean scopeInBound = false;
+                    for (Scriptable s = scope; s != null; s = s.getParentScope()) {
+                        if (s == bound) {
+                            scopeInBound = true;
+                            break;
+                        }
+                    }
+                    if (scopeInBound) {
+                        throw constructError(
+                                "ReferenceError",
+                                "Cannot access '" + id + "' before initialization");
+                    }
                 }
             }
             // TODO: we used to special-case XMLObject here, but putProperty
@@ -5038,6 +5049,15 @@ public class ScriptRuntime {
                     }
                 } else {
                     ScriptableObject.redefineProperty(scope, name, isConst);
+                    // For eval var declarations, if the existing binding is TDZ_VALUE from
+                    // a let/const in a nested scope (e.g., function body), we need to allow
+                    // the var to coexist. Clear the TDZ state by setting to undefined.
+                    if (evalScript && !isLetOrConst) {
+                        Object currentValue = ScriptableObject.getProperty(varScope, name);
+                        if (currentValue == Undefined.TDZ_VALUE) {
+                            varScope.put(name, varScope, Undefined.instance);
+                        }
+                    }
                 }
             }
         }
