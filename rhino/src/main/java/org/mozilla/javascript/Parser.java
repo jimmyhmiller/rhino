@@ -1465,7 +1465,7 @@ public class Parser {
                 consumeToken();
             }
             elsePos = ts.tokenBeg - pos;
-            ifFalse = statement();
+            ifFalse = getNextStatementAfterInlineComments(null);
         }
         int end = getNodeEnd(ifFalse != null ? ifFalse : ifTrue);
         pn.setLength(end - pos);

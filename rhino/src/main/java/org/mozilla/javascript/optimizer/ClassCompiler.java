@@ -297,6 +297,20 @@ public class ClassCompiler {
                 cfw.add(ByteCode.IINC, 2, 1);
             }
         }
+        // paramIsLetOrConst array for TDZ support
+        cfw.addLoadConstant(builder.paramIsLetOrConst.length);
+        cfw.add(ByteCode.NEWARRAY, ByteCode.T_BOOLEAN);
+        if (builder.paramIsLetOrConst.length > 0) {
+            cfw.addLoadConstant(0);
+            cfw.addIStore(2);
+            for (int p = 0; p < builder.paramAndVarNames.length; p++) {
+                cfw.add(ByteCode.DUP);
+                cfw.addILoad(2);
+                cfw.add(builder.paramIsLetOrConst[p] ? ByteCode.ICONST_1 : ByteCode.ICONST_0);
+                cfw.add(ByteCode.BASTORE);
+                cfw.add(ByteCode.IINC, 2, 1);
+            }
+        }
         cfw.add(builder.isStrict ? ByteCode.ICONST_1 : ByteCode.ICONST_0);
         cfw.add(builder.isScript ? ByteCode.ICONST_1 : ByteCode.ICONST_0);
         cfw.add(builder.isTopLevel ? ByteCode.ICONST_1 : ByteCode.ICONST_0);

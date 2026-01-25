@@ -5326,6 +5326,35 @@ public class ScriptRuntime {
         }
     }
 
+    /**
+     * Throws a TypeError for attempting to modify a const variable. Used by compiled code to
+     * enforce const semantics at runtime.
+     */
+    public static void throwConstAssignError(String varName) {
+        throw typeErrorById("msg.modify.readonly", varName);
+    }
+
+    /**
+     * Throws a ReferenceError for accessing a let/const variable before initialization. Used by
+     * compiled code to enforce TDZ (Temporal Dead Zone) semantics at runtime.
+     */
+    public static void throwTdzError(String varName) {
+        throw constructError(
+                "ReferenceError", "Cannot access '" + varName + "' before initialization");
+    }
+
+    /**
+     * Checks if a let/const variable is still in the Temporal Dead Zone (TDZ). If so, throws a
+     * ReferenceError. Otherwise returns the value. Used by compiled code.
+     */
+    public static Object checkTdz(Object value, String varName) {
+        if (value == Undefined.TDZ_VALUE) {
+            throw constructError(
+                    "ReferenceError", "Cannot access '" + varName + "' before initialization");
+        }
+        return value;
+    }
+
     public static Scriptable enterDotQuery(Object value, Scriptable scope) {
         if (!(value instanceof XMLObject)) {
             throw notXmlError(value);

@@ -807,23 +807,45 @@ class TokenStream implements Parser.CurrentPositionReporter {
                             string = result == Token.LET ? "let" : "yield";
                             result = Token.NAME;
                         }
-                        // Save the string in case we need to use in
-                        // object literal definitions.
-                        this.string = internString(str);
-                        if (result != Token.RESERVED) {
-                            return result;
-                        } else if (parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
-                            return result;
-                        } else if (!parser.compilerEnv.isReservedKeywordAsIdentifier()) {
-                            return result;
+                        // ES6+: Keywords with escapes should not be treated as keywords.
+                        // - `l\u0065t x = 1` is NOT a let declaration
+                        // - In non-strict mode, `let` is contextual, so escaped let is a NAME
+                        // - In strict mode, `let` is reserved, so escaped let is RESERVED
+                        // - `const` is always reserved, so escaped const is always RESERVED
+                        if (containsEscape
+                                && parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                                && (result == Token.LET || result == Token.CONST)) {
+                            this.string = internString(str);
+                            if (result == Token.CONST) {
+                                // const is always reserved
+                                return Token.RESERVED;
+                            } else if (parser.inUseStrictDirective()) {
+                                // let is reserved in strict mode
+                                return Token.RESERVED;
+                            } else {
+                                // let is contextual in non-strict mode, treat as identifier
+                                return Token.NAME;
+                            }
+                        } else {
+                            // Save the string in case we need to use in
+                            // object literal definitions.
+                            this.string = internString(str);
+                            if (result != Token.RESERVED) {
+                                return result;
+                            } else if (parser.compilerEnv.getLanguageVersion()
+                                    >= Context.VERSION_ES6) {
+                                return result;
+                            } else if (!parser.compilerEnv.isReservedKeywordAsIdentifier()) {
+                                return result;
+                            }
                         }
                     }
                 } else if (isKeyword(
                         str,
                         parser.compilerEnv.getLanguageVersion(),
                         parser.inUseStrictDirective())) {
-                    // If a string contains unicodes, and converted to a keyword,
-                    // we convert the last character back to unicode
+                    // Pre-ES6: If a string contains unicodes, and converted to a keyword,
+                    // we convert the last character back to unicode for backwards compat.
                     str = convertLastCharToHex(str);
                 }
 

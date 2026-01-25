@@ -139,8 +139,17 @@ language/statements/let/static-init-await-binding-valid.js
 
 1. **Const reassignment in for-loop throws TypeError** - `for (const i = 0; i < 1; i++)` now correctly throws TypeError when `i++` executes at runtime
 2. **Const shadowing works correctly** - Inner const can shadow outer const without errors
+3. **TDZ for direct variable access** - Accessing let/const before initialization throws ReferenceError (both interpreted and compiled modes)
 
-**Key changes made:**
+**TDZ implementation details:**
+- `JSDescriptor.java`: Added `paramIsLetOrConst` array to track let/const variables
+- `CodeGenUtils.java`: Populates `paramIsLetOrConst` from ScriptNode
+- `ClassDescriptor.java` & `ClassCompiler.java`: Handle paramIsLetOrConst serialization
+- `Interpreter.java`: Modified `initializeArgs()` to initialize let/const to `TDZ_VALUE`
+- `BodyCodegen.java`: Initialize let/const to `TDZ_VALUE` in prologue; added TDZ check in `visitGetVar()`
+- `ScriptRuntime.java`: Added `checkTdz()` helper for compiled mode
+
+**Other key changes made:**
 - `ScriptRuntime.java`: Added READONLY check in `doScriptableIncrDecr()` to throw TypeError when modifying const variables in WITH scopes
 - `ScriptRuntime.java`: Added `enterWithConst()` method to mark const properties as READONLY
 - `NodeTransformer.java`: Added `visitLetScopeWithConst()` to handle LET scopes from for-loops with const
@@ -151,6 +160,20 @@ language/statements/let/static-init-await-binding-valid.js
 - `Node.java`: Added CONST_FOR_LOOP_SCOPE property constant
 - `test262.properties`: Added `annexB/language/statements/for-in/const-initializer.js` to expected failures (pre-existing bug: `for (const a = 0 in {})` should be a SyntaxError but parses successfully)
 - Fixed hang caused by incorrect `parentScope` update in `Scope.splitScope()`
+
+### Remaining: TDZ for Closures
+
+The closure-get-before-initialization and closure-set-before-initialization tests still fail. These involve closures that capture let/const variables and access them before the variable is initialized:
+
+```javascript
+function test() {
+  var f = function() { return x; };
+  f();  // Should throw ReferenceError
+  const x = 1;
+}
+```
+
+This is more complex because closures access variables through the scope chain (activation scopes or WITH scopes), not direct register access.
 
 ### Remaining: Per-Iteration Bindings for Let in For Loops
 

@@ -333,7 +333,12 @@ public final class Interpreter extends Icode implements Evaluator {
                 System.arraycopy(argsDbl, argShift, sDbl, blen, definedArgs - blen);
             }
             for (int i = definedArgs; i != idata.itsMaxVars; ++i) {
-                stack[i] = Undefined.instance;
+                // Initialize let/const variables to TDZ_VALUE for Temporal Dead Zone support
+                if (desc.getParamOrVarLetOrConst(i)) {
+                    stack[i] = Undefined.TDZ_VALUE;
+                } else {
+                    stack[i] = Undefined.instance;
+                }
             }
 
             if (desc.hasRestArg()) {

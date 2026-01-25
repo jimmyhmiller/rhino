@@ -107,6 +107,14 @@ public class CodeGenUtils {
                 disambiguateNames(scriptOrFn.getParamAndVarNames(), scriptOrFn.getParamCount());
         builder.paramCount = scriptOrFn.getParamCount();
         builder.paramIsConst = scriptOrFn.getParamAndVarConst();
+        // Compute combined let-or-const array for TDZ support
+        boolean[] isConsts = scriptOrFn.getParamAndVarConst();
+        boolean[] isLets = scriptOrFn.getParamAndVarLet();
+        boolean[] isLetOrConst = new boolean[isConsts.length];
+        for (int i = 0; i < isLetOrConst.length; i++) {
+            isLetOrConst[i] = isConsts[i] || isLets[i];
+        }
+        builder.paramIsLetOrConst = isLetOrConst;
         builder.paramAndVarCount = scriptOrFn.getParamAndVarCount();
         builder.hasRestArg = scriptOrFn.hasRestParameter();
         builder.hasDefaultParameters = scriptOrFn.getDefaultParams() != null;

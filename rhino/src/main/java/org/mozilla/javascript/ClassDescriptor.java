@@ -471,6 +471,7 @@ public class ClassDescriptor {
             Arrays.fill(paramNames, "");
             builder.paramAndVarNames = paramNames;
             builder.paramIsConst = new boolean[length];
+            builder.paramIsLetOrConst = new boolean[length];
             builder.paramAndVarCount = length;
             builder.rawSource = String.format("function %s() {\n\t[native code]\n}", name);
             builder.rawSourceStart = 0;

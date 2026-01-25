@@ -371,6 +371,7 @@ class BodyCodegen {
             // REMIND - only need to initialize the vars that don't get a value
             // before the next call and are used in the function
             int firstUndefVar = -1;
+            int firstTdzVar = -1;
             for (int i = 0; i != varCount; ++i) {
                 int reg = -1;
                 if (i < paramCount) {
@@ -387,11 +388,21 @@ class BodyCodegen {
                     cfw.addDStore(reg);
                 } else {
                     reg = getNewWordLocal(constDeclarations[i]);
-                    if (firstUndefVar == -1) {
-                        Codegen.pushUndefined(cfw);
-                        firstUndefVar = reg;
+                    // TDZ: Initialize let/const variables to TDZ_VALUE, regular vars to undefined
+                    if (fnCurrent.fnode.isParamOrVarLetOrConst(i)) {
+                        if (firstTdzVar == -1) {
+                            Codegen.pushTDZ(cfw);
+                            firstTdzVar = reg;
+                        } else {
+                            cfw.addALoad(firstTdzVar);
+                        }
                     } else {
-                        cfw.addALoad(firstUndefVar);
+                        if (firstUndefVar == -1) {
+                            Codegen.pushUndefined(cfw);
+                            firstUndefVar = reg;
+                        } else {
+                            cfw.addALoad(firstUndefVar);
+                        }
                     }
                     cfw.addAStore(reg);
                 }
@@ -3779,37 +3790,16 @@ class BodyCodegen {
                 int reg = varRegisters[varIndex];
                 boolean[] constDeclarations = fnCurrent.fnode.getParamAndVarConst();
                 if (constDeclarations[varIndex]) {
+                    // ES6: const variables cannot be modified - throw TypeError
+                    String varName = fnCurrent.fnode.getParamOrVarName(varIndex);
+                    cfw.addPush(varName);
+                    addScriptRuntimeInvoke("throwConstAssignError", "(Ljava/lang/String;)V");
+                    // The method above throws, but we need to push a value for the stack
+                    // to satisfy the bytecode verifier. This code is unreachable.
                     if (node.getIntProp(Node.ISNUMBER_PROP, -1) != -1) {
-                        int offset = varIsDirectCallParameter(varIndex) ? 1 : 0;
-                        cfw.addDLoad(reg + offset);
-                        if (!post) {
-                            cfw.addPush(1.0);
-                            if ((incrDecrMask & Node.DECR_FLAG) == 0) {
-                                cfw.add(ByteCode.DADD);
-                            } else {
-                                cfw.add(ByteCode.DSUB);
-                            }
-                        }
+                        cfw.addPush(0.0);
                     } else {
-                        if (varIsDirectCallParameter(varIndex)) {
-                            dcpLoadAsObject(reg);
-                        } else {
-                            cfw.addALoad(reg);
-                        }
-                        if (post) {
-                            cfw.add(ByteCode.DUP);
-                            addObjectToDouble();
-                            cfw.add(ByteCode.POP2);
-                        } else {
-                            addObjectToDouble();
-                            cfw.addPush(1.0);
-                            if ((incrDecrMask & Node.DECR_FLAG) == 0) {
-                                cfw.add(ByteCode.DADD);
-                            } else {
-                                cfw.add(ByteCode.DSUB);
-                            }
-                            addDoubleWrap();
-                        }
+                        Codegen.pushUndefined(cfw);
                     }
                     break;
                 }
@@ -4468,6 +4458,13 @@ class BodyCodegen {
             cfw.addDLoad(reg);
         } else {
             cfw.addALoad(reg);
+            // TDZ check for let/const variables
+            if (fnCurrent.fnode.isParamOrVarLetOrConst(varIndex)) {
+                String varName = fnCurrent.fnode.getParamOrVarName(varIndex);
+                cfw.addPush(varName);
+                addScriptRuntimeInvoke(
+                        "checkTdz", "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;");
+            }
         }
     }
 
@@ -4479,9 +4476,18 @@ class BodyCodegen {
         int reg = varRegisters[varIndex];
         boolean[] constDeclarations = fnCurrent.fnode.getParamAndVarConst();
         if (constDeclarations[varIndex]) {
-            if (!needValue) {
-                if (isNumber) cfw.add(ByteCode.POP2);
-                else cfw.add(ByteCode.POP);
+            // ES6: const variables cannot be reassigned - throw TypeError
+            // Pop the value that was generated for the assignment
+            if (isNumber) cfw.add(ByteCode.POP2);
+            else cfw.add(ByteCode.POP);
+            String varName = fnCurrent.fnode.getParamOrVarName(varIndex);
+            cfw.addPush(varName);
+            addScriptRuntimeInvoke("throwConstAssignError", "(Ljava/lang/String;)V");
+            // The method above throws, but we need to push a value for the stack
+            // if needValue is true to satisfy the bytecode verifier
+            if (needValue) {
+                if (isNumber) cfw.addPush(0.0);
+                else Codegen.pushUndefined(cfw);
             }
         } else if (varIsDirectCallParameter(varIndex)) {
             if (isNumber) {
