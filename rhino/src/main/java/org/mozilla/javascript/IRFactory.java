@@ -2487,8 +2487,14 @@ public final class IRFactory {
         switch (nodeType) {
             case Token.NAME:
                 {
+                    String name = left.getString();
+                    // Check for assignment to arguments/eval in strict mode
+                    if (parser.inUseStrictDirective()
+                            && ("eval".equals(name) || "arguments".equals(name))) {
+                        parser.reportError("msg.bad.id.strict", name);
+                    }
                     Node op = new Node(assignOp, left, right);
-                    Node lvalueLeft = Node.newString(Token.BINDNAME, left.getString());
+                    Node lvalueLeft = Node.newString(Token.BINDNAME, name);
                     return propagateSuperFromLhs(new Node(Token.SETNAME, lvalueLeft, op), left);
                 }
             case Token.GETPROP:
