@@ -125,11 +125,12 @@ public class BaseFunction extends ScriptableObject implements Function {
                 (Scriptable) ScriptableObject.getProperty(function, PROTOTYPE_PROPERTY_NAME);
         proto.setPrototype(functionProto);
 
-        var iterator = (Scriptable) ScriptableObject.getProperty(scope, "Iterator");
-        ScriptableObject.putProperty(
-                proto,
+        // GeneratorFunction.prototype.prototype should be the Generator prototype
+        // with attributes { [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]: true }
+        proto.defineProperty(
                 PROTOTYPE_PROPERTY_NAME,
-                ScriptableObject.getTopScopeValue(top, ES6Generator.GENERATOR_TAG));
+                ScriptableObject.getTopScopeValue(top, ES6Generator.GENERATOR_TAG),
+                READONLY | DONTENUM);
 
         LambdaConstructor ctor =
                 new LambdaConstructor(
