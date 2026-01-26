@@ -787,6 +787,29 @@ public class NodeTransformer {
                     child.removeChild(init);
                     varInits.add(new Node[] {child, init});
                 }
+            } else if (child.getType() == Token.LET || child.getType() == Token.CONST) {
+                // Handle the nested LET/CONST declaration node
+                // Its children are the actual NAME nodes with initializers
+                for (Node grandchild = child.getFirstChild();
+                        grandchild != null;
+                        grandchild = grandchild.getNext()) {
+                    if (grandchild.getType() == Token.NAME) {
+                        String varName = grandchild.getString();
+                        list.add(ScriptRuntime.getIndexObject(varName));
+
+                        // Start with TDZ in the object literal
+                        objectLiteral.addChildToBack(new Node(Token.TDZ));
+
+                        // Save the initializer for later assignment inside WITH scope
+                        Node init = grandchild.getFirstChild();
+                        if (init != null) {
+                            grandchild.removeChild(init);
+                            varInits.add(new Node[] {grandchild, init});
+                        }
+                    }
+                }
+                // Remove the LET/CONST node - we've extracted what we need
+                node.removeChild(child);
             } else {
                 // LOOP or other body nodes
                 node.removeChild(child);
@@ -809,9 +832,10 @@ public class NodeTransformer {
             Node initExpr = varInit[1];
             String varName = nameNode.getString();
 
-            // Create: varName = initExpr (as SETNAME since we're in WITH scope)
+            // Create: varName = initExpr (as SETLETINIT since we're initializing a let variable)
+            // SETLETINIT bypasses TDZ checks because we're doing the initialization
             Node bindName = Node.newString(Token.BINDNAME, varName);
-            Node assignment = new Node(Token.SETNAME, bindName, initExpr);
+            Node assignment = new Node(Token.SETLETINIT, bindName, initExpr);
             Node exprStmt = new Node(Token.EXPR_VOID, assignment);
             body.addChildToBack(exprStmt);
         }
