@@ -112,11 +112,11 @@ jobs:
 
           VERSION="${{ steps.find-jar.outputs.version }}"
 
-          # Update rhinoversions.js to include tested versions
-          echo "module.exports = [" > rhinoversions.js
-          echo "  \"$UPSTREAM_VERSION\"," >> rhinoversions.js
-          echo "  \"${VERSION}-fork\"" >> rhinoversions.js
-          echo "];" >> rhinoversions.js
+          # Update rhinoversions.js to include tested versions (must be object with flagged property)
+          echo "module.exports = {" > rhinoversions.js
+          echo "  '$UPSTREAM_VERSION': { flagged: true }," >> rhinoversions.js
+          echo "  '${VERSION}-fork': { flagged: true }" >> rhinoversions.js
+          echo "};" >> rhinoversions.js
 
           cat rhinoversions.js
 
