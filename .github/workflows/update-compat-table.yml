@@ -113,12 +113,14 @@ jobs:
           VERSION="${{ steps.find-jar.outputs.version }}"
 
           # Update rhinoversions.js to include tested versions
-          cat > rhinoversions.js << EOF
-          module.exports = [
-            "$UPSTREAM_VERSION",
-            "${VERSION}-fork"
-          ];
-          EOF
+          cat > rhinoversions.js << 'ENDJS'
+module.exports = [
+ENDJS
+          echo "  \"$UPSTREAM_VERSION\"," >> rhinoversions.js
+          echo "  \"${VERSION}-fork\"" >> rhinoversions.js
+          echo "];" >> rhinoversions.js
+
+          cat rhinoversions.js
 
           # Build the HTML
           node buildrhino.js
