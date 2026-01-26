@@ -113,9 +113,7 @@ jobs:
           VERSION="${{ steps.find-jar.outputs.version }}"
 
           # Update rhinoversions.js to include tested versions
-          cat > rhinoversions.js << 'ENDJS'
-module.exports = [
-ENDJS
+          echo "module.exports = [" > rhinoversions.js
           echo "  \"$UPSTREAM_VERSION\"," >> rhinoversions.js
           echo "  \"${VERSION}-fork\"" >> rhinoversions.js
           echo "];" >> rhinoversions.js
