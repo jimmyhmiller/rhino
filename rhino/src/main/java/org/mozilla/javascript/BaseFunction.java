@@ -134,7 +134,7 @@ public class BaseFunction extends ScriptableObject implements Function {
         LambdaConstructor ctor =
                 new LambdaConstructor(
                         scope,
-                        GENERATOR_FUNCTION_CLASS,
+                        "GeneratorFunction",
                         1,
                         proto,
                         BaseFunction::js_gen_constructorCall,
