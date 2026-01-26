@@ -1,0 +1,165 @@
+name: Update Compatibility Table
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-compat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out Rhino
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for git worktree
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'adopt'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Rhino JAR
+        run: ./gradlew :rhino-all:jar
+
+      - name: Find built JAR
+        id: find-jar
+        run: |
+          JAR_PATH=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
+          echo "jar_path=$(realpath $JAR_PATH)" >> $GITHUB_OUTPUT
+          VERSION=$(basename "$JAR_PATH" .jar | sed 's/rhino-all-//')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Found JAR: $JAR_PATH (version: $VERSION)"
+
+      - name: Clone node-compat-table
+        run: |
+          git clone -b gh-pages --depth 1 https://github.com/gbrail/node-compat-table.git
+          cd node-compat-table
+          npm install
+
+      - name: Build latest branch for comparison
+        run: |
+          git worktree add ../rhino-latest origin/latest
+          cd ../rhino-latest
+          ./gradlew :rhino-all:jar
+          LATEST_JAR=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
+          echo "LATEST_JAR=$(realpath $LATEST_JAR)" >> $GITHUB_ENV
+          LATEST_VERSION=$(basename "$LATEST_JAR" .jar | sed 's/rhino-all-//')
+          echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
+          echo "Built latest branch: $LATEST_JAR (version: $LATEST_VERSION)"
+
+      - name: Run compatibility tests
+        run: |
+          cd node-compat-table
+
+          JAR_PATH="${{ steps.find-jar.outputs.jar_path }}"
+          VERSION="${{ steps.find-jar.outputs.version }}"
+
+          echo "Testing Rhino $VERSION from $JAR_PATH"
+
+          # Download test data from kangax/compat-table
+          curl -s -o es6.json "https://raw.githubusercontent.com/nicolo-ribaudo/compat-table/main/exports/es6.json"
+          curl -s -o es2016plus.json "https://raw.githubusercontent.com/nicolo-ribaudo/compat-table/main/exports/es2016plus.json"
+          curl -s -o esnext.json "https://raw.githubusercontent.com/nicolo-ribaudo/compat-table/main/exports/esnext.json"
+
+          # Extract testers and merge into testers.json
+          node extract.js es6.json es6-testers.json
+          node extract.js es2016plus.json es2016plus-testers.json
+          node extract.js esnext.json esnext-testers.json
+
+          # Merge all testers into one file (the format rhinotest.js expects)
+          node -e "
+            const es6 = require('./es6-testers.json');
+            const es2016 = require('./es2016plus-testers.json');
+            const esnext = require('./esnext-testers.json');
+            const merged = {...es6, ...es2016, ...esnext};
+            require('fs').writeFileSync('testers.json', JSON.stringify(merged, null, 2));
+          "
+
+          # Create results directory
+          mkdir -p rhino-results
+
+          # Function to run tests for a JAR
+          run_tests() {
+            local jar="$1"
+            local ver="$2"
+            echo "Testing $ver..."
+
+            # Run tests without ES6 flag
+            java -jar "$jar" -version 200 rhinotest.js 2>/dev/null > rhino-results/${ver}.json || echo '{}' > rhino-results/${ver}.json
+
+            # Run tests with ES6 flag
+            echo "var defined = 'RHINO_VERSION_ES6';" > /tmp/test.js
+            java -jar "$jar" -version 200 /tmp/test.js rhinotest.js 2>/dev/null > rhino-results/${ver}-es6.json || echo '{}' > rhino-results/${ver}-es6.json
+            rm -f /tmp/test.js
+          }
+
+          # Test latest branch
+          run_tests "$LATEST_JAR" "$LATEST_VERSION"
+
+          # Test fork build
+          run_tests "$JAR_PATH" "${VERSION}-fork"
+
+      - name: Build HTML
+        run: |
+          cd node-compat-table
+
+          VERSION="${{ steps.find-jar.outputs.version }}"
+
+          # Update rhinoversions.js to include tested versions
+          cat > rhinoversions.js << EOF
+          module.exports = [
+            "$LATEST_VERSION",
+            "${VERSION}-fork"
+          ];
+          EOF
+
+          # Build the HTML
+          node buildrhino.js
+
+      - name: Prepare site
+        run: |
+          mkdir -p _site/compat
+          cp node-compat-table/index.html _site/compat/engines.html
+          cat > _site/index.html << 'EOF'
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Rhino Fork</title>
+            <meta http-equiv="refresh" content="0; url=compat/engines.html">
+          </head>
+          <body>
+            <p>Redirecting to <a href="compat/engines.html">compatibility table</a>...</p>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-compat
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
