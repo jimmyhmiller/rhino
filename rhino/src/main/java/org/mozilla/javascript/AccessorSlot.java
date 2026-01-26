@@ -92,7 +92,7 @@ public class AccessorSlot extends Slot {
                 return true;
             }
         } else {
-            return setter.setValue(value, owner, start);
+            return setter.setValue(value, owner, start, isThrow);
         }
         return super.setValue(value, owner, start, isThrow);
     }
@@ -210,7 +210,7 @@ public class AccessorSlot extends Slot {
     }
 
     interface Setter {
-        boolean setValue(Object value, Scriptable owner, Scriptable start);
+        boolean setValue(Object value, Scriptable owner, Scriptable start, boolean isThrow);
 
         Function asSetterFunction(final String name, final Scriptable scope);
 
@@ -226,7 +226,7 @@ public class AccessorSlot extends Slot {
         }
 
         @Override
-        public boolean setValue(Object value, Scriptable owner, Scriptable start) {
+        public boolean setValue(Object value, Scriptable owner, Scriptable start, boolean isThrow) {
             Context cx = Context.getContext();
             var pTypes = member.getArgTypes();
             // XXX: cache tag since it is already calculated in
@@ -266,11 +266,18 @@ public class AccessorSlot extends Slot {
         }
 
         @Override
-        public boolean setValue(Object value, Scriptable owner, Scriptable start) {
+        public boolean setValue(Object value, Scriptable owner, Scriptable start, boolean isThrow) {
             if (target instanceof Function) {
                 Function t = (Function) target;
                 Context cx = Context.getContext();
                 t.call(cx, t.getDeclarationScope(), start, new Object[] {value});
+            } else if (isThrow) {
+                // In strict mode, attempting to set a property with no setter throws TypeError
+                throw ScriptRuntime.typeErrorById(
+                        "msg.modify.readonly",
+                        owner instanceof ScriptableObject
+                                ? ((ScriptableObject) owner).getClassName()
+                                : "Object");
             }
             return true;
         }

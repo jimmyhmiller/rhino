@@ -667,6 +667,8 @@ public class Token {
                 return "COPY_PER_ITER_SCOPE";
             case SWITCH_PER_ITER_SCOPE:
                 return "SWITCH_PER_ITER_SCOPE";
+            case REQ_OBJ_COERCIBLE:
+                return "REQ_OBJ_COERCIBLE";
         }
 
         // Token without name
