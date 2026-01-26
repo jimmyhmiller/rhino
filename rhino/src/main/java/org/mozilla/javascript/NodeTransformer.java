@@ -287,24 +287,41 @@ public class NodeTransformer {
                 case Token.LETEXPR:
                 case Token.LET:
                     {
-                        Node child = node.getFirstChild();
-                        if (child.getType() == Token.LET) {
-                            // We have a let statement or expression rather than a
-                            // let declaration
-                            boolean createWith =
-                                    tree.getType() != Token.FUNCTION
-                                            || ((FunctionNode) tree).requiresActivation();
-                            node = visitLet(createWith, parent, previous, node);
-                            break;
-                        }
                         // For LET scopes from for-loop with const (marked by IRFactory),
                         // we need to create a WITH scope when createScopeObjects is true.
+                        // Check this BEFORE the nested-let check since for-loop let scopes
+                        // also have a Token.LET first child.
                         if (createScopeObjects
                                 && node instanceof Scope
                                 && node.getIntProp(Node.CONST_FOR_LOOP_SCOPE, 0) == 1) {
                             Scope letScope = (Scope) node;
                             // Transform to WITH scope for proper const enforcement
                             node = visitLetScopeWithConst(parent, previous, node, letScope);
+                            break;
+                        }
+                        // For LET scopes from for-loop with let that contain function expressions,
+                        // we need to create a WITH scope so closures capture the right scope.
+                        if (createScopeObjects
+                                && node instanceof Scope
+                                && node.getIntProp(Node.LET_FOR_LOOP_SCOPE, 0) == 1) {
+                            Scope letScope = (Scope) node;
+                            // Check if any initializer contains a function expression
+                            if (hasClosureInInitializers(node)) {
+                                node =
+                                        visitLetScopeWithDeferredInit(
+                                                parent, previous, node, letScope);
+                                break;
+                            }
+                            // No closures, fall through to regular handling
+                        }
+                        Node child = node.getFirstChild();
+                        if (child != null && child.getType() == Token.LET) {
+                            // We have a let statement or expression rather than a
+                            // let declaration
+                            boolean createWith =
+                                    tree.getType() != Token.FUNCTION
+                                            || ((FunctionNode) tree).requiresActivation();
+                            node = visitLet(createWith, parent, previous, node);
                             break;
                         }
                         // fall through to process let declaration...
@@ -627,8 +644,9 @@ public class NodeTransformer {
     }
 
     /**
-     * Transform a LET scope (from for-loop with const) into a WITH scope when createScopeObjects is
-     * true. This ensures const properties are marked READONLY.
+     * Transform a LET scope (from for-loop with let/const) into a WITH scope when
+     * createScopeObjects is true. This ensures closures in the initializer capture the scope, and
+     * marks const properties as READONLY.
      */
     private Node visitLetScopeWithConst(Node parent, Node previous, Node node, Scope letScope) {
         // Create WITH scope structure: BLOCK { ENTERWITH(obj); WITH { children }; LEAVEWITH }
@@ -682,6 +700,127 @@ public class NodeTransformer {
         for (Node bodyNode : bodyNodes) {
             body.addChildToBack(bodyNode);
         }
+        result.addChildToBack(new Node(Token.WITH, body));
+        result.addChildToBack(new Node(Token.LEAVEWITH));
+
+        // Clear the symbol table to prevent re-processing
+        letScope.setSymbolTable(null);
+
+        return result;
+    }
+
+    /**
+     * Check if any NAME children (or grandchildren) have initializers containing function
+     * expressions. This is used to determine if we need special handling for closures in for-loop
+     * let initializers. The structure is: LET scope -> LET decl -> NAME nodes
+     */
+    private boolean hasClosureInInitializers(Node node) {
+        for (Node child = node.getFirstChild(); child != null; child = child.getNext()) {
+            if (child.getType() == Token.NAME) {
+                Node init = child.getFirstChild();
+                if (init != null && containsFunction(init)) {
+                    return true;
+                }
+            } else if (child.getType() == Token.LET || child.getType() == Token.CONST) {
+                // Check grandchildren (NAME nodes inside the LET/CONST declaration)
+                for (Node grandchild = child.getFirstChild();
+                        grandchild != null;
+                        grandchild = grandchild.getNext()) {
+                    if (grandchild.getType() == Token.NAME) {
+                        Node init = grandchild.getFirstChild();
+                        if (init != null && containsFunction(init)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Recursively check if a node or its descendants contain a function expression. */
+    private boolean containsFunction(Node node) {
+        if (node.getType() == Token.FUNCTION) {
+            return true;
+        }
+        for (Node child = node.getFirstChild(); child != null; child = child.getNext()) {
+            if (containsFunction(child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Transform a LET scope (from for-loop with let) into a WITH scope with deferred
+     * initialization. This ensures closures in the initializer capture the WITH scope (which
+     * contains the let variables) rather than the outer scope.
+     *
+     * <p>Generated structure: BLOCK { ENTERWITH(obj with TDZ); WITH { inits; body }; LEAVEWITH }
+     */
+    private Node visitLetScopeWithDeferredInit(
+            Node parent, Node previous, Node node, Scope letScope) {
+        Node result = new Node(Token.BLOCK);
+        result = replaceCurrent(parent, previous, node, result);
+
+        // Create object literal with TDZ values for all variables
+        // We'll assign the real values INSIDE the WITH scope
+        ArrayList<Object> list = new ArrayList<>();
+        Node objectLiteral = new Node(Token.OBJECTLIT);
+
+        // Collect variable info and body nodes
+        ArrayList<Node[]> varInits = new ArrayList<>(); // [nameNode, initNode] pairs
+        ArrayList<Node> bodyNodes = new ArrayList<>();
+
+        for (Node child = node.getFirstChild(); child != null; ) {
+            Node next = child.getNext();
+            if (child.getType() == Token.NAME) {
+                String varName = child.getString();
+                list.add(ScriptRuntime.getIndexObject(varName));
+
+                // Start with TDZ in the object literal
+                objectLiteral.addChildToBack(new Node(Token.TDZ));
+
+                // Save the initializer for later assignment inside WITH scope
+                Node init = child.getFirstChild();
+                if (init != null) {
+                    child.removeChild(init);
+                    varInits.add(new Node[] {child, init});
+                }
+            } else {
+                // LOOP or other body nodes
+                node.removeChild(child);
+                bodyNodes.add(child);
+            }
+            child = next;
+        }
+
+        objectLiteral.putProp(Node.OBJECT_IDS_PROP, list.toArray());
+        Node enterWith = new Node(Token.ENTERWITH, objectLiteral);
+        result.addChildToBack(enterWith);
+
+        // Create body node - first the initializer assignments, then the rest
+        Node body = new Node(Token.BLOCK);
+
+        // Generate assignments for initializers INSIDE the WITH scope
+        // This ensures closures capture the WITH scope
+        for (Node[] varInit : varInits) {
+            Node nameNode = varInit[0];
+            Node initExpr = varInit[1];
+            String varName = nameNode.getString();
+
+            // Create: varName = initExpr (as SETNAME since we're in WITH scope)
+            Node bindName = Node.newString(Token.BINDNAME, varName);
+            Node assignment = new Node(Token.SETNAME, bindName, initExpr);
+            Node exprStmt = new Node(Token.EXPR_VOID, assignment);
+            body.addChildToBack(exprStmt);
+        }
+
+        // Add the rest of the body (LOOP, etc.)
+        for (Node bodyNode : bodyNodes) {
+            body.addChildToBack(bodyNode);
+        }
+
         result.addChildToBack(new Node(Token.WITH, body));
         result.addChildToBack(new Node(Token.LEAVEWITH));
 

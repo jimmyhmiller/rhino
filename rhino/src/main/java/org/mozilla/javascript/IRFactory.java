@@ -622,9 +622,8 @@ public final class IRFactory {
 
     private Node transformForLoop(ForLoop loop) {
         loop.setType(Token.LOOP);
-        // XXX: Can't use pushScope/popScope here since 'createFor' may split
-        // the scope
         Scope savedScope = parser.currentScope;
+
         parser.currentScope = loop;
         try {
             Node init = transform(loop.getInitializer());
@@ -1634,8 +1633,10 @@ public final class IRFactory {
             // "let (i=s) { for (; i < N; i++)..." so that "s" is evaluated
             // outside the scope of the for.
             // Same for const, though const in increment will throw TypeError at runtime.
+
             Scope let = Scope.splitScope(loop);
             let.setType(Token.LET);
+
             // Add init's children to let. Use addChildrenToBack for LET,
             // but manually iterate for CONST (which has issues with addChildrenToBack)
             if (initType == Token.LET) {
@@ -1664,6 +1665,9 @@ public final class IRFactory {
                     // Mark per-iteration bindings for let
                     loop.putIntProp(Node.PER_ITERATION_SCOPE_PROP, 1);
                     loop.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
+                    // Mark let wrapper scope so NodeTransformer creates a WITH scope
+                    // This ensures closures in the initializer capture the let scope
+                    let.putIntProp(Node.LET_FOR_LOOP_SCOPE, 1);
                 } else if (initType == Token.CONST) {
                     // Mark wrapper scope for const enforcement in NodeTransformer
                     let.putIntProp(Node.CONST_FOR_LOOP_SCOPE, 1);
