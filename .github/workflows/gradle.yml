@@ -2,9 +2,7 @@ name: Rhino CI
 
 on:
   push:
-    branches: [ master ]
   pull_request:
-    branches: [ master ]
 
 permissions: read-all
 
