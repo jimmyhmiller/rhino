@@ -28,6 +28,9 @@ public class SymbolKey implements Symbol, Serializable {
     public static final SymbolKey SEARCH = new SymbolKey("Symbol.search", BUILT_IN);
     public static final SymbolKey SPLIT = new SymbolKey("Symbol.split", BUILT_IN);
     public static final SymbolKey UNSCOPABLES = new SymbolKey("Symbol.unscopables", BUILT_IN);
+    public static final SymbolKey ASYNC_ITERATOR = new SymbolKey("Symbol.asyncIterator", BUILT_IN);
+    public static final SymbolKey DISPOSE = new SymbolKey("Symbol.dispose", BUILT_IN);
+    public static final SymbolKey ASYNC_DISPOSE = new SymbolKey("Symbol.asyncDispose", BUILT_IN);
 
     // If passed a javascript undefined, this will be a (java) null
     private final String name;

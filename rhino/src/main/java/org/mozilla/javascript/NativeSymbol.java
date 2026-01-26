@@ -58,6 +58,9 @@ public class NativeSymbol extends ScriptableObject implements Symbol {
         createStandardSymbol(scope, ctor, "search", SymbolKey.SEARCH);
         createStandardSymbol(scope, ctor, "split", SymbolKey.SPLIT);
         createStandardSymbol(scope, ctor, "unscopables", SymbolKey.UNSCOPABLES);
+        createStandardSymbol(scope, ctor, "asyncIterator", SymbolKey.ASYNC_ITERATOR);
+        createStandardSymbol(scope, ctor, "dispose", SymbolKey.DISPOSE);
+        createStandardSymbol(scope, ctor, "asyncDispose", SymbolKey.ASYNC_DISPOSE);
 
         if (sealed) {
             // Can't seal until we have created all the stuff above!
