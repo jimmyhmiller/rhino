@@ -257,8 +257,14 @@ final class NativeDate extends IdScriptableObject {
                 s = "toJSON";
                 break;
             case SymbolId_toPrimitive:
+                // Spec: { [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]: true }
                 initPrototypeMethod(
-                        DATE_TAG, id, SymbolKey.TO_PRIMITIVE, "[Symbol.toPrimitive]", 1);
+                        DATE_TAG,
+                        id,
+                        SymbolKey.TO_PRIMITIVE,
+                        "[Symbol.toPrimitive]",
+                        1,
+                        DONTENUM | READONLY);
                 return;
             default:
                 throw new IllegalArgumentException(String.valueOf(id));

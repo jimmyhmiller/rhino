@@ -19,6 +19,7 @@ public class BoundFunction extends BaseFunction {
     private final Scriptable boundThis;
     private final Object[] boundArgs;
     private final int length;
+    private final String boundName;
 
     public BoundFunction(
             Context cx,
@@ -34,6 +35,19 @@ public class BoundFunction extends BaseFunction {
         } else {
             length = 0;
         }
+
+        // Per spec: Get targetName from Target's "name" property
+        // 12. Let targetName be Get(Target, "name").
+        // 14. If Type(targetName) is not String, let targetName be the empty string.
+        // 15. Perform SetFunctionName(F, targetName, "bound").
+        String targetName = "";
+        if (targetFunction instanceof Scriptable) {
+            Object nameVal = ScriptableObject.getProperty((Scriptable) targetFunction, "name");
+            if (nameVal instanceof CharSequence) {
+                targetName = nameVal.toString();
+            }
+        }
+        this.boundName = "bound " + targetName;
 
         ScriptRuntime.setFunctionProtoAndParent(this, cx, scope, false);
 
@@ -73,10 +87,7 @@ public class BoundFunction extends BaseFunction {
 
     @Override
     public String getFunctionName() {
-        if (targetFunction instanceof BaseFunction) {
-            return "bound " + ((BaseFunction) targetFunction).getFunctionName();
-        }
-        return "";
+        return boundName;
     }
 
     private static Object[] concat(Object[] first, Object[] second) {
