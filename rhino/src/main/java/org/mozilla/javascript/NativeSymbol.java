@@ -127,14 +127,11 @@ public class NativeSymbol extends ScriptableObject implements Symbol {
     private static Object js_keyFor(
             Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
         Object s = (args.length > 0 ? args[0] : Undefined.instance);
-        SymbolKey sym;
-        if (s instanceof NativeSymbol) {
-            sym = ((NativeSymbol) s).key;
-        } else if (s instanceof SymbolKey) {
-            sym = (SymbolKey) s;
-        } else {
+        // Symbol.keyFor only accepts symbol primitives, not symbol wrapper objects
+        if (!(s instanceof SymbolKey)) {
             throw ScriptRuntime.throwCustomError(cx, scope, "TypeError", "Not a Symbol");
         }
+        SymbolKey sym = (SymbolKey) s;
 
         if (getGlobalMap().get(sym.getName()) == sym) {
             return sym.getName();
