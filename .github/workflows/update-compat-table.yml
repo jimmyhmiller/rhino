@@ -51,14 +51,25 @@ jobs:
           cd node-compat-table
           npm install
 
-      - name: Download official Rhino release
+      - name: Build upstream mozilla/rhino master
         run: |
-          # Use official Rhino 1.7.15 release instead of building from master
-          # Building from master has JLine flush issues that cause empty output
-          curl -sL "https://github.com/mozilla/rhino/releases/download/Rhino1_7_15_Release/rhino-1.7.15.jar" -o rhino-1.7.15.jar
-          echo "UPSTREAM_JAR=$(realpath rhino-1.7.15.jar)" >> $GITHUB_ENV
-          echo "UPSTREAM_VERSION=1.7.15" >> $GITHUB_ENV
-          echo "Downloaded official Rhino 1.7.15"
+          git clone --depth 1 https://github.com/mozilla/rhino.git upstream-rhino
+          cd upstream-rhino
+
+          # Apply flush fix to upstream - JLine's dumb terminal buffers output without flushing
+          # Without this fix, print() output is lost in non-interactive mode with shadowJar
+          GLOBAL_FILE="rhino-tools/src/main/java/org/mozilla/javascript/tools/shell/Global.java"
+          sed -i 's/        return Context.getUndefinedValue();/        c.flush();\n        return Context.getUndefinedValue();/' "$GLOBAL_FILE"
+
+          echo "=== Verifying patch applied ==="
+          grep -n "c.flush" "$GLOBAL_FILE"
+
+          ./gradlew :rhino-all:shadowJar
+          UPSTREAM_JAR=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
+          echo "UPSTREAM_JAR=$(realpath $UPSTREAM_JAR)" >> $GITHUB_ENV
+          UPSTREAM_VERSION=$(basename "$UPSTREAM_JAR" .jar | sed 's/rhino-all-//')
+          echo "UPSTREAM_VERSION=$UPSTREAM_VERSION" >> $GITHUB_ENV
+          echo "Built upstream: $UPSTREAM_JAR (version: $UPSTREAM_VERSION)"
 
       - name: Run compatibility tests
         run: |
