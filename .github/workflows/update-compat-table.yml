@@ -104,9 +104,10 @@ jobs:
             fi
             rm -f /tmp/test.js
 
-            # Ensure files have valid JSON (handle empty files)
+            # Ensure files have valid JSON
             for f in rhino-results/${ver}.json rhino-results/${ver}-es6.json; do
-              if [ ! -s "$f" ] || ! head -1 "$f" | grep -q '^{'; then
+              if [ ! -s "$f" ] || ! node -e "JSON.parse(require('fs').readFileSync('$f'))" 2>/dev/null; then
+                echo "Warning: Invalid JSON in $f, using empty object"
                 echo '{}' > "$f"
               fi
             done
