@@ -3,7 +3,7 @@ name: Update Compatibility Table
 on:
   push:
     branches:
-      - master
+      - latest
   workflow_dispatch:  # Allow manual trigger
 
 permissions:
@@ -53,16 +53,16 @@ jobs:
           cd node-compat-table
           npm install
 
-      - name: Build latest branch for comparison
+      - name: Build master branch (fork)
         run: |
-          git worktree add ../rhino-latest origin/latest
-          cd ../rhino-latest
+          git worktree add ../rhino-master origin/master
+          cd ../rhino-master
           ./gradlew :rhino-all:jar
-          LATEST_JAR=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
-          echo "LATEST_JAR=$(realpath $LATEST_JAR)" >> $GITHUB_ENV
-          LATEST_VERSION=$(basename "$LATEST_JAR" .jar | sed 's/rhino-all-//')
-          echo "LATEST_VERSION=$LATEST_VERSION" >> $GITHUB_ENV
-          echo "Built latest branch: $LATEST_JAR (version: $LATEST_VERSION)"
+          MASTER_JAR=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
+          echo "MASTER_JAR=$(realpath $MASTER_JAR)" >> $GITHUB_ENV
+          MASTER_VERSION=$(basename "$MASTER_JAR" .jar | sed 's/rhino-all-//')
+          echo "MASTER_VERSION=$MASTER_VERSION" >> $GITHUB_ENV
+          echo "Built master branch: $MASTER_JAR (version: $MASTER_VERSION)"
 
       - name: Run compatibility tests
         run: |
