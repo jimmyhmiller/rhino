@@ -889,6 +889,66 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     String property = child.getString();
                     child = child.getNext();
                     if (type == Token.SETPROP_OP) {
+                        int opType = child.getType();
+                        boolean isLogicalOp =
+                                opType == Token.AND
+                                        || opType == Token.OR
+                                        || opType == Token.NULLISH_COALESCING;
+
+                        if (isLogicalOp) {
+                            // For logical assignment (&&=, ||=, ??=), we need to short-circuit
+                            // and skip the SETPROP when the condition dictates.
+                            // Stack: [obj]
+                            addIcode(Icode_DUP); // [obj, obj]
+                            stackChange(1);
+                            addStringOp(Token.GETPROP, property); // [obj, value]
+
+                            // Check short-circuit condition
+                            addIcode(Icode_DUP); // [obj, value, value]
+                            stackChange(1);
+                            int noShortCircuitLabel = iCodeTop;
+                            if (opType == Token.AND) {
+                                // AND: short-circuit if falsy, so jump to noShortCircuit if truthy
+                                addGotoOp(Token.IFEQ);
+                            } else if (opType == Token.OR) {
+                                // OR: short-circuit if truthy, so jump to noShortCircuit if falsy
+                                addGotoOp(Token.IFNE);
+                            } else {
+                                // NULLISH: short-circuit if not null/undefined
+                                addGotoOp(Icode_IF_NULL_UNDEF);
+                            }
+                            stackChange(-1); // [obj, value]
+                            int stackAtJumpTarget = stackDepth; // Save stack for jump target
+
+                            // Short-circuit path: return value without setting
+                            addIcode(Icode_SWAP); // [value, obj]
+                            stackChange(0);
+                            addIcode(Icode_POP); // [value]
+                            stackChange(-1);
+                            int endLabel = iCodeTop;
+                            addGotoOp(Token.GOTO);
+
+                            // Non-short-circuit path: evaluate RHS and set property
+                            resolveForwardGoto(noShortCircuitLabel);
+                            stackDepth = stackAtJumpTarget; // Restore stack for this branch
+                            // Stack: [obj, value]
+                            addIcode(Icode_POP); // [obj]
+                            stackChange(-1);
+                            // Get the RHS from the operation node (skip USE_STACK)
+                            Node rhs = child.getLastChild();
+                            visitExpression(rhs, 0); // [obj, rhs]
+                            addStringOp(
+                                    node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1
+                                            ? Token.SETPROP_SUPER
+                                            : Token.SETPROP,
+                                    property); // [result]
+                            stackChange(-1);
+
+                            resolveForwardGoto(endLabel);
+                            break;
+                        }
+
+                        // Non-logical compound assignment (+=, *=, etc.)
                         addIcode(Icode_DUP);
                         stackChange(1);
                         addStringOp(Token.GETPROP, property);
@@ -912,6 +972,65 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 visitExpression(child, 0);
                 child = child.getNext();
                 if (type == Token.SETELEM_OP) {
+                    int opType = child.getType();
+                    boolean isLogicalOp =
+                            opType == Token.AND
+                                    || opType == Token.OR
+                                    || opType == Token.NULLISH_COALESCING;
+
+                    if (isLogicalOp) {
+                        // For logical assignment (&&=, ||=, ??=), we need to short-circuit
+                        // Stack: [obj, key]
+                        addIcode(Icode_DUP2); // [obj, key, obj, key]
+                        stackChange(2);
+                        addToken(Token.GETELEM); // [obj, key, value]
+                        stackChange(-1);
+
+                        // Check short-circuit condition
+                        addIcode(Icode_DUP); // [obj, key, value, value]
+                        stackChange(1);
+                        int noShortCircuitLabel = iCodeTop;
+                        if (opType == Token.AND) {
+                            // AND: short-circuit if falsy, so jump to noShortCircuit if truthy
+                            addGotoOp(Token.IFEQ);
+                        } else if (opType == Token.OR) {
+                            // OR: short-circuit if truthy, so jump to noShortCircuit if falsy
+                            addGotoOp(Token.IFNE);
+                        } else {
+                            addGotoOp(Icode_IF_NULL_UNDEF);
+                        }
+                        stackChange(-1); // [obj, key, value]
+                        int stackAtJumpTarget = stackDepth; // Save stack for jump target
+
+                        // Short-circuit path: return value without setting
+                        // Need to get from [obj, key, value] to [value]
+                        addIcode(Icode_SWAP); // [obj, value, key]
+                        addIcode(Icode_POP); // [obj, value]
+                        addIcode(Icode_SWAP); // [value, obj]
+                        addIcode(Icode_POP); // [value]
+                        stackChange(-2);
+                        int endLabel = iCodeTop;
+                        addGotoOp(Token.GOTO);
+
+                        // Non-short-circuit path: evaluate RHS and set element
+                        resolveForwardGoto(noShortCircuitLabel);
+                        stackDepth = stackAtJumpTarget; // Restore stack for this branch
+                        // Stack: [obj, key, value]
+                        addIcode(Icode_POP); // [obj, key]
+                        stackChange(-1);
+                        Node rhs = child.getLastChild();
+                        visitExpression(rhs, 0); // [obj, key, rhs]
+                        addToken(
+                                node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1
+                                        ? Token.SETELEM_SUPER
+                                        : Token.SETELEM); // [result]
+                        stackChange(-2);
+
+                        resolveForwardGoto(endLabel);
+                        break;
+                    }
+
+                    // Non-logical compound assignment
                     addIcode(Icode_DUP2);
                     stackChange(2);
                     addToken(Token.GETELEM);

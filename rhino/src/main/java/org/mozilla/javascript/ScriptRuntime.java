@@ -1308,6 +1308,13 @@ public class ScriptRuntime {
     }
 
     /**
+     * Check if a value is null or undefined. Used for nullish coalescing assignment short-circuit.
+     */
+    public static boolean isNullOrUndefined(Object val) {
+        return val == null || Undefined.isUndefined(val);
+    }
+
+    /**
      * @deprecated Use {@link #toObject(Context, Scriptable, Object)} instead.
      */
     @Deprecated

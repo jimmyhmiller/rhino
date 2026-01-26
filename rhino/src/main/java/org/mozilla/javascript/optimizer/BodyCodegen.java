@@ -4685,11 +4685,69 @@ class BodyCodegen {
         generateExpression(child, node);
         child = child.getNext();
         Node nameChild = child;
+        child = child.getNext();
+
         if (type == Token.SETPROP_OP) {
+            int opType = child.getType();
+            boolean isLogicalOp =
+                    opType == Token.AND || opType == Token.OR || opType == Token.NULLISH_COALESCING;
+
+            if (isLogicalOp) {
+                // For logical assignment (&&=, ||=, ??=), we need to short-circuit
+                // Stack: [obj]
+                cfw.add(ByteCode.DUP); // [obj, obj]
+                finishGetPropGeneration(node, nameChild); // [obj, value]
+
+                // Check short-circuit condition
+                cfw.add(ByteCode.DUP); // [obj, value, value]
+                int noShortCircuitLabel = cfw.acquireLabel();
+                if (opType == Token.AND) {
+                    // AND: short-circuit if falsy, so jump to noShortCircuit if truthy
+                    addDynamicInvoke("MATH:TOBOOLEAN", Signatures.MATH_TO_BOOLEAN);
+                    cfw.add(ByteCode.IFNE, noShortCircuitLabel);
+                } else if (opType == Token.OR) {
+                    // OR: short-circuit if truthy, so jump to noShortCircuit if falsy
+                    addDynamicInvoke("MATH:TOBOOLEAN", Signatures.MATH_TO_BOOLEAN);
+                    cfw.add(ByteCode.IFEQ, noShortCircuitLabel);
+                } else {
+                    // NULLISH: short-circuit if not null/undefined
+                    // isNullOrUndefined returns true if null/undefined (don't short-circuit)
+                    addScriptRuntimeInvoke("isNullOrUndefined", "(Ljava/lang/Object;)Z");
+                    cfw.add(ByteCode.IFNE, noShortCircuitLabel);
+                }
+                // Stack: [obj, value]
+                int stackAfterCondition = cfw.getStackTop();
+
+                // Short-circuit path: return value without setting
+                cfw.add(ByteCode.SWAP); // [value, obj]
+                cfw.add(ByteCode.POP); // [value]
+                int endLabel = cfw.acquireLabel();
+                cfw.add(ByteCode.GOTO, endLabel);
+
+                // Non-short-circuit path: evaluate RHS and set property
+                cfw.markLabel(noShortCircuitLabel, stackAfterCondition);
+                // Stack: [obj, value]
+                cfw.add(ByteCode.POP); // [obj]
+                Node rhs = child.getLastChild();
+                generateExpression(rhs, node); // [obj, rhs]
+                cfw.addALoad(contextLocal);
+                cfw.addALoad(variableObjectLocal);
+                if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
+                    cfw.addALoad(thisObjLocal);
+                    addDynamicInvoke(
+                            "PROP:SETSUPER:" + nameChild.getString(), Signatures.PROP_SET_SUPER);
+                } else {
+                    addDynamicInvoke("PROP:SET:" + nameChild.getString(), Signatures.PROP_SET);
+                }
+
+                cfw.markLabel(endLabel);
+                return;
+            }
+
+            // Non-logical compound assignment
             cfw.add(ByteCode.DUP);
             finishGetPropGeneration(node, nameChild);
         }
-        child = child.getNext();
         generateExpression(child, node);
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
@@ -4712,27 +4770,95 @@ class BodyCodegen {
         boolean indexIsNumber = (node.getIntProp(Node.ISNUMBER_PROP, -1) != -1);
         boolean isSuper = node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1;
         if (type == Token.SETELEM_OP) {
-            if (isSuper) {
-                // indexIsNumber will never be true because functions with super always require
-                // activation, and when they do we not optimize them
+            int opType = child.getType();
+            boolean isLogicalOp =
+                    opType == Token.AND || opType == Token.OR || opType == Token.NULLISH_COALESCING;
 
-                // stack: ... object object indexObject
-                //        -> ... object indexObject object indexObject
+            if (isLogicalOp) {
+                // For logical assignment (&&=, ||=, ??=), we need to short-circuit
+                // Stack after obj and key generation: [obj, obj, key]
+                // After DUP_X1: [obj, key, obj, key]
+                // After GETELEMENT: [obj, key, value]
+
+                if (isSuper) {
+                    cfw.add(ByteCode.DUP_X1);
+                    cfw.addALoad(contextLocal);
+                    cfw.addALoad(variableObjectLocal);
+                    cfw.addALoad(thisObjLocal);
+                    addDynamicInvoke("PROP:GETELEMENTSUPER", Signatures.PROP_GET_ELEMENT_SUPER);
+                } else if (indexIsNumber) {
+                    cfw.add(ByteCode.DUP2_X1);
+                    cfw.addALoad(contextLocal);
+                    cfw.addALoad(variableObjectLocal);
+                    addDynamicInvoke("PROP:GETINDEX", Signatures.PROP_GET_INDEX);
+                } else {
+                    cfw.add(ByteCode.DUP_X1);
+                    cfw.addALoad(contextLocal);
+                    cfw.addALoad(variableObjectLocal);
+                    addDynamicInvoke("PROP:GETELEMENT", Signatures.PROP_GET_ELEMENT);
+                }
+                // Stack: [obj, key, value]
+
+                // Check short-circuit condition
+                cfw.add(ByteCode.DUP); // [obj, key, value, value]
+                int noShortCircuitLabel = cfw.acquireLabel();
+                if (opType == Token.AND) {
+                    addDynamicInvoke("MATH:TOBOOLEAN", Signatures.MATH_TO_BOOLEAN);
+                    cfw.add(ByteCode.IFNE, noShortCircuitLabel);
+                } else if (opType == Token.OR) {
+                    addDynamicInvoke("MATH:TOBOOLEAN", Signatures.MATH_TO_BOOLEAN);
+                    cfw.add(ByteCode.IFEQ, noShortCircuitLabel);
+                } else {
+                    // NULLISH: isNullOrUndefined returns true if null/undefined
+                    addScriptRuntimeInvoke("isNullOrUndefined", "(Ljava/lang/Object;)Z");
+                    cfw.add(ByteCode.IFNE, noShortCircuitLabel);
+                }
+                // Stack: [obj, key, value]
+                int stackAfterCondition = cfw.getStackTop();
+
+                // Short-circuit path: return value without setting
+                // Need to get from [obj, key, value] to [value]
+                cfw.add(ByteCode.SWAP); // [obj, value, key]
+                cfw.add(ByteCode.POP); // [obj, value]
+                cfw.add(ByteCode.SWAP); // [value, obj]
+                cfw.add(ByteCode.POP); // [value]
+                int endLabel = cfw.acquireLabel();
+                cfw.add(ByteCode.GOTO, endLabel);
+
+                // Non-short-circuit path: evaluate RHS and set element
+                cfw.markLabel(noShortCircuitLabel, stackAfterCondition);
+                // Stack: [obj, key, value]
+                cfw.add(ByteCode.POP); // [obj, key]
+                Node rhs = child.getLastChild();
+                generateExpression(rhs, node); // [obj, key, rhs]
+                cfw.addALoad(contextLocal);
+                cfw.addALoad(variableObjectLocal);
+                if (isSuper) {
+                    cfw.addALoad(thisObjLocal);
+                    addDynamicInvoke("PROP:SETELEMENTSUPER", Signatures.PROP_SET_ELEMENT_SUPER);
+                } else if (indexIsNumber) {
+                    addDynamicInvoke("PROP:SETINDEX", Signatures.PROP_SET_INDEX);
+                } else {
+                    addDynamicInvoke("PROP:SETELEMENT", Signatures.PROP_SET_ELEMENT);
+                }
+
+                cfw.markLabel(endLabel);
+                return;
+            }
+
+            // Non-logical compound assignment
+            if (isSuper) {
                 cfw.add(ByteCode.DUP_X1);
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
                 cfw.addALoad(thisObjLocal);
                 addDynamicInvoke("PROP:GETELEMENTSUPER", Signatures.PROP_GET_ELEMENT_SUPER);
             } else if (indexIsNumber) {
-                // stack: ... object object number
-                //        -> ... object number object number
                 cfw.add(ByteCode.DUP2_X1);
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
                 addDynamicInvoke("PROP:GETINDEX", Signatures.PROP_GET_INDEX);
             } else {
-                // stack: ... object object indexObject
-                //        -> ... object indexObject object indexObject
                 cfw.add(ByteCode.DUP_X1);
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
@@ -4743,7 +4869,6 @@ class BodyCodegen {
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
         if (isSuper) {
-            // Again, we will never have super && indexIsNumber together
             cfw.addALoad(thisObjLocal);
             addDynamicInvoke("PROP:SETELEMENTSUPER", Signatures.PROP_SET_ELEMENT_SUPER);
         } else if (indexIsNumber) {
