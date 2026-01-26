@@ -21,8 +21,6 @@ jobs:
     steps:
       - name: Check out Rhino
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Need full history for git worktree
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -53,16 +51,16 @@ jobs:
           cd node-compat-table
           npm install
 
-      - name: Build master branch (fork)
+      - name: Build upstream mozilla/rhino master
         run: |
-          git worktree add ../rhino-master origin/master
-          cd ../rhino-master
+          git clone --depth 1 https://github.com/mozilla/rhino.git upstream-rhino
+          cd upstream-rhino
           ./gradlew :rhino-all:jar
-          MASTER_JAR=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
-          echo "MASTER_JAR=$(realpath $MASTER_JAR)" >> $GITHUB_ENV
-          MASTER_VERSION=$(basename "$MASTER_JAR" .jar | sed 's/rhino-all-//')
-          echo "MASTER_VERSION=$MASTER_VERSION" >> $GITHUB_ENV
-          echo "Built master branch: $MASTER_JAR (version: $MASTER_VERSION)"
+          UPSTREAM_JAR=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
+          echo "UPSTREAM_JAR=$(realpath $UPSTREAM_JAR)" >> $GITHUB_ENV
+          UPSTREAM_VERSION=$(basename "$UPSTREAM_JAR" .jar | sed 's/rhino-all-//')
+          echo "UPSTREAM_VERSION=$UPSTREAM_VERSION" >> $GITHUB_ENV
+          echo "Built upstream: $UPSTREAM_JAR (version: $UPSTREAM_VERSION)"
 
       - name: Run compatibility tests
         run: |
@@ -110,10 +108,10 @@ jobs:
             rm -f /tmp/test.js
           }
 
-          # Test latest branch
-          run_tests "$LATEST_JAR" "$LATEST_VERSION"
+          # Test upstream mozilla/rhino master
+          run_tests "$UPSTREAM_JAR" "$UPSTREAM_VERSION"
 
-          # Test fork build
+          # Test this fork's latest branch
           run_tests "$JAR_PATH" "${VERSION}-fork"
 
       - name: Build HTML
@@ -125,7 +123,7 @@ jobs:
           # Update rhinoversions.js to include tested versions
           cat > rhinoversions.js << EOF
           module.exports = [
-            "$LATEST_VERSION",
+            "$UPSTREAM_VERSION",
             "${VERSION}-fork"
           ];
           EOF
