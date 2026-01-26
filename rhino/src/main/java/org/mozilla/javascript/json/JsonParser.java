@@ -311,7 +311,9 @@ public class JsonParser {
         String num = src.substring(numberStart, pos);
         final double dval = Double.parseDouble(num);
         final int ival = (int) dval;
-        if (ival == dval) {
+        // Check that dval is an exact integer and is not negative zero
+        // (negative zero must stay as double to preserve sign)
+        if (ival == dval && Double.doubleToRawLongBits(dval) != Long.MIN_VALUE) {
             return Integer.valueOf(ival);
         }
         return Double.valueOf(dval);
