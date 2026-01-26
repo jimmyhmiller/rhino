@@ -223,6 +223,7 @@ public class Global extends ImporterTopLevel {
         if (newline) {
             c.println();
         }
+        c.flush();
         return Context.getUndefinedValue();
     }
 
