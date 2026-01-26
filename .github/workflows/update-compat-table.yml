@@ -51,16 +51,14 @@ jobs:
           cd node-compat-table
           npm install
 
-      - name: Build upstream mozilla/rhino master
+      - name: Download official Rhino release
         run: |
-          git clone --depth 1 https://github.com/mozilla/rhino.git upstream-rhino
-          cd upstream-rhino
-          ./gradlew :rhino-all:shadowJar
-          UPSTREAM_JAR=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
-          echo "UPSTREAM_JAR=$(realpath $UPSTREAM_JAR)" >> $GITHUB_ENV
-          UPSTREAM_VERSION=$(basename "$UPSTREAM_JAR" .jar | sed 's/rhino-all-//')
-          echo "UPSTREAM_VERSION=$UPSTREAM_VERSION" >> $GITHUB_ENV
-          echo "Built upstream: $UPSTREAM_JAR (version: $UPSTREAM_VERSION)"
+          # Use official Rhino 1.7.15 release instead of building from master
+          # Building from master has JLine flush issues that cause empty output
+          curl -sL "https://github.com/mozilla/rhino/releases/download/Rhino1_7_15_Release/rhino-1.7.15.jar" -o rhino-1.7.15.jar
+          echo "UPSTREAM_JAR=$(realpath rhino-1.7.15.jar)" >> $GITHUB_ENV
+          echo "UPSTREAM_VERSION=1.7.15" >> $GITHUB_ENV
+          echo "Downloaded official Rhino 1.7.15"
 
       - name: Run compatibility tests
         run: |
