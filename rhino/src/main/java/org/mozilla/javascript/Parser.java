@@ -4585,6 +4585,13 @@ public class Parser {
                 || tt == Token.GET_REF
                 || tt == Token.CALL))
             reportError(expr.getType() == Token.INC ? "msg.bad.incr" : "msg.bad.decr");
+        // In strict mode, increment/decrement on arguments/eval is a SyntaxError
+        if (inUseStrictDirective && tt == Token.NAME) {
+            String name = ((Name) op).getIdentifier();
+            if ("eval".equals(name) || "arguments".equals(name)) {
+                reportError("msg.bad.id.strict", name);
+            }
+        }
     }
 
     private ErrorNode makeErrorNode() {
