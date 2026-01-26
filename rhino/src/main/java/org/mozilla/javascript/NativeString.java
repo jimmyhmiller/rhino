@@ -115,10 +115,10 @@ final class NativeString extends ScriptableObject {
         defProtoMethod(c, scope, "blink", 0, NativeString::js_blink);
         defProtoMethod(c, scope, "sup", 0, NativeString::js_sup);
         defProtoMethod(c, scope, "sub", 0, NativeString::js_sub);
-        defProtoMethod(c, scope, "fontsize", 0, NativeString::js_fontsize);
-        defProtoMethod(c, scope, "fontcolor", 0, NativeString::js_fontcolor);
-        defProtoMethod(c, scope, "link", 0, NativeString::js_link);
-        defProtoMethod(c, scope, "anchor", 0, NativeString::js_anchor);
+        defProtoMethod(c, scope, "fontsize", 1, NativeString::js_fontsize);
+        defProtoMethod(c, scope, "fontcolor", 1, NativeString::js_fontcolor);
+        defProtoMethod(c, scope, "link", 1, NativeString::js_link);
+        defProtoMethod(c, scope, "anchor", 1, NativeString::js_anchor);
         defProtoMethod(c, scope, "equals", 1, NativeString::js_equals);
         defProtoMethod(c, scope, "equalsIgnoreCase", 1, NativeString::js_equalsIgnoreCase);
         defProtoMethod(c, scope, "match", 1, NativeString::js_match);
@@ -131,10 +131,17 @@ final class NativeString extends ScriptableObject {
         defProtoMethod(c, scope, "toLocaleLowerCase", 0, NativeString::js_toLocaleLowerCase);
         defProtoMethod(c, scope, "toLocaleUpperCase", 0, NativeString::js_toLocaleUpperCase);
         defProtoMethod(c, scope, "trim", 0, NativeString::js_trim);
-        defProtoMethod(c, scope, "trimLeft", 0, NativeString::js_trimLeft);
+        // trimStart and trimLeft must be the same function object per spec
         defProtoMethod(c, scope, "trimStart", 0, NativeString::js_trimLeft);
-        defProtoMethod(c, scope, "trimRight", 0, NativeString::js_trimRight);
+        // trimEnd and trimRight must be the same function object per spec
         defProtoMethod(c, scope, "trimEnd", 0, NativeString::js_trimRight);
+
+        // trimLeft/trimRight are aliases that reference the same functions
+        ScriptableObject proto = (ScriptableObject) c.getPrototypeProperty();
+        Object trimStart = proto.get("trimStart", proto);
+        proto.defineProperty("trimLeft", trimStart, DONTENUM);
+        Object trimEnd = proto.get("trimEnd", proto);
+        proto.defineProperty("trimRight", trimEnd, DONTENUM);
         defProtoMethod(c, scope, "includes", 1, NativeString::js_includes);
         defProtoMethod(c, scope, "startsWith", 1, NativeString::js_startsWith);
         defProtoMethod(c, scope, "endsWith", 1, NativeString::js_endsWith);
