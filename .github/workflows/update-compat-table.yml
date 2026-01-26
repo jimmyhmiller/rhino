@@ -127,6 +127,8 @@ jobs:
         run: |
           mkdir -p _site/compat
           cp node-compat-table/index.html _site/compat/engines.html
+          cp node-compat-table/style.css _site/compat/style.css
+          cp node-compat-table/favico.ico _site/compat/favico.ico 2>/dev/null || true
           cat > _site/index.html << 'EOF'
           <!DOCTYPE html>
           <html>
