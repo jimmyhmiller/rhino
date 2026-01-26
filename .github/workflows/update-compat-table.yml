@@ -72,23 +72,15 @@ jobs:
           echo "Testing Rhino $VERSION from $JAR_PATH"
 
           # Download test data from kangax/compat-table
-          curl -s -o es6.json "https://raw.githubusercontent.com/nicolo-ribaudo/compat-table/main/exports/es6.json"
-          curl -s -o es2016plus.json "https://raw.githubusercontent.com/nicolo-ribaudo/compat-table/main/exports/es2016plus.json"
-          curl -s -o esnext.json "https://raw.githubusercontent.com/nicolo-ribaudo/compat-table/main/exports/esnext.json"
+          curl -s -o data-es6.js "https://raw.githubusercontent.com/kangax/compat-table/gh-pages/data-es6.js"
+          curl -s -o data-es2016plus.js "https://raw.githubusercontent.com/kangax/compat-table/gh-pages/data-es2016plus.js"
+          curl -s -o data-esnext.js "https://raw.githubusercontent.com/kangax/compat-table/gh-pages/data-esnext.js"
 
-          # Extract testers and merge into testers.json
-          node extract.js ./es6.json es6-testers.json
-          node extract.js ./es2016plus.json es2016plus-testers.json
-          node extract.js ./esnext.json esnext-testers.json
-
-          # Merge all testers into one file (the format rhinotest.js expects)
-          node -e "
-            const es6 = require('./es6-testers.json');
-            const es2016 = require('./es2016plus-testers.json');
-            const esnext = require('./esnext-testers.json');
-            const merged = {...es6, ...es2016, ...esnext};
-            require('fs').writeFileSync('testers.json', JSON.stringify(merged, null, 2));
-          "
+          # Extract testers
+          node extract.js ./data-es6.js > testers-es6.json
+          node extract.js ./data-es2016plus.js > testers-es2016plus.json
+          node extract.js ./data-esnext.js > testers-esnext.json
+          node testers.js > testers.json
 
           # Create results directory
           mkdir -p rhino-results
