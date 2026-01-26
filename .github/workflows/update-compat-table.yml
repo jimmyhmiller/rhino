@@ -34,7 +34,7 @@ jobs:
           node-version: '20'
 
       - name: Build Rhino JAR
-        run: ./gradlew :rhino-all:jar
+        run: ./gradlew :rhino-all:shadowJar
 
       - name: Find built JAR
         id: find-jar
@@ -55,7 +55,7 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/mozilla/rhino.git upstream-rhino
           cd upstream-rhino
-          ./gradlew :rhino-all:jar
+          ./gradlew :rhino-all:shadowJar
           UPSTREAM_JAR=$(find rhino-all/build/libs -name "rhino-all-*.jar" | head -1)
           echo "UPSTREAM_JAR=$(realpath $UPSTREAM_JAR)" >> $GITHUB_ENV
           UPSTREAM_VERSION=$(basename "$UPSTREAM_JAR" .jar | sed 's/rhino-all-//')
