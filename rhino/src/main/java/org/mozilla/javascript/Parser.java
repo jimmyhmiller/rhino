@@ -3004,6 +3004,17 @@ public class Parser {
         return pn;
     }
 
+    /**
+     * Checks if the given node is an identifier reference, unwrapping parenthesized expressions.
+     * This is used for strict mode checks like delete on an identifier.
+     */
+    private boolean isIdentifierReference(AstNode node) {
+        while (node instanceof ParenthesizedExpression) {
+            node = ((ParenthesizedExpression) node).getExpression();
+        }
+        return node instanceof Name;
+    }
+
     private AstNode unaryExpr() throws IOException {
         AstNode node;
         int tt = peekToken();
@@ -3057,7 +3068,13 @@ public class Parser {
                 consumeToken();
                 line = lineNumber();
                 column = columnNumber();
-                node = new UnaryExpression(tt, ts.tokenBeg, unaryExpr());
+                AstNode operand = unaryExpr();
+                // In strict mode, delete on an identifier is a SyntaxError
+                // This includes parenthesized identifiers like delete ((x))
+                if (inUseStrictDirective && isIdentifierReference(operand)) {
+                    reportError("msg.no.delete.strict.id");
+                }
+                node = new UnaryExpression(tt, ts.tokenBeg, operand);
                 node.setLineColumnNumber(line, column);
                 return node;
 
