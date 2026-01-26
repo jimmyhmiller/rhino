@@ -91,21 +91,22 @@ jobs:
             local ver="$2"
             echo "Testing $ver..."
 
-            # Run tests without ES6 flag
-            if ! java -jar "$jar" -version 200 rhinotest.js > rhino-results/${ver}.json 2>&1; then
+            # Run tests without ES6 flag (use load() as original script does)
+            echo "supportVersion=200; load('rhinotest.js');" > /tmp/test.js
+            if ! java -jar "$jar" -version 200 /tmp/test.js > rhino-results/${ver}.json 2>&1; then
               echo '{}' > rhino-results/${ver}.json
             fi
 
             # Run tests with ES6 flag
-            echo "var defined = 'RHINO_VERSION_ES6';" > /tmp/test.js
-            if ! java -jar "$jar" -version 200 /tmp/test.js rhinotest.js > rhino-results/${ver}-es6.json 2>&1; then
+            echo "var defined = 'RHINO_VERSION_ES6'; supportVersion=200; load('rhinotest.js');" > /tmp/test.js
+            if ! java -jar "$jar" -version 200 /tmp/test.js > rhino-results/${ver}-es6.json 2>&1; then
               echo '{}' > rhino-results/${ver}-es6.json
             fi
             rm -f /tmp/test.js
 
             # Ensure files have valid JSON (handle empty files)
             for f in rhino-results/${ver}.json rhino-results/${ver}-es6.json; do
-              if [ ! -s "$f" ]; then
+              if [ ! -s "$f" ] || ! head -1 "$f" | grep -q '^{'; then
                 echo '{}' > "$f"
               fi
             done
