@@ -42,9 +42,8 @@ public final class ES6Generator extends ScriptableObject {
 
         prototype.defineProperty(SymbolKey.TO_STRING_TAG, "Generator", DONTENUM | READONLY);
 
-        if (sealed) {
-            prototype.sealObject();
-        }
+        // NOTE: Don't seal here - sealing is done in BaseFunction.initAsGeneratorFunction
+        // after the constructor property is set up
 
         // Need to access Generator prototype when constructing
         // Generator instances, but don't have a generator constructor

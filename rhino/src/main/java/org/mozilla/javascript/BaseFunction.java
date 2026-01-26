@@ -143,6 +143,19 @@ public class BaseFunction extends ScriptableObject implements Function {
 
         proto.defineProperty("constructor", ctor, READONLY | DONTENUM);
 
+        // Generator.prototype.constructor should be GeneratorFunction.prototype (= proto)
+        // with attributes { [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]: true }
+        ScriptableObject generatorPrototype =
+                (ScriptableObject)
+                        ScriptableObject.getTopScopeValue(top, ES6Generator.GENERATOR_TAG);
+        generatorPrototype.defineProperty("constructor", proto, READONLY | DONTENUM);
+
+        // Seal Generator.prototype here after setting up constructor
+        // (ES6Generator.init defers sealing to here)
+        if (sealed) {
+            generatorPrototype.sealObject();
+        }
+
         // Function.prototype attributes: see ECMA 15.3.3.1
         ctor.setPrototypePropertyAttributes(DONTENUM | READONLY | PERMANENT);
 
