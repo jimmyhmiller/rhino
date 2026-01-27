@@ -958,10 +958,33 @@ public class NativeArray extends ScriptableObject implements List {
         }
     }
 
-    private static String js_toString(
+    private static Object js_toString(
             Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
-        return toStringHelper(
-                cx, scope, thisObj, cx.hasFeature(Context.FEATURE_TO_STRING_AS_SOURCE), false);
+        // For JS 1.2 compatibility, use toStringHelper which formats arrays with brackets
+        if (cx.hasFeature(Context.FEATURE_TO_STRING_AS_SOURCE)) {
+            return toStringHelper(cx, scope, thisObj, true, false);
+        }
+
+        // ES6 22.1.3.28: Array.prototype.toString()
+        // 1. Let array be ? ToObject(this value).
+        Scriptable array = ScriptRuntime.toObject(cx, scope, thisObj);
+
+        // 2. Let func be ? Get(array, "join").
+        Object func = ScriptableObject.getProperty(array, "join");
+
+        // 3. If IsCallable(func) is false, set func to %Object.prototype.toString%.
+        if (!(func instanceof Callable)) {
+            return ScriptRuntime.defaultObjectToString(array);
+        }
+
+        // For NativeArray, use toStringHelper which correctly follows prototype chain
+        // for array holes (sparse arrays where prototype values should be included)
+        if (array instanceof NativeArray) {
+            return toStringHelper(cx, scope, array, false, false);
+        }
+
+        // 4. Return ? Call(func, array).
+        return ((Callable) func).call(cx, scope, array, ScriptRuntime.emptyArgs);
     }
 
     private static String js_toLocaleString(
