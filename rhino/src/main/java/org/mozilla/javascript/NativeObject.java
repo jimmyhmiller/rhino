@@ -80,7 +80,7 @@ public class NativeObject extends ScriptableObject implements Map {
                         .withCtorMethod("entries", 1, NativeObject::js_entries)
                         .withCtorMethod("fromEntries", 1, NativeObject::js_fromEntries)
                         .withCtorMethod("values", 1, NativeObject::js_values)
-                        .withCtorMethod("hasOwn", 1, NativeObject::js_hasOwn)
+                        .withCtorMethod("hasOwn", 2, NativeObject::js_hasOwn)
                         .withPrototypeProperty(
                                 PROTO_PROPERTY,
                                 NativeObject::js_protoGetter,
