@@ -199,6 +199,16 @@ public class NativeRegExp extends IdScriptableObject {
     }
 
     Scriptable compile(Context cx, Scriptable scope, Object[] args) {
+        return compile(cx, scope, args, false);
+    }
+
+    /**
+     * Internal compile method.
+     *
+     * @param fromConstructor if true, this is being called from the RegExp constructor. If false,
+     *     this is being called from RegExp.prototype.compile.
+     */
+    Scriptable compile(Context cx, Scriptable scope, Object[] args, boolean fromConstructor) {
         if (args.length >= 1
                 && args[0] instanceof NativeRegExp
                 && (args.length == 1 || args[1] == Undefined.instance)) {
@@ -219,13 +229,13 @@ public class NativeRegExp extends IdScriptableObject {
                             ? ScriptRuntime.toString(args[1])
                             : null;
 
-            // Passing a regex and flags is allowed in ES6, but forbidden in ES5 and lower.
-            // Spec ref: 15.10.4.1 in ES5, 22.2.4.1 in ES6
-            if (args.length > 0
-                    && args[0] instanceof NativeRegExp
-                    && flags != null
-                    && cx.getLanguageVersion() < Context.VERSION_ES6) {
-                throw ScriptRuntime.typeErrorById("msg.bad.regexp.compile");
+            // For RegExp.prototype.compile (Annex B), passing a regex and flags is ALWAYS
+            // forbidden per spec B.2.5.1 step 3a: "If flags is not undefined, throw a TypeError."
+            // For the RegExp constructor, it's forbidden in ES5 but allowed in ES6+.
+            if (args.length > 0 && args[0] instanceof NativeRegExp && flags != null) {
+                if (!fromConstructor || cx.getLanguageVersion() < Context.VERSION_ES6) {
+                    throw ScriptRuntime.typeErrorById("msg.bad.regexp.compile");
+                }
             }
 
             this.re = compileRE(cx, pattern, flags, false);

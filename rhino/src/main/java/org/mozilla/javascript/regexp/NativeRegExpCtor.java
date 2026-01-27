@@ -104,7 +104,7 @@ class NativeRegExpCtor {
 
     private static Scriptable js_construct(Context cx, Scriptable scope, Object[] args) {
         NativeRegExp re = NativeRegExpInstantiator.withLanguageVersion(cx.getLanguageVersion());
-        re.compile(cx, scope, args);
+        re.compile(cx, scope, args, true);
         ScriptRuntime.setBuiltinProtoAndParent(re, scope, TopLevel.Builtins.RegExp);
         return re;
     }
