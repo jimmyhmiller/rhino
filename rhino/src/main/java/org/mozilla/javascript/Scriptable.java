@@ -242,6 +242,25 @@ public interface Scriptable {
     }
 
     /**
+     * Sets a property on this object and returns whether the set was successful.
+     *
+     * <p>This is similar to {@code put(String, Scriptable, Object)} but returns a boolean
+     * indicating success. This is needed for proper implementation of {@code Reflect.set} with
+     * Proxy objects, where the set trap may return false to indicate that the set was rejected.
+     *
+     * <p>The default implementation calls {@code put(name, start, value)} and returns true.
+     *
+     * @param name the identifier for the property
+     * @param start the object where the lookup began
+     * @param value the value to set
+     * @return true if the property was successfully set, false if the set was rejected
+     */
+    default boolean putReturningBoolean(String name, Scriptable start, Object value) {
+        put(name, start, value);
+        return true;
+    }
+
+    /**
      * Get the prototype of the object.
      *
      * @return the prototype

@@ -591,10 +591,53 @@ class NativeProxy extends ScriptableObject {
             return; // true
         }
 
+        // When trap is undefined, forward to target.[[Set]]
+        // Note: Ideally we should preserve the Receiver unchanged per spec, but Rhino's
+        // Slot.setValue returns false when owner != start, causing ScriptableObject.put
+        // to call start.put() which creates infinite recursion. So we convert start to
+        // target for the regular put path to avoid this issue.
         if (start == this) {
             start = target;
         }
         target.put(name, start, value);
+    }
+
+    /**
+     * Override putReturningBoolean to properly return the trap result. This is needed for
+     * Reflect.set to correctly return false when the trap returns a falsy value.
+     */
+    @Override
+    public boolean putReturningBoolean(String name, Scriptable start, Object value) {
+        ScriptableObject target = getTargetThrowIfRevoked();
+
+        Function trap = getTrap(TRAP_SET);
+        if (trap != null) {
+            boolean booleanTrapResult =
+                    ScriptRuntime.toBoolean(callTrap(trap, new Object[] {target, name, value}));
+            if (!booleanTrapResult) {
+                return false;
+            }
+
+            DescriptorInfo targetDesc = target.getOwnPropertyDescriptor(Context.getContext(), name);
+            if (targetDesc != null
+                    && !Undefined.isUndefined(targetDesc)
+                    && targetDesc.isConfigurable(false)) {
+                if (targetDesc.isDataDescriptor() && targetDesc.isWritable(false)) {
+                    if (!Objects.equals(value, targetDesc.value)) {
+                        throw ScriptRuntime.typeError(
+                                "proxy set has to use the same value as the plain call");
+                    }
+                }
+                if (targetDesc.isAccessorDescriptor() && Undefined.isUndefined(targetDesc.setter)) {
+                    throw ScriptRuntime.typeError("proxy set has to be available");
+                }
+            }
+            return true;
+        }
+
+        // When trap is undefined, forward to target.[[Set]] with original Receiver
+        // Per spec: "Return ? target.[[Set]](P, V, Receiver)" - Receiver is passed unchanged
+        return target.putReturningBoolean(name, start, value);
     }
 
     /**
@@ -654,6 +697,11 @@ class NativeProxy extends ScriptableObject {
             return; // true
         }
 
+        // When trap is undefined, forward to target.[[Set]]
+        // Note: Ideally we should preserve the Receiver unchanged per spec, but Rhino's
+        // Slot.setValue returns false when owner != start, causing ScriptableObject.put
+        // to call start.put() which creates infinite recursion. So we convert start to
+        // target for the regular put path to avoid this issue.
         if (start == this) {
             start = target;
         }

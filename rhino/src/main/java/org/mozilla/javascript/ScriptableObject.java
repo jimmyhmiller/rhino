@@ -299,6 +299,86 @@ public abstract class ScriptableObject extends SlotMapOwner
     }
 
     /**
+     * Override putReturningBoolean to properly return whether the set succeeded. This is needed for
+     * Reflect.set to correctly return false when setting a non-writable property.
+     */
+    @Override
+    public boolean putReturningBoolean(String name, Scriptable start, Object value) {
+        // First check if we have this property and if it's writable
+        Slot slot = getMap().query(name, 0);
+        if (slot != null) {
+            // Property exists on this object
+            if ((slot.getAttributes() & READONLY) != 0) {
+                // Property is readonly - set fails
+                return false;
+            }
+            if (slot instanceof AccessorSlot) {
+                // It's an accessor - call the setter
+                AccessorSlot aslot = (AccessorSlot) slot;
+                if (aslot.setter != null && aslot.setter != Scriptable.NOT_FOUND) {
+                    // Call the setter
+                    slot.setValue(value, this, start, false);
+                    return true;
+                } else {
+                    // No setter - set fails
+                    return false;
+                }
+            }
+            // Regular writable property - set it
+            slot.setValue(value, this, start, false);
+            return true;
+        }
+
+        // Property not found on this object, check prototype chain
+        Scriptable proto = getPrototype();
+        if (proto instanceof ScriptableObject) {
+            Slot protoSlot = ((ScriptableObject) proto).getMap().query(name, 0);
+            if (protoSlot != null) {
+                // Property exists on prototype
+                if ((protoSlot.getAttributes() & READONLY) != 0) {
+                    // Prototype property is readonly - set fails
+                    return false;
+                }
+                if (protoSlot instanceof AccessorSlot) {
+                    // It's an accessor on prototype - call the setter with start as receiver
+                    AccessorSlot aslot = (AccessorSlot) protoSlot;
+                    if (aslot.setter != null && aslot.setter != Scriptable.NOT_FOUND) {
+                        protoSlot.setValue(value, (ScriptableObject) proto, start, false);
+                        return true;
+                    } else {
+                        // No setter - set fails
+                        return false;
+                    }
+                }
+                // Data property on prototype - create new property on receiver
+            }
+        }
+
+        // Create new property on the receiver (start)
+        if (start instanceof ScriptableObject) {
+            ScriptableObject receiver = (ScriptableObject) start;
+            // Check if receiver already has a non-writable property
+            Slot receiverSlot = receiver.getMap().query(name, 0);
+            if (receiverSlot != null) {
+                if ((receiverSlot.getAttributes() & READONLY) != 0) {
+                    return false;
+                }
+                if (receiverSlot instanceof AccessorSlot) {
+                    // Receiver has an accessor, not a data property
+                    return false;
+                }
+            }
+            // Set on receiver
+            receiver.put(name, start, value);
+            return true;
+        }
+
+        // Fallback for non-ScriptableObject receivers
+        start.put(name, start, value);
+        return true;
+    }
+
+    /**
      * Sets the value of the indexed property, creating it if need be.
      *
      * @param index the numeric index for the property

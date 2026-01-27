@@ -423,12 +423,10 @@ public abstract class IdScriptableObject extends ScriptableObject implements IdF
             }
             int attr = (info >>> 16);
             if ((attr & READONLY) == 0) {
-                if (start == this) {
-                    int id = (info & 0xFFFF);
-                    setInstanceIdValue(id, value);
-                } else {
-                    start.put(name, start, value);
-                }
+                // For instance ids, always set the value directly on this object.
+                // Instance ids are built-in properties that can't be shadowed on receivers.
+                int id = (info & 0xFFFF);
+                setInstanceIdValue(id, value);
             }
             return;
         }
@@ -443,6 +441,37 @@ public abstract class IdScriptableObject extends ScriptableObject implements IdF
             }
         }
         super.put(name, start, value);
+    }
+
+    @Override
+    public boolean putReturningBoolean(String name, Scriptable start, Object value) {
+        int info = findInstanceIdInfo(name);
+        if (info != 0) {
+            if (start == this && isSealed()) {
+                throw Context.reportRuntimeErrorById("msg.modify.sealed", name);
+            }
+            int attr = (info >>> 16);
+            if ((attr & READONLY) != 0) {
+                // Property is readonly - set fails
+                return false;
+            }
+            // For instance ids, always set the value directly on this object.
+            // Instance ids are built-in properties that can't be shadowed on receivers.
+            int id = (info & 0xFFFF);
+            setInstanceIdValue(id, value);
+            return true;
+        }
+        if (prototypeValues != null) {
+            int id = prototypeValues.findId(name);
+            if (id != 0) {
+                if (start == this && isSealed()) {
+                    throw Context.reportRuntimeErrorById("msg.modify.sealed", name);
+                }
+                prototypeValues.set(id, start, value);
+                return true;
+            }
+        }
+        return super.putReturningBoolean(name, start, value);
     }
 
     @Override

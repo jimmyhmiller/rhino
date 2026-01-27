@@ -388,6 +388,9 @@ final class NativeReflect extends ScriptableObject {
             return true;
         }
 
+        Object key = args[1];
+        Object value = args.length > 2 ? args[2] : Undefined.instance;
+
         // ES6 26.1.13: receiver is optional, defaults to target
         Object receiverArg = args.length > 3 ? args[3] : target;
 
@@ -395,32 +398,74 @@ final class NativeReflect extends ScriptableObject {
         if (!(receiverArg instanceof Scriptable)) {
             return false;
         }
+        Scriptable receiverObj = (Scriptable) receiverArg;
         ScriptableObject receiver =
-                receiverArg instanceof ScriptableObject ? (ScriptableObject) receiverArg : target;
+                receiverArg instanceof ScriptableObject ? (ScriptableObject) receiverArg : null;
 
-        if (receiver != target) {
-            DescriptorInfo descriptor = target.getOwnPropertyDescriptor(cx, args[1]);
-            if (descriptor != null) {
-                Object setter = descriptor.setter;
-                if (setter != null && setter != NOT_FOUND) {
-                    ((Function) setter).call(cx, scope, receiver, new Object[] {args[2]});
-                    return true;
+        // For Proxy targets, use putReturningBoolean which properly handles the trap result
+        if (target instanceof NativeProxy && key instanceof String) {
+            return target.putReturningBoolean((String) key, receiverObj, value);
+        }
+
+        // For ordinary objects, implement [[Set]] logic
+        // Get the property descriptor from target
+        DescriptorInfo ownDesc = target.getOwnPropertyDescriptor(cx, key);
+
+        // If ownDesc is undefined, walk up the prototype chain
+        if (ownDesc == null) {
+            Scriptable parent = target.getPrototype();
+            if (parent instanceof ScriptableObject) {
+                ownDesc = ((ScriptableObject) parent).getOwnPropertyDescriptor(cx, key);
+            }
+        }
+
+        // Check if it's a data descriptor with writable=false
+        if (ownDesc != null && !ownDesc.isAccessorDescriptor()) {
+            if (!ownDesc.isWritable()) {
+                return false;
+            }
+        }
+
+        // Check if it's an accessor descriptor
+        if (ownDesc != null && ownDesc.isAccessorDescriptor()) {
+            Object setter = ownDesc.setter;
+            if (setter == null || setter == NOT_FOUND) {
+                return false;
+            }
+            ((Function) setter).call(cx, scope, receiverObj, new Object[] {value});
+            return true;
+        }
+
+        // Now check the receiver's existing property
+        if (receiver != null) {
+            DescriptorInfo existingDesc = receiver.getOwnPropertyDescriptor(cx, key);
+            if (existingDesc != null) {
+                // If it's an accessor on receiver, return false
+                if (existingDesc.isAccessorDescriptor()) {
+                    return false;
                 }
-
-                if (descriptor.isConfigurable(false)) {
+                // If receiver's property is not writable, return false
+                if (!existingDesc.isWritable()) {
                     return false;
                 }
             }
         }
 
-        if (ScriptRuntime.isSymbol(args[1])) {
-            receiver.put((Symbol) args[1], receiver, args[2]);
+        // Perform the actual set
+        if (receiver == null) {
+            // Receiver is a non-ScriptableObject Scriptable - just return true
+            // as we can't properly set on it
+            return true;
+        }
+
+        if (ScriptRuntime.isSymbol(key)) {
+            receiver.put((Symbol) key, receiver, value);
         } else {
-            StringIdOrIndex s = ScriptRuntime.toStringIdOrIndex(args[1]);
+            StringIdOrIndex s = ScriptRuntime.toStringIdOrIndex(key);
             if (s.stringId == null) {
-                receiver.put(s.index, receiver, args[2]);
+                receiver.put(s.index, receiver, value);
             } else {
-                receiver.put(s.stringId, receiver, args[2]);
+                receiver.put(s.stringId, receiver, value);
             }
         }
 
