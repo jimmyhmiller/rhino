@@ -358,7 +358,7 @@ final class NativeDate extends IdScriptableObject {
         // with [[DateValue]] (Date.prototype does not have [[DateValue]])
         NativeDate realThis = ensureType(thisObj, NativeDate.class, f);
         if (!realThis.hasDateValue) {
-            throw ScriptRuntime.typeError1("msg.incompat.call", f.getFunctionName());
+            throw ScriptRuntime.typeErrorById("msg.incompat.call", f.getFunctionName());
         }
         double t = realThis.date;
 
