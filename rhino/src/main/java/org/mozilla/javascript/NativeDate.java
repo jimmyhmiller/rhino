@@ -508,6 +508,8 @@ final class NativeDate extends IdScriptableObject {
                             t = LocalTime(cx, t);
                         }
 
+                        // Per spec B.2.4.2: apply ToInteger before checking range
+                        year = ScriptRuntime.toInteger(year);
                         if (year >= 0 && year <= 99) year += 1900;
 
                         double day = MakeDay(year, MonthFromTime(t), DateFromTime(t));

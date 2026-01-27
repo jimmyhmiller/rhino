@@ -81,6 +81,7 @@ public class Test262SuiteTest {
     private static final boolean rollUpEnabled;
     private static final boolean statsEnabled;
     private static final boolean includeUnsupported;
+    private static final boolean rawTestMode;
 
     static final Map<String, Script> HARNESS_SCRIPT_CACHE = new ConcurrentHashMap<>();
     static final Map<Test262Case, TestResultTracker> RESULT_TRACKERS = new LinkedHashMap<>();
@@ -155,6 +156,9 @@ public class Test262SuiteTest {
         } else {
             test262FilterPattern = null;
         }
+
+        // Raw mode: ignore expected failures and show actual test results
+        rawTestMode = System.getProperty("test262raw") != null;
     }
 
     @BeforeAll
@@ -700,11 +704,14 @@ public class Test262SuiteTest {
                 continue;
             }
 
+            // In raw mode, ignore expected failures and show actual results
+            boolean effectiveMarkedAsFailing = rawTestMode ? false : markedAsFailing;
+
             for (TestMode testMode : new TestMode[] {TestMode.INTERPRETED, TestMode.COMPILED}) {
                 if (!testCase.hasFlag(FLAG_ONLY_STRICT) || testCase.hasFlag(FLAG_RAW)) {
                     result.add(
                             new Object[] {
-                                caseShortPath, testMode, false, testCase, markedAsFailing
+                                caseShortPath, testMode, false, testCase, effectiveMarkedAsFailing
                             });
                     TestResultTracker tracker =
                             RESULT_TRACKERS.computeIfAbsent(
@@ -714,13 +721,13 @@ public class Test262SuiteTest {
                             false,
                             testCase.hasFlag(FLAG_ONLY_STRICT),
                             testCase.hasFlag(FLAG_NO_STRICT),
-                            markedAsFailing);
+                            effectiveMarkedAsFailing);
                 }
 
                 if (!testCase.hasFlag(FLAG_NO_STRICT) && !testCase.hasFlag(FLAG_RAW)) {
                     result.add(
                             new Object[] {
-                                caseShortPath, testMode, true, testCase, markedAsFailing
+                                caseShortPath, testMode, true, testCase, effectiveMarkedAsFailing
                             });
                     TestResultTracker tracker =
                             RESULT_TRACKERS.computeIfAbsent(
@@ -730,7 +737,7 @@ public class Test262SuiteTest {
                             true,
                             testCase.hasFlag(FLAG_ONLY_STRICT),
                             testCase.hasFlag(FLAG_NO_STRICT),
-                            markedAsFailing);
+                            effectiveMarkedAsFailing);
                 }
             }
         }
