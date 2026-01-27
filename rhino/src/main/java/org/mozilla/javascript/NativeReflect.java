@@ -217,9 +217,8 @@ final class NativeReflect extends ScriptableObject {
         }
 
         // 3. Return ? target.[[Delete]](key).
-        // Call delete() directly. For Proxy targets, this invokes the deleteProperty trap.
-        // Unlike the delete operator, Reflect.deleteProperty returns false instead of
-        // throwing for non-configurable properties (even in strict mode).
+        // Use deleteReturningBoolean which properly returns the result of the [[Delete]]
+        // operation, including for Proxy targets where the trap may return false.
         // We catch TypeError from strict mode delete and return false in that case.
         try {
             if (propertyKey instanceof Symbol) {
@@ -229,8 +228,7 @@ final class NativeReflect extends ScriptableObject {
                 return !so.has(s, target);
             } else {
                 String name = (String) propertyKey;
-                target.delete(name);
-                return !target.has(name, target);
+                return target.deleteReturningBoolean(name);
             }
         } catch (EcmaError e) {
             // In strict mode, deleting non-configurable properties throws TypeError.

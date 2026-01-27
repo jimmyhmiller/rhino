@@ -771,6 +771,38 @@ class NativeProxy extends ScriptableObject {
     }
 
     /**
+     * Override deleteReturningBoolean to properly return the trap result. This is needed for
+     * Reflect.deleteProperty to correctly return false when the trap returns a falsy value.
+     */
+    @Override
+    public boolean deleteReturningBoolean(String name) {
+        ScriptableObject target = getTargetThrowIfRevoked();
+
+        Function trap = getTrap(TRAP_DELETE_PROPERTY);
+        if (trap != null) {
+            boolean booleanTrapResult =
+                    ScriptRuntime.toBoolean(callTrap(trap, new Object[] {target, name}));
+            if (!booleanTrapResult) {
+                return false;
+            }
+
+            DescriptorInfo targetDesc = target.getOwnPropertyDescriptor(Context.getContext(), name);
+            if (targetDesc == null) {
+                return true;
+            }
+            if (targetDesc.isConfigurable(false) || !target.isExtensible()) {
+                throw ScriptRuntime.typeError(
+                        "proxy can't delete an existing own property ' + name + ' on an not configurable or not extensible object");
+            }
+
+            return true;
+        }
+
+        target.delete(name);
+        return !target.has(name, target);
+    }
+
+    /**
      * see <a
      * href="https://262.ecma-international.org/12.0/#sec-proxy-object-internal-methods-and-internal-slots-delete-p">10.5.10
      * [[Delete]] (P)</a>

@@ -223,6 +223,25 @@ public interface Scriptable {
     public void delete(int index);
 
     /**
+     * Removes a property from this object and returns whether the deletion was successful.
+     *
+     * <p>This is similar to {@code delete(String)} but returns a boolean indicating success. This
+     * is needed for proper implementation of {@code Reflect.deleteProperty} with Proxy objects,
+     * where the deleteProperty trap may return false to indicate that deletion was rejected.
+     *
+     * <p>The default implementation calls {@code delete(name)} and returns {@code !has(name,
+     * this)}.
+     *
+     * @param name the identifier for the property
+     * @return true if the property was successfully deleted or did not exist, false if deletion was
+     *     rejected
+     */
+    default boolean deleteReturningBoolean(String name) {
+        delete(name);
+        return !has(name, this);
+    }
+
+    /**
      * Get the prototype of the object.
      *
      * @return the prototype
