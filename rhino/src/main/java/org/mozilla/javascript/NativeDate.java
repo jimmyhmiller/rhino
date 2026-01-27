@@ -917,8 +917,10 @@ final class NativeDate extends IdScriptableObject {
                 || Math.abs(d) > HalfTimeDomain) {
             return ScriptRuntime.NaN;
         }
-        if (d > 0.0) return Math.floor(d + 0.);
-        return Math.ceil(d + 0.);
+        // Use truncation toward zero per ES2024 TimeClip spec
+        double result = d > 0 ? Math.floor(d) : Math.ceil(d);
+        // Ensure -0 is converted to +0 per ToIntegerOrInfinity spec
+        return result == 0 ? 0.0 : result;
     }
 
     /* end of ECMA helper functions */
