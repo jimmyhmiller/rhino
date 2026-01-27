@@ -395,7 +395,8 @@ final class NativeString extends ScriptableObject {
 
         Object separator = args.length > 0 ? args[0] : Undefined.instance;
         Object limit = args.length > 1 ? args[1] : Undefined.instance;
-        if (!Undefined.isUndefined(separator) && separator != null) {
+        // ES2023+: Only access Symbol.split if separator is an Object (not a primitive)
+        if (separator instanceof Scriptable) {
             Object splitter = ScriptRuntime.getObjectElem(separator, SymbolKey.SPLIT, cx, scope);
             // If method is not undefined, it should be a Callable
             if (splitter != null && !Undefined.isUndefined(splitter)) {
@@ -608,7 +609,8 @@ final class NativeString extends ScriptableObject {
         Object o = requireObjectCoercible(cx, thisObj, CLASS_NAME, "match");
         Object regexp = args.length > 0 ? args[0] : Undefined.instance;
         RegExpProxy regExpProxy = ScriptRuntime.checkRegExpProxy(cx);
-        if (regexp != null && !Undefined.isUndefined(regexp)) {
+        // ES2023+: Only access Symbol.match if regexp is an Object (not a primitive)
+        if (regexp instanceof Scriptable) {
             Object matcher = ScriptRuntime.getObjectElem(regexp, SymbolKey.MATCH, cx, scope);
             // If method is not undefined, it should be a Callable
             if (matcher != null && !Undefined.isUndefined(matcher)) {
@@ -858,7 +860,8 @@ final class NativeString extends ScriptableObject {
         Object o = requireObjectCoercible(cx, thisObj, CLASS_NAME, "search");
         Object regexp = args.length > 0 ? args[0] : Undefined.instance;
         RegExpProxy regExpProxy = ScriptRuntime.checkRegExpProxy(cx);
-        if (regexp != null && !Undefined.isUndefined(regexp)) {
+        // ES2023+: Only access Symbol.search if regexp is an Object (not a primitive)
+        if (regexp instanceof Scriptable) {
             Object matcher = ScriptRuntime.getObjectElem(regexp, SymbolKey.SEARCH, cx, scope);
             // If method is not undefined, it should be a Callable
             if (matcher != null && !Undefined.isUndefined(matcher)) {
@@ -906,7 +909,8 @@ final class NativeString extends ScriptableObject {
         Object searchValue = args.length > 0 ? args[0] : Undefined.instance;
         Object replaceValue = args.length > 1 ? args[1] : Undefined.instance;
 
-        if (!Undefined.isUndefined(searchValue) && searchValue != null) {
+        // ES2023+: Only access Symbol.replace if searchValue is an Object (not a primitive)
+        if (searchValue instanceof Scriptable) {
             Object replacer =
                     ScriptRuntime.getObjectElem(searchValue, SymbolKey.REPLACE, cx, scope);
             // If method is not undefined, it should be a Callable
@@ -986,10 +990,9 @@ final class NativeString extends ScriptableObject {
         Object searchValue = args.length > 0 ? args[0] : Undefined.instance;
         Object replaceValue = args.length > 1 ? args[1] : Undefined.instance;
 
-        if (searchValue != null && !Undefined.isUndefined(searchValue)) {
-            boolean isRegExp =
-                    searchValue instanceof Scriptable
-                            && AbstractEcmaObjectOperations.isRegExp(cx, scope, searchValue);
+        // ES2023+: Only access Symbol.replace if searchValue is an Object (not a primitive)
+        if (searchValue instanceof Scriptable) {
+            boolean isRegExp = AbstractEcmaObjectOperations.isRegExp(cx, scope, searchValue);
             if (isRegExp) {
                 Object flags = ScriptRuntime.getObjectProp(searchValue, "flags", cx, scope);
                 requireObjectCoercible(cx, flags, CLASS_NAME, "replaceAll");
