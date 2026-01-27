@@ -354,8 +354,12 @@ final class NativeDate extends IdScriptableObject {
                 }
         }
 
-        // The rest of Date.prototype methods require thisObj to be Date
+        // The rest of Date.prototype methods require thisObj to be a Date instance
+        // with [[DateValue]] (Date.prototype does not have [[DateValue]])
         NativeDate realThis = ensureType(thisObj, NativeDate.class, f);
+        if (!realThis.hasDateValue) {
+            throw ScriptRuntime.typeError1("msg.incompat.call", f.getFunctionName());
+        }
         double t = realThis.date;
 
         switch (id) {
@@ -1448,6 +1452,8 @@ final class NativeDate extends IdScriptableObject {
     /* the javascript constructor */
     private static Object jsConstructor(Context cx, Object[] args) {
         NativeDate obj = new NativeDate();
+        // Mark as having [[DateValue]] since this is an actual instance, not the prototype
+        obj.hasDateValue = true;
 
         // if called as a constructor with no args,
         // return a new Date with the current time.
@@ -2063,4 +2069,15 @@ final class NativeDate extends IdScriptableObject {
     private static final DateTimeFormatter localeTimeFormatterES6 =
             DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT);
     private double date;
+    // Per ES spec, Date.prototype does NOT have [[DateValue]], only actual instances do.
+    // This flag distinguishes between prototype and instances.
+    private boolean hasDateValue = false;
+
+    /**
+     * Returns true if this Date object has the [[DateValue]] internal slot. According to ES spec,
+     * Date.prototype does not have [[DateValue]], only instances do.
+     */
+    public boolean hasDateValue() {
+        return hasDateValue;
+    }
 }
