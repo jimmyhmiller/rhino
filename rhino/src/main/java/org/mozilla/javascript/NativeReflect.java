@@ -343,8 +343,16 @@ final class NativeReflect extends ScriptableObject {
             return true;
         }
 
+        // ES6 26.1.13: receiver is optional, defaults to target
+        Object receiverArg = args.length > 3 ? args[3] : target;
+
+        // ES6 9.1.9 [[Set]] step 5.b: If Type(Receiver) is not Object, return false.
+        if (!(receiverArg instanceof Scriptable)) {
+            return false;
+        }
         ScriptableObject receiver =
-                args.length > 3 ? ScriptableObject.ensureScriptableObject(args[3]) : target;
+                receiverArg instanceof ScriptableObject ? (ScriptableObject) receiverArg : target;
+
         if (receiver != target) {
             DescriptorInfo descriptor = target.getOwnPropertyDescriptor(cx, args[1]);
             if (descriptor != null) {
