@@ -2789,10 +2789,14 @@ public final class Interpreter extends Icode implements Evaluator {
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
             final Object[] stack = frame.stack;
             final double[] sDbl = frame.sDbl;
-            double lDbl = stack_double(frame, state.stackTop - 1);
-            int rIntValue = stack_int32(frame, state.stackTop) & 0x1F;
-            stack[--state.stackTop] = DOUBLE_MARK;
-            sDbl[state.stackTop] = ScriptRuntime.toUint32(lDbl) >>> rIntValue;
+            // Per ECMAScript spec, convert both operands to Numeric first (which may call
+            // toPrimitive), then check for BigInt and throw TypeError.
+            Number lNum = stack_numeric(frame, state.stackTop - 1);
+            Number rNum = stack_numeric(frame, state.stackTop);
+            Number result = ScriptRuntime.unsignedRightShift(lNum, rNum);
+            --state.stackTop;
+            stack[state.stackTop] = DOUBLE_MARK;
+            sDbl[state.stackTop] = result.doubleValue();
             return null;
         }
     }
@@ -5264,14 +5268,6 @@ public final class Interpreter extends Icode implements Evaluator {
 
         c.initImplementation(frame);
         return c;
-    }
-
-    private static int stack_int32(CallFrame frame, int i) {
-        Object x = frame.stack[i];
-        if (x == UniqueTag.DOUBLE_MARK) {
-            return ScriptRuntime.toInt32(frame.sDbl[i]);
-        }
-        return ScriptRuntime.toInt32(x);
     }
 
     private static double stack_double(CallFrame frame, int i) {

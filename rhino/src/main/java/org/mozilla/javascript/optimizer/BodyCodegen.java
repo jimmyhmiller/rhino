@@ -4272,23 +4272,18 @@ class BodyCodegen {
         int childNumberFlag = node.getIntProp(Node.ISNUMBER_PROP, -1);
         generateExpression(child, node);
 
-        // special-case URSH; work with the target arg as a long, so
-        // that we can return a 32-bit unsigned value, and call
-        // toUint32 instead of toInt32.
+        // For URSH, we need to convert both operands to Numeric first (which may call toPrimitive),
+        // then check for BigInt and throw TypeError. This is per ECMAScript spec which requires
+        // ToNumeric on both operands before the BigInt check.
         if (type == Token.URSH) {
             generateExpression(child.getNext(), node);
             cfw.add(ByteCode.SWAP);
-            addDynamicInvoke("MATH:TOUINT32", Signatures.MATH_TO_UINT32);
-            cfw.add(ByteCode.DUP2_X1);
-            cfw.add(ByteCode.POP2);
-            addDynamicInvoke("MATH:TOINT32", Signatures.MATH_TO_INT32);
-            // Looks like we need to explicitly mask the shift to 5 bits -
-            // LUSHR takes 6 bits.
-            cfw.addPush(31);
-            cfw.add(ByteCode.IAND);
-            cfw.add(ByteCode.LUSHR);
-            cfw.add(ByteCode.L2D);
-            addDoubleWrap();
+            addObjectToNumeric();
+            cfw.add(ByteCode.SWAP);
+            addObjectToNumeric();
+            addScriptRuntimeInvoke(
+                    "unsignedRightShift",
+                    "(Ljava/lang/Number;Ljava/lang/Number;)Ljava/lang/Number;");
             return;
         }
         if (childNumberFlag == -1) {

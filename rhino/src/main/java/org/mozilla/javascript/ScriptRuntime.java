@@ -4087,6 +4087,26 @@ public class ScriptRuntime {
         }
     }
 
+    /**
+     * Unsigned right shift operation. Unlike other bitwise operations, unsigned right shift always
+     * throws a TypeError for BigInt operands because the concept of unsigned shift doesn't apply to
+     * arbitrary precision integers.
+     *
+     * <p>Per ECMAScript spec: both operands are converted to Numeric first (which may call
+     * toPrimitive), and then if the left operand is BigInt, TypeError is thrown.
+     */
+    public static Number unsignedRightShift(Number val1, Number val2) {
+        if (val1 instanceof BigInteger) {
+            throw ScriptRuntime.typeErrorById("msg.cant.convert.to.number", "BigInt");
+        }
+        if (val2 instanceof BigInteger) {
+            throw ScriptRuntime.typeErrorById("msg.cant.convert.to.number", "BigInt");
+        }
+        long lVal = toUint32(val1.doubleValue());
+        int rVal = toInt32(val2.doubleValue()) & 0x1F;
+        return Double.valueOf((double) (lVal >>> rVal));
+    }
+
     public static Number bitwiseNOT(Number val) {
         if (val instanceof BigInteger) {
             return ((BigInteger) val).not();
