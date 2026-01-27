@@ -4,12 +4,30 @@
 
 ### Understanding test262.properties format
 
-The `test262.properties` file shows **pass rates** and lists **failing tests**:
-- `built-ins/Error 3/53 (5.66%)` means 3 out of 53 tests pass (5.66% pass rate)
+The `test262.properties` file shows **failure rates** and lists **failing tests**:
+- `built-ins/Error 3/53 (5.66%)` means 3 failures out of 53 tests (5.66% failure rate) - so 50 tests pass
+- `built-ins/Infinity 0/6 (0.0%)` means 0 failures out of 6 tests (0% failure rate) - all 6 tests pass
 - Indented lines below a category are the **failing** tests
-- Categories with 0% pass rate (e.g., `built-ins/isFinite 0/15 (0.0%)`) have all tests failing
+- Categories with 100% failure rate have all tests failing
 - Categories prefixed with `~` are completely skipped
 - Tests marked with `{unsupported: [...]}` require features Rhino doesn't support
+
+### Running specific test262 tests
+
+Use the `-Dtest262filter` system property with glob patterns to run specific tests:
+
+```bash
+# Run all tests in a specific category
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest -Dtest262filter="built-ins/Array/*"
+
+# Run a specific test file
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest -Dtest262filter="built-ins/Array/prototype/map/*"
+
+# Run tests matching a pattern
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest -Dtest262filter="**/prop-desc.js"
+```
+
+The filter supports `*` (matches any characters) and `?` (matches single character) wildcards.
 
 ### Regenerating the properties file
 

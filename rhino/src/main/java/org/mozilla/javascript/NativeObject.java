@@ -160,19 +160,27 @@ public class NativeObject extends ScriptableObject implements Map {
 
     private static Object js_hasOwnProperty(
             Context cx, JSFunction f, Object nt, Scriptable s, Object thisObj, Object[] args) {
+        // Per spec: 1. Let P be ? ToPropertyKey(V).
+        Object arg = args.length < 1 ? Undefined.instance : args[0];
+        Object key = ScriptRuntime.toPropertyKey(arg);
+
+        // Per spec: 2. Let O be ? ToObject(this value).
         if (cx.getLanguageVersion() >= Context.VERSION_1_8
                 && (thisObj == null || Undefined.isUndefined(thisObj))) {
             throw ScriptRuntime.typeErrorById(
                     "msg." + (thisObj == null ? "null" : "undef") + ".to.object");
         }
 
-        Object arg = args.length < 1 ? Undefined.instance : args[0];
-
-        return AbstractEcmaObjectOperations.hasOwnProperty(cx, thisObj, arg);
+        return AbstractEcmaObjectOperations.hasOwnProperty(cx, thisObj, key);
     }
 
     private static Object js_propertyIsEnumerable(
             Context cx, JSFunction f, Object nt, Scriptable s, Object thisObj, Object[] args) {
+        // Per spec: 1. Let P be ? ToPropertyKey(V).
+        Object arg = args.length < 1 ? Undefined.instance : args[0];
+        Object key = ScriptRuntime.toPropertyKey(arg);
+
+        // Per spec: 2. Let O be ? ToObject(this value).
         if (cx.getLanguageVersion() >= Context.VERSION_1_8
                 && (thisObj == null || Undefined.isUndefined(thisObj))) {
             throw ScriptRuntime.typeErrorById(
@@ -180,14 +188,13 @@ public class NativeObject extends ScriptableObject implements Map {
         }
 
         boolean result;
-        Object arg = args.length < 1 ? Undefined.instance : args[0];
         Scriptable so = ScriptRuntime.toObject(s, thisObj);
 
-        if (arg instanceof Symbol) {
-            result = ((SymbolScriptable) so).has((Symbol) arg, so);
-            result = result && isEnumerable((Symbol) arg, thisObj);
+        if (key instanceof Symbol) {
+            result = ((SymbolScriptable) so).has((Symbol) key, so);
+            result = result && isEnumerable((Symbol) key, thisObj);
         } else {
-            StringIdOrIndex soi = ScriptRuntime.toStringIdOrIndex(arg);
+            StringIdOrIndex soi = ScriptRuntime.toStringIdOrIndex(key);
             // When checking if a property is enumerable, a missing property should
             // return "false" instead of
             // throwing an exception.  See: https://github.com/mozilla/rhino/issues/415

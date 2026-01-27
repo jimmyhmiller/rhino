@@ -1736,6 +1736,22 @@ public class ScriptRuntime {
     }
 
     /**
+     * ToPropertyKey abstract operation per ES spec.
+     *
+     * @see <a href="https://tc39.es/ecma262/#sec-topropertykey">ToPropertyKey</a>
+     */
+    public static Object toPropertyKey(Object argument) {
+        // 1. Let key be ? ToPrimitive(argument, string).
+        Object key = toPrimitive(argument, StringClass);
+        // 2. If key is a Symbol, return key.
+        if (isSymbol(key)) {
+            return key;
+        }
+        // 3. Return ! ToString(key).
+        return toString(key);
+    }
+
+    /**
      * If id is a number or a string presentation of an int32 value, then id the returning
      * StringIdOrIndex has the index set, otherwise the stringId is set.
      */
