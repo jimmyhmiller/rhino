@@ -618,8 +618,14 @@ final class NativeString extends ScriptableObject {
                     throw ScriptRuntime.notFunctionError(
                             regexp, matcher, SymbolKey.MATCH.getName());
                 }
+                // ES6 21.1.3.11 step 3.c.i: Call(matcher, regexp, «O»)
+                // O should be a primitive string, not a boxed string
                 return ((Callable) matcher)
-                        .call(cx, scope, ScriptRuntime.toObject(scope, regexp), new Object[] {o});
+                        .call(
+                                cx,
+                                scope,
+                                ScriptRuntime.toObject(scope, regexp),
+                                new Object[] {ScriptRuntime.toString(o)});
             }
         }
 
@@ -869,8 +875,14 @@ final class NativeString extends ScriptableObject {
                     throw ScriptRuntime.notFunctionError(
                             regexp, matcher, SymbolKey.SEARCH.getName());
                 }
+                // ES6 21.1.3.17 step 3.c.i: Call(matcher, regexp, «O»)
+                // O should be a primitive string, not a boxed string
                 return ((Callable) matcher)
-                        .call(cx, scope, ScriptRuntime.toObject(scope, regexp), new Object[] {o});
+                        .call(
+                                cx,
+                                scope,
+                                ScriptRuntime.toObject(scope, regexp),
+                                new Object[] {ScriptRuntime.toString(o)});
             }
         }
 
@@ -1109,8 +1121,14 @@ final class NativeString extends ScriptableObject {
                     throw ScriptRuntime.notFunctionError(
                             regexp, matcher, SymbolKey.MATCH_ALL.getName());
                 }
+                // ES6 22.1.3.14: Call(matcher, regexp, «O»)
+                // O should be a primitive string, not a boxed string
                 return ((Callable) matcher)
-                        .call(cx, scope, ScriptRuntime.toObject(scope, regexp), new Object[] {o});
+                        .call(
+                                cx,
+                                scope,
+                                ScriptRuntime.toObject(scope, regexp),
+                                new Object[] {ScriptRuntime.toString(o)});
             }
         }
 
