@@ -201,16 +201,46 @@ final class NativeReflect extends ScriptableObject {
 
     private static Object deleteProperty(
             Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+        // ES6 26.1.4: Reflect.deleteProperty(target, propertyKey)
+        // 1. If Type(target) is not Object, throw a TypeError exception.
         ScriptableObject target = checkTarget(args);
 
-        if (args.length > 1) {
-            if (ScriptRuntime.isSymbol(args[1])) {
-                return ScriptableObject.deleteProperty(target, (Symbol) args[1]);
-            }
-            return ScriptableObject.deleteProperty(target, ScriptRuntime.toString(args[1]));
+        // 2. Let key be ? ToPropertyKey(propertyKey).
+        Object key = args.length > 1 ? args[1] : Undefined.instance;
+        Object propertyKey;
+        if (key instanceof Symbol) {
+            propertyKey = key;
+        } else {
+            propertyKey =
+                    ScriptRuntime.toString(
+                            ScriptRuntime.toPrimitive(key, ScriptRuntime.StringClass));
         }
 
-        return false;
+        // 3. Return ? target.[[Delete]](key).
+        // Call delete() directly. For Proxy targets, this invokes the deleteProperty trap.
+        // Unlike the delete operator, Reflect.deleteProperty returns false instead of
+        // throwing for non-configurable properties (even in strict mode).
+        // We catch TypeError from strict mode delete and return false in that case.
+        try {
+            if (propertyKey instanceof Symbol) {
+                SymbolScriptable so = ScriptableObject.ensureSymbolScriptable(target);
+                Symbol s = (Symbol) propertyKey;
+                so.delete(s);
+                return !so.has(s, target);
+            } else {
+                String name = (String) propertyKey;
+                target.delete(name);
+                return !target.has(name, target);
+            }
+        } catch (EcmaError e) {
+            // In strict mode, deleting non-configurable properties throws TypeError.
+            // Reflect.deleteProperty should return false instead.
+            if ("TypeError".equals(e.getName())
+                    && e.getMessage().contains("configurable is false")) {
+                return false;
+            }
+            throw e;
+        }
     }
 
     private static Object get(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
