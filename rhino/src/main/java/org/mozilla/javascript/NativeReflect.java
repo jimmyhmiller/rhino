@@ -246,18 +246,65 @@ final class NativeReflect extends ScriptableObject {
     private static Object get(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
         ScriptableObject target = checkTarget(args);
 
-        if (args.length > 1) {
-            if (ScriptRuntime.isSymbol(args[1])) {
-                Object prop = ScriptableObject.getProperty(target, (Symbol) args[1]);
-                return prop == Scriptable.NOT_FOUND ? Undefined.SCRIPTABLE_UNDEFINED : prop;
-            }
-            if (args[1] instanceof Number) {
-                Object prop = ScriptableObject.getProperty(target, ScriptRuntime.toIndex(args[1]));
-                return prop == Scriptable.NOT_FOUND ? Undefined.SCRIPTABLE_UNDEFINED : prop;
-            }
+        if (args.length < 2) {
+            return Undefined.SCRIPTABLE_UNDEFINED;
+        }
 
-            Object prop = ScriptableObject.getProperty(target, ScriptRuntime.toString(args[1]));
-            return prop == Scriptable.NOT_FOUND ? Undefined.SCRIPTABLE_UNDEFINED : prop;
+        // ES6 26.1.6: receiver is optional, defaults to target
+        Scriptable receiver =
+                args.length > 2 && args[2] instanceof Scriptable ? (Scriptable) args[2] : target;
+
+        Object key = args[1];
+        return getWithReceiver(cx, scope, target, key, receiver);
+    }
+
+    /**
+     * Internal [[Get]] operation that properly passes receiver to getters. Walks up the prototype
+     * chain looking for the property.
+     */
+    private static Object getWithReceiver(
+            Context cx, Scriptable scope, Scriptable obj, Object key, Scriptable receiver) {
+        // Walk up the prototype chain
+        while (obj != null) {
+            if (obj instanceof ScriptableObject) {
+                ScriptableObject so = (ScriptableObject) obj;
+                DescriptorInfo desc = so.getOwnPropertyDescriptor(cx, key);
+                if (desc != null) {
+                    // Found the property
+                    if (desc.isAccessorDescriptor()) {
+                        // Call getter with receiver as this
+                        Object getter = desc.getter;
+                        if (getter == null
+                                || getter == NOT_FOUND
+                                || Undefined.isUndefined(getter)) {
+                            return Undefined.SCRIPTABLE_UNDEFINED;
+                        }
+                        return ((Function) getter)
+                                .call(cx, scope, receiver, ScriptRuntime.emptyArgs);
+                    } else {
+                        // Data property - return the value
+                        return desc.value;
+                    }
+                }
+            } else {
+                // Non-ScriptableObject - try direct access (no receiver support)
+                Object result;
+                if (ScriptRuntime.isSymbol(key)) {
+                    if (obj instanceof SymbolScriptable) {
+                        result = ((SymbolScriptable) obj).get((Symbol) key, obj);
+                    } else {
+                        result = Scriptable.NOT_FOUND;
+                    }
+                } else if (key instanceof Number) {
+                    result = obj.get(ScriptRuntime.toIndex(key), obj);
+                } else {
+                    result = obj.get(ScriptRuntime.toString(key), obj);
+                }
+                if (result != Scriptable.NOT_FOUND) {
+                    return result;
+                }
+            }
+            obj = obj.getPrototype();
         }
         return Undefined.SCRIPTABLE_UNDEFINED;
     }
