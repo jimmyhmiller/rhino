@@ -742,7 +742,12 @@ public final class IRFactory {
             List<AstNode> args = node.getArguments();
             for (int i = 0; i < args.size(); i++) {
                 AstNode arg = args.get(i);
-                call.addChildToBack(transform(arg));
+                Node transformedArg = transform(arg);
+                call.addChildToBack(transformedArg);
+                if (arg.getType() == Token.DOTDOTDOT) {
+                    call.putIntProp(
+                            Node.NUMBER_OF_SPREAD, call.getIntProp(Node.NUMBER_OF_SPREAD, 0) + 1);
+                }
             }
             if (node.isOptionalCall()) {
                 call.putIntProp(Node.OPTIONAL_CHAINING, 1);
@@ -964,7 +969,11 @@ public final class IRFactory {
         List<AstNode> args = node.getArguments();
         for (int i = 0; i < args.size(); i++) {
             AstNode arg = args.get(i);
-            nx.addChildToBack(transform(arg));
+            Node transformedArg = transform(arg);
+            nx.addChildToBack(transformedArg);
+            if (arg.getType() == Token.DOTDOTDOT) {
+                nx.putIntProp(Node.NUMBER_OF_SPREAD, nx.getIntProp(Node.NUMBER_OF_SPREAD, 0) + 1);
+            }
         }
         if (node.getInitializer() != null) {
             nx.addChildToBack(transformObjectLiteral(node.getInitializer()));

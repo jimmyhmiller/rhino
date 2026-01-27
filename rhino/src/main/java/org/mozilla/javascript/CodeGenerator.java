@@ -635,6 +635,7 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             case Token.CALL:
             case Token.NEW:
                 {
+                    int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
                     boolean isOptionalChainingCall =
                             node.getIntProp(Node.OPTIONAL_CHAINING, 0) == 1;
                     CompleteOptionalCallJump completeOptionalCallJump = null;
@@ -647,43 +648,82 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                             resolveForwardGoto(completeOptionalCallJump.putArgsAndDoCallLabel);
                         }
                     }
-                    int argCount = 0;
-                    while ((child = child.getNext()) != null) {
-                        visitExpression(child, 0);
-                        ++argCount;
-                    }
-                    int callType = node.getIntProp(Node.SPECIALCALL_PROP, Node.NON_SPECIALCALL);
-                    if (type != Token.REF_CALL && callType != Node.NON_SPECIALCALL) {
-                        // embed line number and source filename
-                        addIndexOp(Icode_CALLSPECIAL, argCount);
-                        addUint8(callType);
-                        addUint8(type == Token.NEW ? 1 : 0);
-                        addUint16(lineNumber & 0xFFFF);
-                    } else if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
-                        addIndexOp(Icode_CALL_ON_SUPER, argCount);
-                    } else {
-                        // Only use the tail call optimization if we're not in a try
-                        // or we're not generating debug info (since the
-                        // optimization will confuse the debugger)
-                        if (type == Token.CALL
-                                && (contextFlags & ECF_TAIL) != 0
-                                && !compilerEnv.isGenerateDebugInfo()
-                                && !itsInTryFlag) {
-                            type = Icode_TAIL_CALL;
+
+                    if (numberOfSpread > 0) {
+                        // Handle call with spread arguments using NewLiteralStorage
+                        int argCount = 0;
+                        for (Node n = child.getNext(); n != null; n = n.getNext()) {
+                            ++argCount;
                         }
-                        addIndexOp(type, argCount);
-                    }
-                    // adjust stack
-                    if (type == Token.NEW) {
-                        // new: f, args -> result
-                        stackChange(-argCount);
+                        // Create NewLiteralStorage for args
+                        addIndexOp(Icode_LITERAL_NEW_ARRAY, argCount - numberOfSpread);
+                        addUint8(0); // no skip indexes
+                        stackChange(1);
+
+                        while ((child = child.getNext()) != null) {
+                            if (child.getType() == Token.DOTDOTDOT) {
+                                // Spread: visit the child expression and emit SPREAD
+                                visitExpression(child.getFirstChild(), 0);
+                                addIcode(Icode_SPREAD);
+                                stackChange(-1);
+                            } else {
+                                // Regular arg: visit and emit LITERAL_SET
+                                visitExpression(child, 0);
+                                addIcode(Icode_LITERAL_SET);
+                                stackChange(-1);
+                            }
+                        }
+
+                        // Emit the spread call/new icode
+                        if (type == Token.NEW) {
+                            addIcode(Icode_NEW_SPREAD);
+                            // stack: f, storage -> result
+                            stackChange(-1);
+                        } else {
+                            addIcode(Icode_CALL_SPREAD);
+                            // stack: f, thisObj, storage -> result
+                            stackChange(-2);
+                        }
                     } else {
-                        // call: f, thisObj, args -> result
-                        // ref_call: f, thisObj, args -> ref
-                        stackChange(-1 - argCount);
-                    }
-                    if (argCount > itsData.itsMaxCalleeArgs) {
-                        itsData.itsMaxCalleeArgs = argCount;
+                        // Normal call without spread
+                        int argCount = 0;
+                        while ((child = child.getNext()) != null) {
+                            visitExpression(child, 0);
+                            ++argCount;
+                        }
+                        int callType = node.getIntProp(Node.SPECIALCALL_PROP, Node.NON_SPECIALCALL);
+                        if (type != Token.REF_CALL && callType != Node.NON_SPECIALCALL) {
+                            // embed line number and source filename
+                            addIndexOp(Icode_CALLSPECIAL, argCount);
+                            addUint8(callType);
+                            addUint8(type == Token.NEW ? 1 : 0);
+                            addUint16(lineNumber & 0xFFFF);
+                        } else if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
+                            addIndexOp(Icode_CALL_ON_SUPER, argCount);
+                        } else {
+                            // Only use the tail call optimization if we're not in a try
+                            // or we're not generating debug info (since the
+                            // optimization will confuse the debugger)
+                            if (type == Token.CALL
+                                    && (contextFlags & ECF_TAIL) != 0
+                                    && !compilerEnv.isGenerateDebugInfo()
+                                    && !itsInTryFlag) {
+                                type = Icode_TAIL_CALL;
+                            }
+                            addIndexOp(type, argCount);
+                        }
+                        // adjust stack
+                        if (type == Token.NEW) {
+                            // new: f, args -> result
+                            stackChange(-argCount);
+                        } else {
+                            // call: f, thisObj, args -> result
+                            // ref_call: f, thisObj, args -> ref
+                            stackChange(-1 - argCount);
+                        }
+                        if (argCount > itsData.itsMaxCalleeArgs) {
+                            itsData.itsMaxCalleeArgs = argCount;
+                        }
                     }
 
                     if (completeOptionalCallJump != null) {

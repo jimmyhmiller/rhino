@@ -1736,6 +1736,8 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_UNDEF] = new DoUndef();
         instructionObjs[base + Icode_TDZ] = new DoTdz();
         instructionObjs[base + Icode_REQ_OBJ_COERCIBLE] = new DoReqObjCoercible();
+        instructionObjs[base + Icode_CALL_SPREAD] = new DoCallSpread();
+        instructionObjs[base + Icode_NEW_SPREAD] = new DoNewSpread();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
@@ -4318,6 +4320,65 @@ public final class Interpreter extends Icode implements Evaluator {
             // Check that value is object-coercible (throws TypeError for null/undefined)
             ScriptRuntime.requireObjectCoercible(value);
             // Value stays on stack unchanged
+            return null;
+        }
+    }
+
+    private static class DoCallSpread extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Stack: LookupResult, NewLiteralStorage -> result
+            NewLiteralStorage storage = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+            ScriptRuntime.LookupResult result =
+                    (ScriptRuntime.LookupResult) frame.stack[state.stackTop];
+
+            Callable fun = result.getCallable();
+            Scriptable funThisObj = result.getThis();
+
+            Scriptable calleeScope = frame.scope;
+            if (frame.useActivation) {
+                calleeScope = ScriptableObject.getTopLevelScope(frame.scope);
+            }
+
+            Object[] args = storage.getValues();
+            if (args == null) {
+                args = ScriptRuntime.emptyArgs;
+            }
+
+            frame.stack[state.stackTop] = fun.call(cx, calleeScope, funThisObj, args);
+            return null;
+        }
+    }
+
+    private static class DoNewSpread extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Stack: constructor, NewLiteralStorage -> result
+            NewLiteralStorage storage = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+            Object lhs = frame.stack[state.stackTop];
+            if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+
+            Object[] args = storage.getValues();
+            if (args == null) {
+                args = ScriptRuntime.emptyArgs;
+            }
+
+            if (!(lhs instanceof Function)) {
+                if (lhs == Undefined.instance) {
+                    throw ScriptRuntime.typeErrorById("msg.undef.ctor");
+                }
+                throw ScriptRuntime.typeErrorById("msg.not.ctor", ScriptRuntime.typeof(lhs));
+            }
+
+            Function fun = (Function) lhs;
+            Scriptable newScope = frame.scope;
+            if (frame.useActivation) {
+                newScope = ScriptableObject.getTopLevelScope(frame.scope);
+            }
+
+            frame.stack[state.stackTop] = fun.construct(cx, newScope, args);
             return null;
         }
     }

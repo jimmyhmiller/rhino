@@ -189,8 +189,12 @@ abstract class Icode {
             // RequireObjectCoercible check for destructuring (throws for null/undefined)
             Icode_REQ_OBJ_COERCIBLE = Icode_ENTERWITH_CONST - 1,
 
+            // Call/new with spread arguments - args are in NewLiteralStorage on stack
+            Icode_CALL_SPREAD = Icode_REQ_OBJ_COERCIBLE - 1,
+            Icode_NEW_SPREAD = Icode_CALL_SPREAD - 1,
+
             // Last icode
-            MIN_ICODE = Icode_REQ_OBJ_COERCIBLE;
+            MIN_ICODE = Icode_NEW_SPREAD;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -402,6 +406,10 @@ abstract class Icode {
                 return "ENTERWITH_CONST";
             case Icode_REQ_OBJ_COERCIBLE:
                 return "REQ_OBJ_COERCIBLE";
+            case Icode_CALL_SPREAD:
+                return "CALL_SPREAD";
+            case Icode_NEW_SPREAD:
+                return "NEW_SPREAD";
         }
 
         // icode without name

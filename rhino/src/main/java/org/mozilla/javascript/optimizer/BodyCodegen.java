@@ -1113,20 +1113,31 @@ class BodyCodegen {
             case Token.CALL:
             case Token.NEW:
                 {
-                    int specialType = node.getIntProp(Node.SPECIALCALL_PROP, Node.NON_SPECIALCALL);
-                    if (specialType == Node.NON_SPECIALCALL) {
-                        OptFunctionNode target;
-                        target = (OptFunctionNode) node.getProp(Node.DIRECTCALL_PROP);
-
-                        if (target != null) {
-                            visitOptimizedCall(node, target, type, child);
-                        } else if (type == Token.CALL) {
-                            visitStandardCall(node, child);
+                    int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
+                    if (numberOfSpread > 0) {
+                        // Handle call/new with spread arguments
+                        if (type == Token.CALL) {
+                            visitStandardCallWithSpread(node, child);
                         } else {
-                            visitStandardNew(node, child);
+                            visitStandardNewWithSpread(node, child);
                         }
                     } else {
-                        visitSpecialCall(node, type, specialType, child);
+                        int specialType =
+                                node.getIntProp(Node.SPECIALCALL_PROP, Node.NON_SPECIALCALL);
+                        if (specialType == Node.NON_SPECIALCALL) {
+                            OptFunctionNode target;
+                            target = (OptFunctionNode) node.getProp(Node.DIRECTCALL_PROP);
+
+                            if (target != null) {
+                                visitOptimizedCall(node, target, type, child);
+                            } else if (type == Token.CALL) {
+                                visitStandardCall(node, child);
+                            } else {
+                                visitStandardNew(node, child);
+                            }
+                        } else {
+                            visitSpecialCall(node, type, specialType, child);
+                        }
                     }
                 }
                 break;
@@ -2913,6 +2924,115 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + "[Ljava/lang/Object;"
                         + ")Lorg/mozilla/javascript/Scriptable;");
+    }
+
+    private void visitStandardCallWithSpread(Node node, Node child) {
+        assert node.getType() == Token.CALL;
+
+        Node firstArgChild = child.getNext();
+
+        // Push a LookupResult to the stack
+        generateLookupResult(child, node);
+
+        // Build the args array using NewLiteralStorage
+        generateSpreadCallArgs(node, firstArgChild);
+        cfw.addAStore(argsLocal);
+
+        // Extract function and this from LookupResult
+        popFunctionAndThis();
+
+        // stack: ... functionObj thisObj
+        cfw.addALoad(contextLocal);
+        cfw.add(ByteCode.SWAP);
+        // stack: ... functionObj cx thisObj
+        cfw.addALoad(variableObjectLocal);
+        cfw.add(ByteCode.SWAP);
+        // stack: ... functionObj cx scope thisObj
+        cfw.addALoad(argsLocal);
+
+        cfw.addInvoke(
+                ByteCode.INVOKEINTERFACE,
+                "org/mozilla/javascript/Callable",
+                "call",
+                "(Lorg/mozilla/javascript/Context;"
+                        + "Lorg/mozilla/javascript/Scriptable;"
+                        + "Lorg/mozilla/javascript/Scriptable;"
+                        + "[Ljava/lang/Object;"
+                        + ")Ljava/lang/Object;");
+    }
+
+    private void visitStandardNewWithSpread(Node node, Node child) {
+        if (node.getType() != Token.NEW) throw Codegen.badTree();
+
+        Node firstArgChild = child.getNext();
+
+        generateExpression(child, node);
+        // stack: ... functionObj
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(variableObjectLocal);
+        // stack: ... functionObj cx scope
+        generateSpreadCallArgs(node, firstArgChild);
+        addScriptRuntimeInvoke(
+                "newObject",
+                "(Ljava/lang/Object;"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Lorg/mozilla/javascript/Scriptable;"
+                        + "[Ljava/lang/Object;"
+                        + ")Lorg/mozilla/javascript/Scriptable;");
+    }
+
+    private void generateSpreadCallArgs(Node node, Node firstArgChild) {
+        int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
+        int argCount = countArguments(firstArgChild);
+
+        // Create NewLiteralStorage for the args
+        cfw.addALoad(contextLocal);
+        cfw.addLoadConstant(argCount - numberOfSpread);
+        cfw.addLoadConstant(0); // createKeys = false for call args
+        cfw.addInvoke(
+                ByteCode.INVOKESTATIC,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "create",
+                "(Lorg/mozilla/javascript/Context;IZ)Lorg/mozilla/javascript/NewLiteralStorage;");
+
+        // Process each argument
+        Node argChild = firstArgChild;
+        while (argChild != null) {
+            if (argChild.getType() == Token.DOTDOTDOT) {
+                // Handle spread argument
+                cfw.add(ByteCode.DUP);
+                cfw.addALoad(contextLocal);
+                cfw.addALoad(variableObjectLocal);
+                generateExpression(argChild.getFirstChild(), node);
+                cfw.addLoadConstant(0); // sourcePosition
+                cfw.addInvoke(
+                        ByteCode.INVOKEVIRTUAL,
+                        "org/mozilla/javascript/NewLiteralStorage",
+                        "spread",
+                        "(Lorg/mozilla/javascript/Context;"
+                                + "Lorg/mozilla/javascript/Scriptable;"
+                                + "Ljava/lang/Object;"
+                                + "I"
+                                + ")V");
+            } else {
+                // Handle regular argument
+                cfw.add(ByteCode.DUP);
+                generateExpression(argChild, node);
+                cfw.addInvoke(
+                        ByteCode.INVOKEVIRTUAL,
+                        "org/mozilla/javascript/NewLiteralStorage",
+                        "pushValue",
+                        "(Ljava/lang/Object;)V");
+            }
+            argChild = argChild.getNext();
+        }
+
+        // Get the values array from the storage
+        cfw.addInvoke(
+                ByteCode.INVOKEVIRTUAL,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "getValues",
+                "()[Ljava/lang/Object;");
     }
 
     private void visitOptimizedCall(Node node, OptFunctionNode target, int type, Node child) {
