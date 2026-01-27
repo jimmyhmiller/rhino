@@ -138,14 +138,24 @@ public class ArrayLikeAbstractOperations {
 
         Function f = getCallbackArg(cx, callbackArg);
         Scriptable parent = ScriptableObject.getTopLevelScope(f);
-        // When thisArg is not provided (or is undefined/null), we need to determine what to pass:
-        // - For strict mode callbacks: pass undefined
-        // - For non-strict mode callbacks: pass the global object
-        // This matches the ES spec for Call(F, V) where V is converted to global for non-strict.
+        // Handle thisArg according to ES spec Call(F, V):
+        // - For non-strict callbacks: undefined/null are converted to global object
+        // - For strict callbacks: undefined/null are passed as-is
         Scriptable thisArg;
-        if (args.length < 2 || args[1] == null || args[1] == Undefined.instance) {
-            boolean isCallbackStrict = !(f instanceof JSFunction) || ((JSFunction) f).isStrict();
+        boolean isCallbackStrict = !(f instanceof JSFunction) || ((JSFunction) f).isStrict();
+
+        if (args.length < 2) {
+            // No thisArg provided - use undefined (strict) or global (non-strict)
             thisArg = isCallbackStrict ? Undefined.SCRIPTABLE_UNDEFINED : parent;
+        } else if (args[1] == null || args[1] == Undefined.instance) {
+            // Explicit null/undefined passed
+            if (isCallbackStrict) {
+                // Strict mode: pass the actual value (null or undefined)
+                thisArg = args[1] == null ? null : Undefined.SCRIPTABLE_UNDEFINED;
+            } else {
+                // Non-strict mode: convert to global object
+                thisArg = parent;
+            }
         } else {
             thisArg = ScriptRuntime.toObject(cx, scope, args[1]);
         }

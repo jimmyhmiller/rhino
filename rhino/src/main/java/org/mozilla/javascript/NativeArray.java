@@ -1989,9 +1989,20 @@ public class NativeArray extends ScriptableObject implements List {
 
         Function f = ArrayLikeAbstractOperations.getCallbackArg(cx, callbackArg);
         Scriptable parent = ScriptableObject.getTopLevelScope(f);
+        // Handle thisArg according to ES spec Call(F, V):
+        // - For non-strict callbacks: undefined/null are converted to global object
+        // - For strict callbacks: undefined/null are passed as-is
         Scriptable thisArg;
-        if (args.length < 2 || args[1] == null || args[1] == Undefined.instance) {
-            thisArg = parent;
+        boolean isCallbackStrict = !(f instanceof JSFunction) || ((JSFunction) f).isStrict();
+
+        if (args.length < 2) {
+            thisArg = isCallbackStrict ? Undefined.SCRIPTABLE_UNDEFINED : parent;
+        } else if (args[1] == null || args[1] == Undefined.instance) {
+            if (isCallbackStrict) {
+                thisArg = args[1] == null ? null : Undefined.SCRIPTABLE_UNDEFINED;
+            } else {
+                thisArg = parent;
+            }
         } else {
             thisArg = ScriptRuntime.toObject(cx, scope, args[1]);
         }
