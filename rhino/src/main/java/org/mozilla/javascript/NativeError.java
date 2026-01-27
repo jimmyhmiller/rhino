@@ -29,6 +29,7 @@ final class NativeError extends IdScriptableObject {
 
     private RhinoException stackProvider;
     private Object stack;
+    private boolean hasErrorData = false;
 
     static void init(Scriptable scope, boolean sealed) {
         NativeError obj = new NativeError();
@@ -235,6 +236,16 @@ final class NativeError extends IdScriptableObject {
             defineProperty(STACK_TAG, this::getStackDelegated, this::setStackDelegated, DONTENUM);
         }
         stackProvider = re;
+        // Mark this as having [[ErrorData]] since it's being initialized as an instance
+        hasErrorData = true;
+    }
+
+    /**
+     * Returns true if this Error object has the [[ErrorData]] internal slot. According to ES6,
+     * Error.prototype does not have [[ErrorData]], only instances do.
+     */
+    public boolean hasErrorData() {
+        return hasErrorData;
     }
 
     public Object getStackDelegated() {

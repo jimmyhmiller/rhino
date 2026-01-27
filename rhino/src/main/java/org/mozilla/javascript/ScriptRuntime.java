@@ -1055,6 +1055,15 @@ public class ScriptRuntime {
             return "[object " + tagValue + "]";
         }
 
+        // ES6 19.1.3.6: Use builtin tag based on internal slots
+        // For Error objects, only instances have [[ErrorData]], not Error.prototype
+        if (obj instanceof NativeError) {
+            if (((NativeError) obj).hasErrorData()) {
+                return "[object Error]";
+            }
+            return "[object Object]";
+        }
+
         return "[object " + obj.getClassName() + "]";
     }
 
