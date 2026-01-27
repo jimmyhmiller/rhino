@@ -1118,6 +1118,7 @@ final class NativeDate extends IdScriptableObject {
             int hour = values[HOUR], min = values[MIN], sec = values[SEC], msec = values[MSEC];
             int tzhour = values[TZHOUR], tzmin = values[TZMIN];
             if (year > 275943 // ceil(1e8/365) + 1970 = 275943
+                    || (yearlen == 6 && yearmod == -1 && year == 0) // reject -000000
                     || (month < 1 || month > 12)
                     || (day < 1 || day > DaysInMonth(year, month))
                     || hour > 24
