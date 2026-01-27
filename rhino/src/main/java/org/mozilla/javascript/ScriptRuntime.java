@@ -714,7 +714,10 @@ public class ScriptRuntime {
         }
     }
 
-    /** Convert the value to a BigInt. */
+    /**
+     * ToBigInt abstract operation per ES spec. Throws TypeError for Number values. Used by
+     * BigInt.asIntN, BigInt.asUintN, and other operations that need ToBigInt semantics.
+     */
     public static BigInteger toBigInt(Object val) {
         val = toPrimitive(val, NumberClass);
         if (val instanceof BigInteger) {
@@ -723,21 +726,9 @@ public class ScriptRuntime {
         if (val instanceof BigDecimal) {
             return ((BigDecimal) val).toBigInteger();
         }
+        // Per ES spec, ToBigInt throws TypeError for Number values
         if (val instanceof Number) {
-            if (val instanceof Long) {
-                return BigInteger.valueOf(((Long) val));
-            } else {
-                double d = ((Number) val).doubleValue();
-                if (Double.isNaN(d) || Double.isInfinite(d)) {
-                    throw rangeErrorById("msg.cant.convert.to.bigint.isnt.integer", toString(val));
-                }
-                BigDecimal bd = new BigDecimal(d, MathContext.UNLIMITED);
-                try {
-                    return bd.toBigIntegerExact();
-                } catch (ArithmeticException e) {
-                    throw rangeErrorById("msg.cant.convert.to.bigint.isnt.integer", toString(val));
-                }
-            }
+            throw typeErrorById("msg.cant.convert.to.bigint", toString(val));
         }
         if (val == null || Undefined.isUndefined(val)) {
             throw typeErrorById("msg.cant.convert.to.bigint", toString(val));
@@ -755,6 +746,42 @@ public class ScriptRuntime {
             throw typeErrorById("msg.cant.convert.to.bigint", toString(val));
         }
         throw errorWithClassName("msg.primitive.expected", val);
+    }
+
+    /**
+     * BigInt(value) constructor behavior per ES spec. Unlike ToBigInt, this converts Numbers via
+     * NumberToBigInt instead of throwing TypeError.
+     */
+    public static BigInteger toBigIntFromConstructor(Object val) {
+        val = toPrimitive(val, NumberClass);
+        if (val instanceof BigInteger) {
+            return (BigInteger) val;
+        }
+        if (val instanceof BigDecimal) {
+            return ((BigDecimal) val).toBigInteger();
+        }
+        // BigInt constructor converts Numbers via NumberToBigInt
+        if (val instanceof Number) {
+            return numberToBigInt(((Number) val).doubleValue());
+        }
+        // For non-Number types, use ToBigInt semantics
+        return toBigInt(val);
+    }
+
+    /**
+     * NumberToBigInt abstract operation per ES spec. Throws RangeError if the number is not an
+     * integer.
+     */
+    public static BigInteger numberToBigInt(double d) {
+        if (Double.isNaN(d) || Double.isInfinite(d)) {
+            throw rangeErrorById("msg.cant.convert.to.bigint.isnt.integer", toString(d));
+        }
+        BigDecimal bd = new BigDecimal(d, MathContext.UNLIMITED);
+        try {
+            return bd.toBigIntegerExact();
+        } catch (ArithmeticException e) {
+            throw rangeErrorById("msg.cant.convert.to.bigint.isnt.integer", toString(d));
+        }
     }
 
     /** ToBigInt applied to the String type */

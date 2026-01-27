@@ -832,20 +832,23 @@ public abstract class ScriptableObject extends SlotMapOwner
                 cx = Context.getContext();
             }
             v = fun.call(cx, fun.getDeclarationScope(), object, ScriptRuntime.emptyArgs);
-            if (v != null) {
-                if (!(v instanceof Scriptable)) {
-                    return v;
-                }
-                if (typeHint == ScriptRuntime.ScriptableClass
-                        || typeHint == ScriptRuntime.FunctionClass) {
-                    return v;
-                }
-                if (tryToString && v instanceof Wrapper) {
-                    // Let a wrapped java.lang.String pass for a primitive
-                    // string.
-                    Object u = ((Wrapper) v).unwrap();
-                    if (u instanceof String) return u;
-                }
+            // Per ES spec OrdinaryToPrimitive: If Type(result) is not Object, return result.
+            // null is not an Object, so it should be returned as a valid primitive.
+            if (v == null) {
+                return v;
+            }
+            if (!(v instanceof Scriptable)) {
+                return v;
+            }
+            if (typeHint == ScriptRuntime.ScriptableClass
+                    || typeHint == ScriptRuntime.FunctionClass) {
+                return v;
+            }
+            if (tryToString && v instanceof Wrapper) {
+                // Let a wrapped java.lang.String pass for a primitive
+                // string.
+                Object u = ((Wrapper) v).unwrap();
+                if (u instanceof String) return u;
             }
         }
         // fall through to error

@@ -71,7 +71,9 @@ final class NativeBigInt extends ScriptableObject {
 
     private static Object js_constructorFunc(
             Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
-        return (args.length >= 1) ? ScriptRuntime.toBigInt(args[0]) : BigInteger.ZERO;
+        return (args.length >= 1)
+                ? ScriptRuntime.toBigIntFromConstructor(args[0])
+                : BigInteger.ZERO;
     }
 
     private static Scriptable js_constructor(Context cx, Scriptable scope, Object[] args) {

@@ -62,9 +62,9 @@ final class NativeError extends IdScriptableObject {
                 obj.setAttributes("message", DONTENUM);
             }
             if (arglen >= 2) {
-                if (args[1] instanceof NativeObject) {
-                    installCause((NativeObject) args[1], obj);
-                } else {
+                if (args[1] instanceof Scriptable && !Undefined.isUndefined(args[1])) {
+                    installCause(cx, (Scriptable) args[1], obj);
+                } else if (!(args[1] instanceof Scriptable)) {
                     ScriptableObject.putProperty(obj, "fileName", ScriptRuntime.toString(args[1]));
                     if (arglen >= 3) {
                         ScriptableObject.putProperty(
@@ -92,9 +92,9 @@ final class NativeError extends IdScriptableObject {
                 }
 
                 if (arglen >= 3) {
-                    if (args[2] instanceof NativeObject) {
-                        installCause((NativeObject) args[2], obj);
-                    } else {
+                    if (args[2] instanceof Scriptable && !Undefined.isUndefined(args[2])) {
+                        installCause(cx, (Scriptable) args[2], obj);
+                    } else if (!(args[2] instanceof Scriptable)) {
                         ScriptableObject.putProperty(
                                 obj, "fileName", ScriptRuntime.toString(args[2]));
                         if (arglen >= 4) {
@@ -124,9 +124,12 @@ final class NativeError extends IdScriptableObject {
         return obj;
     }
 
-    static void installCause(NativeObject options, NativeError obj) {
-        Object cause = ScriptableObject.getProperty(options, "cause");
-        if (cause != NOT_FOUND) {
+    static void installCause(Context cx, Scriptable options, NativeError obj) {
+        // Per spec: If Type(options) is Object and ? HasProperty(options, "cause") is true
+        // HasProperty can throw (e.g., for Proxy)
+        if (ScriptableObject.hasProperty(options, "cause")) {
+            // Get can also throw (e.g., for getter that throws)
+            Object cause = ScriptableObject.getProperty(options, "cause");
             ScriptableObject.putProperty(obj, "cause", cause);
             obj.setAttributes("cause", DONTENUM);
         }
