@@ -545,6 +545,19 @@ final class NativeString extends ScriptableObject {
     }
 
     @Override
+    protected boolean putOwnProperty(int index, Scriptable start, Object value, boolean isThrow) {
+        // String indexed properties are readonly
+        if (0 <= index && index < string.length()) {
+            if (isThrow) {
+                // Per ES spec, assigning to readonly string indices in strict mode throws TypeError
+                throw ScriptRuntime.typeErrorById("msg.modify.readonly", Integer.toString(index));
+            }
+            return true; // handled (silently ignored in non-strict mode)
+        }
+        return super.putOwnProperty(index, start, value, isThrow);
+    }
+
+    @Override
     public boolean has(int index, Scriptable start) {
         if (0 <= index && index < string.length()) {
             return true;
