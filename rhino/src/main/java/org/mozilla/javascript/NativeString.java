@@ -1090,7 +1090,8 @@ final class NativeString extends ScriptableObject {
         // See ECMAScript spec 22.1.3.14
         Object o = requireObjectCoercible(cx, thisObj, CLASS_NAME, "matchAll");
         Object regexp = args.length > 0 ? args[0] : Undefined.instance;
-        if (regexp != null && !Undefined.isUndefined(regexp)) {
+        // ES2023+: Only access Symbol.matchAll if regexp is an Object (not a primitive)
+        if (regexp instanceof Scriptable) {
             boolean isRegExp = AbstractEcmaObjectOperations.isRegExp(cx, scope, regexp);
             if (isRegExp) {
                 Object flags = ScriptRuntime.getObjectProp(regexp, "flags", cx, scope);
