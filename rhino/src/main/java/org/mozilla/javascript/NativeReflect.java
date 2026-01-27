@@ -162,6 +162,23 @@ final class NativeReflect extends ScriptableObject {
 
     private static Object defineProperty(
             Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+        // ES6 26.1.3: Reflect.defineProperty(target, propertyKey, attributes)
+        // 1. If Type(target) is not Object, throw a TypeError exception.
+        ScriptableObject target = checkTarget(args);
+
+        // 2. Let key be ToPropertyKey(propertyKey).
+        // 3. ReturnIfAbrupt(key).
+        Object rawKey = args.length > 1 ? args[1] : Undefined.instance;
+        Object key;
+        if (rawKey instanceof Symbol) {
+            key = rawKey;
+        } else {
+            key =
+                    ScriptRuntime.toString(
+                            ScriptRuntime.toPrimitive(rawKey, ScriptRuntime.StringClass));
+        }
+
+        // 4. Let desc be ? ToPropertyDescriptor(attributes).
         if (args.length < 3) {
             throw ScriptRuntime.typeErrorById(
                     "msg.method.missing.parameter",
@@ -169,22 +186,14 @@ final class NativeReflect extends ScriptableObject {
                     "3",
                     Integer.toString(args.length));
         }
-
-        ScriptableObject target = checkTarget(args);
         DescriptorInfo desc = new DescriptorInfo(ScriptableObject.ensureScriptableObject(args[2]));
-
-        Object key = args[1];
 
         try {
             if (key instanceof Symbol) {
                 return target.defineOwnProperty(cx, key, desc);
             } else {
-                String propertyKey =
-                        ScriptRuntime.toString(
-                                ScriptRuntime.toPrimitive(key, ScriptRuntime.StringClass));
-                return target.defineOwnProperty(cx, propertyKey, desc);
+                return target.defineOwnProperty(cx, (String) key, desc);
             }
-
         } catch (EcmaError e) {
             return false;
         }
