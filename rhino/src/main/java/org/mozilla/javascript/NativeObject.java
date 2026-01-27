@@ -718,13 +718,15 @@ public class NativeObject extends ScriptableObject implements Map {
             for (Object key : ids) {
                 if (key instanceof Integer) {
                     int intId = (Integer) key;
-                    if (sourceObj.has(intId, sourceObj) && isEnumerable(intId, sourceObj)) {
+                    // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy traps)
+                    if (isOwnEnumerableProperty(cx, sourceObj, intId)) {
                         Object val = sourceObj.get(intId, sourceObj);
                         AbstractEcmaObjectOperations.put(cx, targetObj, intId, val, true);
                     }
                 } else if (key instanceof String) {
                     String stringId = ScriptRuntime.toString(key);
-                    if (sourceObj.has(stringId, sourceObj) && isEnumerable(stringId, sourceObj)) {
+                    // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy traps)
+                    if (isOwnEnumerableProperty(cx, sourceObj, stringId)) {
                         Object val = sourceObj.get(stringId, sourceObj);
                         AbstractEcmaObjectOperations.put(cx, targetObj, stringId, val, true);
                     }
@@ -737,8 +739,8 @@ public class NativeObject extends ScriptableObject implements Map {
                 for (Object key : ids) {
                     if (key instanceof Symbol) {
                         Symbol sym = (Symbol) key;
-                        if (((ScriptableObject) sourceObj).has(sym, sourceObj)
-                                && isEnumerable(sym, sourceObj)) {
+                        // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy traps)
+                        if (isOwnEnumerableProperty(cx, sourceObj, sym)) {
                             Object val = ((ScriptableObject) sourceObj).get(sym, sourceObj);
                             AbstractEcmaObjectOperations.put(cx, targetObj, sym, val, true);
                         }
@@ -747,6 +749,32 @@ public class NativeObject extends ScriptableObject implements Map {
             }
         }
         return targetObj;
+    }
+
+    /**
+     * Check if the property is an own enumerable property by calling [[GetOwnProperty]]. This
+     * properly triggers the getOwnPropertyDescriptor trap for Proxy objects per ECMAScript spec.
+     * Returns false if the descriptor is undefined/null (property doesn't exist or trap returned
+     * undefined).
+     */
+    private static boolean isOwnEnumerableProperty(Context cx, Scriptable obj, Object key) {
+        if (obj instanceof ScriptableObject) {
+            ScriptableObject so = (ScriptableObject) obj;
+            DescriptorInfo desc = so.getOwnPropertyDescriptor(cx, key);
+            // If desc is null or undefined, the property doesn't exist or trap returned undefined
+            if (desc == null || Undefined.isUndefined(desc)) {
+                return false;
+            }
+            return desc.isEnumerable();
+        } else {
+            // Fallback for non-ScriptableObject
+            if (key instanceof Integer) {
+                return obj.has((Integer) key, obj) && isEnumerable((Integer) key, obj);
+            } else if (key instanceof String) {
+                return obj.has((String) key, obj) && isEnumerable((String) key, obj);
+            }
+            return false;
+        }
     }
 
     private static Object js_is(
