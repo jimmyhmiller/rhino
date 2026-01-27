@@ -293,6 +293,8 @@ public final class ES6Generator extends ScriptableObject {
                 throw jse;
             }
         } catch (RhinoException re) {
+            // Per ES spec, when an exception escapes from a generator, it should be completed
+            state = State.COMPLETED;
             lineNumber = re.lineNumber();
             lineSource = re.lineSource();
             throw re;

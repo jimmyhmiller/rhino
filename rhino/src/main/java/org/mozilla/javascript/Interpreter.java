@@ -1481,6 +1481,11 @@ public final class Interpreter extends Icode implements Evaluator {
     public static Object resumeGenerator(
             Context cx, Scriptable scope, int operation, Object savedState, Object value) {
         CallFrame frame = (CallFrame) savedState;
+        // If the frame is not frozen, the generator is already executing (not suspended).
+        // Per ES spec, resuming an executing generator should throw TypeError.
+        if (!frame.frozen) {
+            throw ScriptRuntime.typeErrorById("msg.generator.executing");
+        }
         CallFrame activeFrame = frame.shallowCloneFrozen((CallFrame) cx.lastInterpreterFrame);
         try {
             GeneratorState generatorState = new GeneratorState(operation, value);
