@@ -1658,6 +1658,12 @@ public class NativeArray extends ScriptableObject implements List {
 
         Scriptable o = ScriptRuntime.toObject(cx, scope, thisObj);
         long length = getLengthProperty(cx, o);
+
+        // Per spec: check length before converting fromIndex
+        if (length == 0) {
+            return NEGATIVE_ONE;
+        }
+
         /*
          * From http://developer.mozilla.org/en/docs/Core_JavaScript_1.5_Reference:Objects:Array:indexOf
          * The index at which to begin the search. Defaults to 0, i.e. the
@@ -1711,6 +1717,12 @@ public class NativeArray extends ScriptableObject implements List {
 
         Scriptable o = ScriptRuntime.toObject(cx, scope, thisObj);
         long length = getLengthProperty(cx, o);
+
+        // Per spec: check length before converting fromIndex
+        if (length == 0) {
+            return NEGATIVE_ONE;
+        }
+
         /*
          * From http://developer.mozilla.org/en/docs/Core_JavaScript_1.5_Reference:Objects:Array:lastIndexOf
          * The index at which to start searching backwards. Defaults to the
