@@ -481,16 +481,35 @@ final class NativeDate extends IdScriptableObject {
             case Id_setUTCMinutes:
             case Id_setHours:
             case Id_setUTCHours:
-                t = makeTime(cx, t, args, id);
-                realThis.date = t;
-                return ScriptRuntime.wrapNumber(t);
+                {
+                    // Per spec: if original t is NaN, ToNumber is called on args for side effects,
+                    // but [[DateValue]] is NOT updated (just return NaN)
+                    boolean wasNaN = Double.isNaN(t);
+                    t = makeTime(cx, t, args, id);
+                    if (!wasNaN) {
+                        realThis.date = t;
+                    }
+                    return ScriptRuntime.wrapNumber(t);
+                }
 
             case Id_setDate:
             case Id_setUTCDate:
             case Id_setMonth:
             case Id_setUTCMonth:
+                {
+                    // Per spec: if original t is NaN, ToNumber is called on args for side effects,
+                    // but [[DateValue]] is NOT updated (just return NaN)
+                    boolean wasNaN = Double.isNaN(t);
+                    t = makeDate(cx, t, args, id);
+                    if (!wasNaN) {
+                        realThis.date = t;
+                    }
+                    return ScriptRuntime.wrapNumber(t);
+                }
+
             case Id_setFullYear:
             case Id_setUTCFullYear:
+                // Per spec: setFullYear uses 0 if t is NaN, so always update [[DateValue]]
                 t = makeDate(cx, t, args, id);
                 realThis.date = t;
                 return ScriptRuntime.wrapNumber(t);
