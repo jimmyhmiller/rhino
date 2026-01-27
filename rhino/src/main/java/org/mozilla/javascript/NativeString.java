@@ -357,16 +357,27 @@ final class NativeString extends ScriptableObject {
 
     private static void checkValidRegex(Context cx, Object[] args, int pos, String functionName) {
         if (args.length > pos && args[pos] instanceof Scriptable) {
-            RegExpProxy reProxy = ScriptRuntime.getRegExpProxy(cx);
-            if (reProxy != null) {
-                Scriptable arg = (Scriptable) args[pos];
-                if (reProxy.isRegExp(arg)) {
-                    if (ScriptableObject.isTrue(
-                            ScriptableObject.getProperty(arg, SymbolKey.MATCH))) {
-                        throw ScriptRuntime.typeErrorById(
-                                "msg.first.arg.not.regexp", CLASS_NAME, functionName);
-                    }
+            Scriptable arg = (Scriptable) args[pos];
+
+            // ES6 7.2.8 IsRegExp abstract operation:
+            // 1. If Type(argument) is not Object, return false.
+            // 2. Let matcher be ? Get(argument, @@match).
+            Object matcher = ScriptableObject.getProperty(arg, SymbolKey.MATCH);
+
+            // 3. If matcher is not undefined, return ! ToBoolean(matcher).
+            if (matcher != Scriptable.NOT_FOUND && !Undefined.isUndefined(matcher)) {
+                if (ScriptableObject.isTrue(matcher)) {
+                    throw ScriptRuntime.typeErrorById(
+                            "msg.first.arg.not.regexp", CLASS_NAME, functionName);
                 }
+                return;
+            }
+
+            // 4. If argument has a [[RegExpMatcher]] internal slot, return true.
+            RegExpProxy reProxy = ScriptRuntime.getRegExpProxy(cx);
+            if (reProxy != null && reProxy.isRegExp(arg)) {
+                throw ScriptRuntime.typeErrorById(
+                        "msg.first.arg.not.regexp", CLASS_NAME, functionName);
             }
         }
     }
