@@ -436,28 +436,54 @@ final class NativeReflect extends ScriptableObject {
             return true;
         }
 
-        // Now check the receiver's existing property
-        if (receiver != null) {
-            DescriptorInfo existingDesc = receiver.getOwnPropertyDescriptor(cx, key);
-            if (existingDesc != null) {
-                // If it's an accessor on receiver, return false
-                if (existingDesc.isAccessorDescriptor()) {
-                    return false;
-                }
-                // If receiver's property is not writable, return false
-                if (!existingDesc.isWritable()) {
-                    return false;
-                }
-            }
-        }
-
-        // Perform the actual set
+        // Perform the actual set on receiver
         if (receiver == null) {
             // Receiver is a non-ScriptableObject Scriptable - just return true
             // as we can't properly set on it
             return true;
         }
 
+        // For Proxy receivers, use [[DefineOwnProperty]] to avoid infinite recursion
+        // (Proxy set trap calling Reflect.set which calls put which triggers set trap again)
+        if (receiver instanceof NativeProxy) {
+            // ES6 9.1.9.2 step 5.c: Get receiver's existing property
+            DescriptorInfo existingDesc = receiver.getOwnPropertyDescriptor(cx, key);
+            if (existingDesc != null) {
+                // ES6 9.1.9.2 step 5.d.i: If accessor, return false
+                if (existingDesc.isAccessorDescriptor()) {
+                    return false;
+                }
+                // ES6 9.1.9.2 step 5.d.ii: If not writable, return false
+                if (!existingDesc.isWritable()) {
+                    return false;
+                }
+                // ES6 9.1.9.2 step 5.d.iv: Call [[DefineOwnProperty]] with just {value: V}
+                DescriptorInfo valueDesc =
+                        new DescriptorInfo(
+                                NOT_FOUND, NOT_FOUND, NOT_FOUND, NOT_FOUND, NOT_FOUND, value);
+                return receiver.defineOwnProperty(cx, key, valueDesc, false);
+            } else {
+                // ES6 9.1.9.2 step 5.e: CreateDataProperty(Receiver, P, V)
+                DescriptorInfo newDesc = new DescriptorInfo(true, true, true, value);
+                return receiver.defineOwnProperty(cx, key, newDesc, false);
+            }
+        }
+
+        // For non-Proxy receivers (including TypedArrays), check existing property then use put
+        DescriptorInfo existingDesc = receiver.getOwnPropertyDescriptor(cx, key);
+        if (existingDesc != null) {
+            // If it's an accessor on receiver, return false
+            if (existingDesc.isAccessorDescriptor()) {
+                return false;
+            }
+            // If receiver's property is not writable, return false
+            if (!existingDesc.isWritable()) {
+                return false;
+            }
+        }
+
+        // Use put which will invoke the receiver's [[Set]] internal method
+        // This is needed for TypedArrays and other exotic objects with custom [[Set]] behavior
         if (ScriptRuntime.isSymbol(key)) {
             receiver.put((Symbol) key, receiver, value);
         } else {
