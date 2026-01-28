@@ -3361,27 +3361,54 @@ public abstract class ScriptableObject extends SlotMapOwner
     private static final Comparator<Object> KEY_COMPARATOR = new KeyComparator();
 
     /**
-     * This comparator sorts property fields in spec-compliant order. Numeric ids first, in numeric
-     * order, followed by string ids, in insertion order. Since this class already keeps string keys
-     * in insertion-time order, we treat all as equal. The "Arrays.sort" method will then not change
-     * their order, but simply move all the numeric properties to the front, since this method is
-     * defined to be stable.
+     * This comparator sorts property fields in spec-compliant order. Array index keys first, in
+     * numeric order, followed by string ids, in insertion order. Since this class already keeps
+     * string keys in insertion-time order, we treat all non-index strings as equal. The
+     * "Arrays.sort" method will then not change their order, but simply move all the array index
+     * properties to the front, since this method is defined to be stable.
+     *
+     * <p>An array index is defined as an integer in the range [0, 2^32-2] (i.e., 0 to 4294967294).
+     * Keys may be stored as Integer (for small indices) or String (for larger indices).
      */
     public static final class KeyComparator implements Comparator<Object>, Serializable {
         private static final long serialVersionUID = 6411335891523988149L;
 
+        // Maximum value for an array index: 2^32 - 2
+        private static final long MAX_ARRAY_INDEX = 0xfffffffeL;
+
         @Override
         public int compare(Object o1, Object o2) {
-            if (o1 instanceof Integer) {
-                if (o2 instanceof Integer) {
-                    return ((Integer) o1).compareTo((Integer) o2);
+            long index1 = toArrayIndex(o1);
+            long index2 = toArrayIndex(o2);
+
+            if (index1 >= 0) {
+                if (index2 >= 0) {
+                    return Long.compare(index1, index2);
                 }
-                return -1;
+                return -1; // o1 is array index, o2 is not
             }
-            if (o2 instanceof Integer) {
-                return 1;
+            if (index2 >= 0) {
+                return 1; // o2 is array index, o1 is not
             }
-            return 0;
+            return 0; // both are non-index strings, maintain insertion order
+        }
+
+        /**
+         * Returns the array index if the key is a valid array index (0 to 2^32-2), or -1 if it's
+         * not an array index.
+         */
+        private static long toArrayIndex(Object key) {
+            if (key instanceof Integer) {
+                int i = (Integer) key;
+                return i >= 0 ? i : -1;
+            }
+            if (key instanceof String) {
+                long index = ScriptRuntime.testUint32String((String) key);
+                if (index >= 0 && index <= MAX_ARRAY_INDEX) {
+                    return index;
+                }
+            }
+            return -1;
         }
     }
 
