@@ -743,8 +743,52 @@ public class Parser {
                                 if (directive == null) {
                                     inDirectivePrologue = false;
                                 } else if ("use strict".equals(directive)) {
-                                    if (fnNode.getDefaultParams() != null) {
+                                    // ES6: strict mode function body with non-simple parameters is
+                                    // an error
+                                    boolean hasNonSimpleParams =
+                                            fnNode.getDefaultParams() != null
+                                                    || fnNode.hasRestParameter();
+
+                                    // Check if params include destructuring patterns
+                                    if (!hasNonSimpleParams) {
+                                        for (AstNode param : fnNode.getParams()) {
+                                            if (!(param instanceof Name)) {
+                                                hasNonSimpleParams = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    if (hasNonSimpleParams) {
                                         reportError("msg.default.args.use.strict");
+                                    }
+
+                                    // Check function name for strict mode violations
+                                    String fnName = fnNode.getName();
+                                    if (fnName != null
+                                            && ("eval".equals(fnName)
+                                                    || "arguments".equals(fnName))) {
+                                        reportError("msg.bad.id.strict", fnName);
+                                    }
+
+                                    // Check parameter names for strict mode violations
+                                    // now that we know the function body is strict
+                                    Set<String> seenParams = new HashSet<>();
+                                    for (AstNode param : fnNode.getParams()) {
+                                        String paramName = null;
+                                        if (param instanceof Name) {
+                                            paramName = ((Name) param).getIdentifier();
+                                        }
+                                        if (paramName != null) {
+                                            if ("eval".equals(paramName)
+                                                    || "arguments".equals(paramName)) {
+                                                reportError("msg.bad.id.strict", paramName);
+                                            }
+                                            if (seenParams.contains(paramName)) {
+                                                addError("msg.dup.param.strict", paramName);
+                                            }
+                                            seenParams.add(paramName);
+                                        }
                                     }
                                     inUseStrictDirective = true;
                                     fnNode.setInStrictMode(true);
