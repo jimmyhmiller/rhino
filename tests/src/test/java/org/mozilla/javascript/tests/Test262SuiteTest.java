@@ -116,8 +116,7 @@ public class Test262SuiteTest {
                             "SharedArrayBuffer",
                             "tail-call-optimization",
                             "Temporal",
-                            "upsert",
-                            "u180e"));
+                            "upsert"));
 
     private static final Pattern test262FilterPattern;
 

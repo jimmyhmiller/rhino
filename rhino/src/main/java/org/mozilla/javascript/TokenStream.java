@@ -594,6 +594,10 @@ class TokenStream implements Parser.CurrentPositionReporter {
                     return false;
                 }
             } else {
+                // U+180E is identifier ignorable in Java but not in ES6+
+                if (c == 0x180E) {
+                    return false;
+                }
                 if (c != '$'
                         && c != '\u200c'
                         && c != '\u200d'
@@ -773,6 +777,8 @@ class TokenStream implements Parser.CurrentPositionReporter {
                         } else {
                             if (c == EOF_CHAR
                                     || c == BYTE_ORDER_MARK
+                                    // U+180E is identifier ignorable in Java but not in ES6+
+                                    || c == 0x180E
                                     || !(Character.isUnicodeIdentifierPart(c) || c == '$')) {
                                 break;
                             }
@@ -1537,6 +1543,12 @@ class TokenStream implements Parser.CurrentPositionReporter {
     }
 
     private static boolean isJSFormatChar(int c) {
+        // ES6+ does not strip format-control characters from source text.
+        // U+180E (Mongolian Vowel Separator) was reclassified from Zs to Cf
+        // in Unicode 6.3 and should NOT be treated as whitespace or skipped.
+        if (c == 0x180E) {
+            return false;
+        }
         return c > 127 && Character.getType((char) c) == Character.FORMAT;
     }
 
