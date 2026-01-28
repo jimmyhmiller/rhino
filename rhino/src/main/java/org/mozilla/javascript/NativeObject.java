@@ -427,14 +427,16 @@ public class NativeObject extends ScriptableObject implements Map {
         for (int i = 0; i < ids.length; i++) {
             if (ids[i] instanceof Integer) {
                 int intId = (Integer) ids[i];
-                if (obj.has(intId, obj) && isEnumerable(intId, obj)) {
+                // Per spec: Use [[GetOwnProperty]] (not [[HasProperty]]) to check enumerability
+                if (isOwnEnumerableProperty(cx, obj, intId)) {
                     String stringId = ScriptRuntime.toString(ids[i]);
                     Object[] entry = new Object[] {stringId, obj.get(intId, obj)};
                     ids[j++] = cx.newArray(s, entry);
                 }
             } else {
                 String stringId = ScriptRuntime.toString(ids[i]);
-                if (obj.has(stringId, obj) && isEnumerable(stringId, obj)) {
+                // Per spec: Use [[GetOwnProperty]] (not [[HasProperty]]) to check enumerability
+                if (isOwnEnumerableProperty(cx, obj, stringId)) {
                     Object[] entry = new Object[] {stringId, obj.get(stringId, obj)};
                     ids[j++] = cx.newArray(s, entry);
                 }
@@ -478,13 +480,14 @@ public class NativeObject extends ScriptableObject implements Map {
         for (int i = 0; i < ids.length; i++) {
             if (ids[i] instanceof Integer) {
                 int intId = (Integer) ids[i];
-                if (obj.has(intId, obj) && isEnumerable(intId, obj)) {
+                // Per spec: Use [[GetOwnProperty]] (not [[HasProperty]]) to check enumerability
+                if (isOwnEnumerableProperty(cx, obj, intId)) {
                     ids[j++] = obj.get(intId, obj);
                 }
             } else {
                 String stringId = ScriptRuntime.toString(ids[i]);
-                // getter may remove keys
-                if (obj.has(stringId, obj) && isEnumerable(stringId, obj)) {
+                // Per spec: Use [[GetOwnProperty]] (not [[HasProperty]]) to check enumerability
+                if (isOwnEnumerableProperty(cx, obj, stringId)) {
                     ids[j++] = obj.get(stringId, obj);
                 }
             }
