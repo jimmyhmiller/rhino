@@ -50,12 +50,15 @@ public class BoundFunction extends BaseFunction {
         this.boundName = "bound " + targetName;
 
         ScriptRuntime.setFunctionProtoAndParent(this, cx, scope, false);
-
-        Function thrower = ScriptRuntime.typeErrorThrower(cx);
-        var throwing = new DescriptorInfo(false, NOT_FOUND, false, thrower, thrower, NOT_FOUND);
-
-        this.defineOwnProperty(cx, "caller", throwing, false);
-        this.defineOwnProperty(cx, "arguments", throwing, false);
+        // In ES6+ mode, bound functions inherit "caller" and "arguments" throwing accessors
+        // from Function.prototype. In pre-ES6 mode, we need to define our own throwing
+        // accessors since Function.prototype doesn't have them.
+        if (cx.getLanguageVersion() < Context.VERSION_ES6) {
+            Function thrower = ScriptRuntime.typeErrorThrower(cx);
+            var throwing = new DescriptorInfo(false, NOT_FOUND, false, thrower, thrower, NOT_FOUND);
+            this.defineOwnProperty(cx, "caller", throwing, false);
+            this.defineOwnProperty(cx, "arguments", throwing, false);
+        }
     }
 
     @Override
@@ -83,6 +86,13 @@ public class BoundFunction extends BaseFunction {
     @Override
     public int getLength() {
         return length;
+    }
+
+    @Override
+    protected boolean includeNonStandardProps() {
+        // Bound functions should NOT have own "caller" and "arguments" properties.
+        // They define their own throwing accessors in the constructor.
+        return false;
     }
 
     @Override

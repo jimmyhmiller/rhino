@@ -83,9 +83,11 @@ public class ScriptRuntime {
             setAttributes("length", DONTENUM | PERMANENT | READONLY);
             setAttributes("name", DONTENUM | PERMANENT | READONLY);
 
-            // delete arity and arguments (without further checking)
+            // delete arity, arguments, and caller (without further checking)
+            // ThrowTypeError should not have own "caller" or "arguments" properties
             getMap().compute(this, "arity", 0, ThrowTypeError::removeWithoutChecking);
             getMap().compute(this, "arguments", 0, ThrowTypeError::removeWithoutChecking);
+            getMap().compute(this, "caller", 0, ThrowTypeError::removeWithoutChecking);
 
             preventExtensions();
         }
@@ -4780,18 +4782,50 @@ public class ScriptRuntime {
     /**
      * The instanceof operator.
      *
+     * <p>ES6+ 12.10.4: 1. If Type(C) is not Object, throw a TypeError exception. 2. Let
+     * instOfHandler be GetMethod(C, @@hasInstance). 3. ReturnIfAbrupt(instOfHandler). 4. If
+     * instOfHandler is not undefined, then a. Return ToBoolean(Call(instOfHandler, C, «O»)). 5. If
+     * IsCallable(C) is false, throw a TypeError exception. 6. Return OrdinaryHasInstance(C, O).
+     *
      * @return a instanceof b
      */
     public static boolean instanceOf(Object a, Object b, Context cx) {
-        // Check RHS is an object
+        // 1. Check RHS is an object
         if (!(b instanceof Scriptable)) {
             throw typeErrorById("msg.instanceof.not.object");
         }
 
-        // for primitive values on LHS, return false
+        Scriptable target = (Scriptable) b;
+
+        // 2-4. ES6+: Check for Symbol.hasInstance first
+        if (cx.getLanguageVersion() >= Context.VERSION_ES6 && target instanceof SymbolScriptable) {
+            Object hasInstanceMethod = getObjectElem(target, SymbolKey.HAS_INSTANCE, cx);
+            if (hasInstanceMethod != Scriptable.NOT_FOUND
+                    && hasInstanceMethod != Undefined.instance) {
+                if (!(hasInstanceMethod instanceof Callable)) {
+                    throw typeErrorById("msg.instanceof.not.callable");
+                }
+                Callable handler = (Callable) hasInstanceMethod;
+                Scriptable scope =
+                        (handler instanceof Function)
+                                ? ((Function) handler).getDeclarationScope()
+                                : target;
+                Object result = handler.call(cx, scope, target, new Object[] {a});
+                return toBoolean(result);
+            }
+            // 5. If IsCallable(C) is false, throw a TypeError exception.
+            // Only check this after Symbol.hasInstance lookup fails
+            if (!(target instanceof Callable)) {
+                throw typeErrorById("msg.instanceof.bad.target");
+            }
+        }
+
+        // 6. OrdinaryHasInstance or legacy hasInstance behavior
+        // For primitive values on LHS, return false
         if (!(a instanceof Scriptable)) return false;
 
-        return ((Scriptable) b).hasInstance((Scriptable) a);
+        // Call target's hasInstance - may have custom behavior for legacy objects
+        return target.hasInstance((Scriptable) a);
     }
 
     /**

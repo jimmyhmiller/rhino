@@ -26,12 +26,12 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         if (!descriptor.isShorthand()) {
             setupDefaultPrototype(scope);
         }
-        // ES6 generator functions should not have own "arguments" property
-        // (they inherit a throwing accessor from Function.prototype)
-        // The property was added by BaseFunction.createProperties() before descriptor was set,
-        // so we need to remove it here for generators
-        if (descriptor.isES6Generator()) {
-            removeArgumentsPropertyForGenerator();
+        // ES6 generator functions, strict functions, arrow functions, and method definitions
+        // should not have own "arguments" or "caller" properties - they inherit throwing
+        // accessors from Function.prototype. The properties were added by
+        // BaseFunction.createProperties() before descriptor was set, so we remove them here.
+        if (shouldRemoveRestrictedProperties()) {
+            removeRestrictedPropertiesForGenerator();
         }
     }
 
@@ -45,10 +45,20 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         this.homeObject = homeObject;
         setParentScope(scope);
         setPrototype(ScriptableObject.getFunctionPrototype(scope));
-        // ES6 generator functions should not have own "arguments" property
-        if (descriptor.isES6Generator()) {
-            removeArgumentsPropertyForGenerator();
+        // ES6 generator functions, strict functions, arrow functions, and method definitions
+        // should not have own "arguments" or "caller" properties
+        if (shouldRemoveRestrictedProperties()) {
+            removeRestrictedPropertiesForGenerator();
         }
+    }
+
+    private boolean shouldRemoveRestrictedProperties() {
+        // These function types should NOT have own "caller" and "arguments" properties.
+        // They inherit throwing accessors from Function.prototype.
+        return descriptor.isES6Generator()
+                || descriptor.isStrict()
+                || descriptor.hasLexicalThis() // arrow functions
+                || descriptor.isShorthand(); // method definitions
     }
 
     @Override
@@ -77,6 +87,16 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
 
     public boolean isStrict() {
         return descriptor.isStrict();
+    }
+
+    @Override
+    protected boolean includeNonStandardProps() {
+        // Strict functions should NOT have own "caller" and "arguments" properties.
+        // They should inherit the throwing accessors from Function.prototype.
+        if (descriptor != null && isStrict()) {
+            return false;
+        }
+        return super.includeNonStandardProps();
     }
 
     @Override

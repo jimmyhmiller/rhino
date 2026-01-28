@@ -122,6 +122,16 @@ public abstract class NativeFunction extends BaseFunction {
 
     public abstract boolean isStrict();
 
+    @Override
+    protected boolean includeNonStandardProps() {
+        // Strict functions should NOT have own "caller" and "arguments" properties.
+        // They should inherit the throwing accessors from Function.prototype.
+        if (isStrict()) {
+            return false;
+        }
+        return super.includeNonStandardProps();
+    }
+
     public boolean isShorthand() {
         return isShorthand;
     }

@@ -14,6 +14,7 @@ public class StringLiteral extends AstNode {
 
     private String value;
     private char quoteChar;
+    private boolean hasEscapes;
 
     {
         type = Token.STRING;
@@ -68,6 +69,15 @@ public class StringLiteral extends AstNode {
 
     public void setQuoteCharacter(char c) {
         quoteChar = c;
+    }
+
+    /** Returns true if the string literal contains escape sequences or line continuations. */
+    public boolean hasEscapes() {
+        return hasEscapes;
+    }
+
+    public void setHasEscapes(boolean hasEscapes) {
+        this.hasEscapes = hasEscapes;
     }
 
     @Override

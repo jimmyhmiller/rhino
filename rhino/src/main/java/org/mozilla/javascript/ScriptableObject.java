@@ -934,14 +934,9 @@ public abstract class ScriptableObject extends SlotMapOwner
         // Default for JS objects (other than Function) is to do prototype
         // chasing. This will be overridden in NativeFunction and non-JS
         // objects.
-
-        Context cx = Context.getCurrentContext();
-        Object hasInstance = ScriptRuntime.getObjectElem(this, SymbolKey.HAS_INSTANCE, cx);
-        if (hasInstance instanceof Function) {
-            var scope = ((Function) hasInstance).getDeclarationScope();
-            return ScriptRuntime.toBoolean(
-                    ((Function) hasInstance).call(cx, scope, this, new Object[] {this}));
-        }
+        //
+        // Note: ScriptRuntime.instanceOf now handles Symbol.hasInstance for ES6+,
+        // so this method is only called as a fallback or for non-ES6 mode.
         if (!(this instanceof Callable)) {
             throw ScriptRuntime.typeErrorById("msg.instanceof.bad.target");
         }

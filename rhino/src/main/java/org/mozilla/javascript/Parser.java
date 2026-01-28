@@ -776,7 +776,13 @@ public class Parser {
         if (n instanceof ExpressionStatement) {
             AstNode e = ((ExpressionStatement) n).getExpression();
             if (e instanceof StringLiteral) {
-                return ((StringLiteral) e).getValue();
+                StringLiteral sl = (StringLiteral) e;
+                // Per spec, directives must be string literals without escape sequences or line
+                // continuations. If the string had escapes, it's not a valid directive.
+                if (sl.hasEscapes()) {
+                    return null;
+                }
+                return sl.getValue();
             }
         }
         return null;
@@ -4490,6 +4496,7 @@ public class Parser {
         s.setLineColumnNumber(lineNumber(), columnNumber());
         s.setValue(ts.getString());
         s.setQuoteCharacter(ts.getQuoteChar());
+        s.setHasEscapes(ts.stringHasEscapes());
         return s;
     }
 

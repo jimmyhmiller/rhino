@@ -631,6 +631,10 @@ class TokenStream implements Parser.CurrentPositionReporter {
         return (char) quoteChar;
     }
 
+    final boolean stringHasEscapes() {
+        return stringHasEscapes;
+    }
+
     final double getNumber() {
         return number;
     }
@@ -1015,6 +1019,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
 
                 quoteChar = c;
                 stringBufferTop = 0;
+                stringHasEscapes = false;
 
                 c = getCharIgnoreLineEnd(false);
                 strLoop:
@@ -1047,6 +1052,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
 
                     if (c == '\\') {
                         // We've hit an escaped character
+                        stringHasEscapes = true;
                         int escapeVal;
 
                         c = getChar();
@@ -2541,6 +2547,9 @@ class TokenStream implements Parser.CurrentPositionReporter {
 
     // delimiter for last string literal scanned
     private int quoteChar;
+
+    // true if the last string literal contained escape sequences or line continuations
+    private boolean stringHasEscapes;
 
     private char[] stringBuffer = new char[128];
     private int stringBufferTop;

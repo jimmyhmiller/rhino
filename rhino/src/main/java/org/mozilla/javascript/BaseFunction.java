@@ -68,22 +68,41 @@ public class BaseFunction extends ScriptableObject implements Function {
         ctor.setPrototypePropertyAttributes(DONTENUM | READONLY | PERMANENT);
         if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
             ctor.setStandardPropertyAttributes(READONLY | DONTENUM);
-            // ES6: Function.prototype has throwing accessors for "caller" and "arguments"
-            // These throw TypeError when accessed or set (ECMA 262 AddRestrictedFunctionProperties)
-            LambdaFunction thrower =
+            // ES6: Function.prototype has accessor for "caller" and "arguments"
+            // For restricted functions (strict, generators, arrows, methods), these throw
+            // TypeError.
+            // For non-strict regular functions, these return undefined (legacy behavior).
+            LambdaFunction callerGetter =
                     new LambdaFunction(
                             scope,
                             "",
                             0,
                             null,
                             (Context c, Scriptable s, Scriptable t, Object[] args) -> {
-                                throw ScriptRuntime.typeError(
-                                        "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.");
+                                if (isRestrictedFunction(t)) {
+                                    throw ScriptRuntime.typeError(
+                                            "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.");
+                                }
+                                return Undefined.instance;
                             });
-            proto.setGetterOrSetter("caller", 0, thrower, true);
-            proto.setGetterOrSetter("caller", 0, thrower, false);
-            proto.setGetterOrSetter("arguments", 0, thrower, true);
-            proto.setGetterOrSetter("arguments", 0, thrower, false);
+            LambdaFunction callerSetter =
+                    new LambdaFunction(
+                            scope,
+                            "",
+                            0,
+                            null,
+                            (Context c, Scriptable s, Scriptable t, Object[] args) -> {
+                                if (isRestrictedFunction(t)) {
+                                    throw ScriptRuntime.typeError(
+                                            "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.");
+                                }
+                                // For non-strict functions, silently ignore the set
+                                return Undefined.instance;
+                            });
+            proto.setGetterOrSetter("caller", 0, callerGetter, true);
+            proto.setGetterOrSetter("caller", 0, callerSetter, false);
+            proto.setGetterOrSetter("arguments", 0, callerGetter, true);
+            proto.setGetterOrSetter("arguments", 0, callerSetter, false);
             proto.setAttributes("caller", DONTENUM);
             proto.setAttributes("arguments", DONTENUM);
         }
@@ -93,6 +112,31 @@ public class BaseFunction extends ScriptableObject implements Function {
             ((ScriptableObject) ctor.getPrototypeProperty()).sealObject();
         }
         return ctor;
+    }
+
+    /**
+     * Checks if a function is a "restricted" function that should throw TypeError when accessing
+     * caller or arguments properties. Restricted functions include: strict mode functions,
+     * generator functions, arrow functions, and method definitions.
+     */
+    private static boolean isRestrictedFunction(Scriptable fn) {
+        if (fn instanceof JSFunction) {
+            JSFunction jsf = (JSFunction) fn;
+            JSDescriptor<?> desc = jsf.getDescriptor();
+            if (desc != null) {
+                return desc.isStrict()
+                        || desc.isES6Generator()
+                        || desc.hasLexicalThis()
+                        || desc.isShorthand();
+            }
+        } else if (fn instanceof NativeFunction) {
+            return ((NativeFunction) fn).isStrict();
+        } else if (fn instanceof BoundFunction) {
+            // Bound functions are restricted
+            return true;
+        }
+        // For other function types (like LambdaFunction), treat as non-restricted
+        return false;
     }
 
     private static void defOnProto(
@@ -218,6 +262,9 @@ public class BaseFunction extends ScriptableObject implements Function {
                     PERMANENT | DONTENUM,
                     BaseFunction::argumentsGetter,
                     BaseFunction::argumentsSetter);
+            // Note: "caller" is NOT added as an own property. In ES6 mode, it's inherited
+            // from Function.prototype with a smart accessor that throws for restricted
+            // functions and returns undefined for non-strict functions.
         }
     }
 
@@ -226,12 +273,12 @@ public class BaseFunction extends ScriptableObject implements Function {
     }
 
     /**
-     * Removes the "arguments" property for ES6 generator functions. Generator functions should not
-     * have own "arguments" property - they should inherit the throwing accessor from
-     * Function.prototype. This is needed because the property is added during construction before
-     * we know if the function is a generator.
+     * Removes the "arguments" property for ES6 restricted functions (generators, strict functions,
+     * arrow functions, methods). These functions should not have own "arguments" property - they
+     * should inherit the throwing accessor from Function.prototype. This is needed because the
+     * property is added during construction before we know if the function is restricted.
      */
-    protected void removeArgumentsPropertyForGenerator() {
+    protected void removeRestrictedPropertiesForGenerator() {
         // Force remove the slot by returning null from compute, bypassing PERMANENT check
         getMap().compute(this, "arguments", 0, (k, i, s, m, o) -> null);
     }
@@ -426,32 +473,49 @@ public class BaseFunction extends ScriptableObject implements Function {
 
     private static Object js_hasInstance(
             Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+        // Function.prototype[@@hasInstance](V) - ES6 19.2.3.6
+        // This is the default implementation that delegates to OrdinaryHasInstance.
+        // However, Rhino allows objects to override hasInstance() for custom behavior.
+        // If the target has a custom hasInstance, delegate to it.
+
+        // 1. If IsCallable(C) is false, return false.
         if (!(thisObj instanceof Callable)) {
             return false;
         }
-        Object protoProp = null;
-        if (thisObj instanceof BoundFunction)
-            protoProp =
-                    ((JSFunction) ((BoundFunction) thisObj).getTargetFunction())
-                            .getPrototypeProperty();
-        else {
-            protoProp = ScriptableObject.getProperty(thisObj, PROTOTYPE_PROPERTY_NAME);
+
+        // 2. If C has a [[BoundTargetFunction]] internal slot, then
+        //    Let BC be C.[[BoundTargetFunction]].
+        //    Return InstanceofOperator(O, BC).
+        if (thisObj instanceof BoundFunction) {
+            Object arg = args.length > 0 ? args[0] : Undefined.instance;
+            return ScriptRuntime.instanceOf(arg, ((BoundFunction) thisObj).getTargetFunction(), cx);
         }
 
-        if (ScriptRuntime.isObject(protoProp)) {
-            if (args.length > 0 && args[0] instanceof Scriptable) {
-                Scriptable obj = (Scriptable) args[0];
-
-                return ScriptRuntime.jsDelegatesTo(obj, (Scriptable) protoProp);
-            }
-            return false; // NOT_FOUND, null etc.
+        // 3. If Type(O) is not Object, return false.
+        if (args.length == 0 || !(args[0] instanceof Scriptable)) {
+            return false;
         }
 
-        throw ScriptRuntime.typeErrorById(
-                "msg.instanceof.bad.prototype",
-                (thisObj instanceof BaseFunction)
-                        ? ((BaseFunction) thisObj).getFunctionName()
-                        : "unknown");
+        Scriptable instance = (Scriptable) args[0];
+
+        // Check if thisObj overrides hasInstance (e.g., XMLCtor)
+        // If so, delegate to it instead of doing the default prototype chain check.
+        // This preserves Rhino's legacy behavior for custom constructors.
+        if (thisObj instanceof ScriptableObject) {
+            // Use the object's hasInstance method directly
+            return ((ScriptableObject) thisObj).hasInstance(instance);
+        }
+
+        // 4-6. OrdinaryHasInstance: prototype chain checking
+        Object protoProp = ScriptableObject.getProperty(thisObj, PROTOTYPE_PROPERTY_NAME);
+        if (!ScriptRuntime.isObject(protoProp)) {
+            throw ScriptRuntime.typeErrorById(
+                    "msg.instanceof.bad.prototype",
+                    (thisObj instanceof BaseFunction)
+                            ? ((BaseFunction) thisObj).getFunctionName()
+                            : "unknown");
+        }
+        return ScriptRuntime.jsDelegatesTo(instance, (Scriptable) protoProp);
     }
 
     private static Object js_bind(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
