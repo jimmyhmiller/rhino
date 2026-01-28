@@ -337,6 +337,7 @@ public class ClassCompiler {
         cfw.add(builder.requiresActivationFrame ? ByteCode.ICONST_1 : ByteCode.ICONST_0);
         cfw.add(builder.requiresArgumentObject ? ByteCode.ICONST_1 : ByteCode.ICONST_0);
         cfw.add(builder.declaredAsFunctionExpression ? ByteCode.ICONST_1 : ByteCode.ICONST_0);
+        cfw.add(builder.skipAnnexBHoisting ? ByteCode.ICONST_1 : ByteCode.ICONST_0);
         cfw.add(ByteCode.ACONST_NULL);
         cfw.add(ByteCode.ACONST_NULL);
         cfw.addLoadConstant(builder.functionType);

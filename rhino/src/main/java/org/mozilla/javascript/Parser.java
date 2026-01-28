@@ -991,16 +991,18 @@ public class Parser {
             syntheticType = FunctionNode.FUNCTION_EXPRESSION;
         }
 
+        boolean skipAnnexBHoisting = false;
         if (syntheticType != FunctionNode.FUNCTION_EXPRESSION
                 && name != null
                 && name.length() > 0) {
             // Function statements define a symbol in the enclosing scope
-            defineSymbol(Token.FUNCTION, name.getIdentifier());
+            skipAnnexBHoisting = defineSymbol(Token.FUNCTION, name.getIdentifier());
         }
 
         FunctionNode fnNode = new FunctionNode(functionSourceStart, name);
         fnNode.setMethodDefinition(isMethodDefiniton);
         fnNode.setFunctionType(type);
+        fnNode.setSkipAnnexBHoisting(skipAnnexBHoisting);
         if (isGenerator) {
             fnNode.setIsES6Generator();
         }
@@ -2604,14 +2606,20 @@ public class Parser {
         return pn;
     }
 
-    void defineSymbol(int declType, String name) {
-        defineSymbol(declType, name, false);
+    /**
+     * @return true if Annex B hoisting was skipped due to let/const conflict
+     */
+    boolean defineSymbol(int declType, String name) {
+        return defineSymbol(declType, name, false);
     }
 
-    void defineSymbol(int declType, String name, boolean ignoreNotInBlock) {
+    /**
+     * @return true if Annex B hoisting was skipped due to let/const conflict
+     */
+    boolean defineSymbol(int declType, String name, boolean ignoreNotInBlock) {
         if (name == null) {
             if (compilerEnv.isIdeMode()) { // be robust in IDE-mode
-                return;
+                return false;
             }
             codeBug();
         } else if ("undefined".equals(name)) {
@@ -2628,6 +2636,14 @@ public class Parser {
         boolean varInSameBlock =
                 (declType == Token.LET || declType == Token.CONST)
                         && currentScope.hasVarNameInBlock(name);
+        // Annex B.3.3.3: In non-strict eval code, function declarations that
+        // would conflict with let/const should skip hoisting rather than error
+        boolean isAnnexBFunctionInEval =
+                declType == Token.FUNCTION
+                        && compilerEnv.isInEval()
+                        && !inUseStrictDirective
+                        && symbol != null
+                        && (symDeclType == Token.LET || symDeclType == Token.CONST);
         if (symbol != null
                 && ((definingScope == currentScope && symDeclType == Token.CONST)
                         || (definingScope == currentScope && symDeclType == Token.LET)
@@ -2636,6 +2652,10 @@ public class Parser {
                                 && declType == Token.LET
                                 && symDeclType == Token.VAR)
                         || varInSameBlock)) {
+            // Annex B.3.3.3: Skip hoisting instead of error for function declarations
+            if (isAnnexBFunctionInEval) {
+                return true;
+            }
             // Choose the error message based on what's being redeclared
             String errorId;
             if (symDeclType == Token.CONST) {
@@ -2654,38 +2674,48 @@ public class Parser {
                 errorId = "msg.parm.redecl";
             }
             addError(errorId, name);
-            return;
+            return false;
         }
         switch (declType) {
             case Token.LET:
                 if (!ignoreNotInBlock
                         && ((currentScope.getType() == Token.IF) || currentScope instanceof Loop)) {
                     addError("msg.let.decl.not.in.block");
-                    return;
+                    return false;
                 }
                 currentScope.putSymbol(new Symbol(declType, name));
-                return;
+                return false;
 
             case Token.CONST:
                 if (!ignoreNotInBlock
                         && ((currentScope.getType() == Token.IF) || currentScope instanceof Loop)) {
                     addError("msg.const.decl.not.in.block");
-                    return;
+                    return false;
                 }
                 currentScope.putSymbol(new Symbol(declType, name));
-                return;
+                return false;
 
             case Token.VAR:
             case Token.FUNCTION:
                 if (symbol != null) {
                     // Check if var/function tries to redeclare a let/const
                     if (symDeclType == Token.LET || symDeclType == Token.CONST) {
+                        // Annex B.3.3.3: In non-strict eval code, function declarations
+                        // inside blocks that would conflict with let/const should skip
+                        // hoisting rather than throwing an error. The function remains
+                        // block-scoped only.
+                        if (declType == Token.FUNCTION
+                                && compilerEnv.isInEval()
+                                && !inUseStrictDirective) {
+                            // Skip the function binding in the outer scope
+                            return true;
+                        }
                         addError(
                                 symDeclType == Token.LET
                                         ? "msg.let.redecl.by.var"
                                         : "msg.const.redecl",
                                 name);
-                        return;
+                        return false;
                     } else if (symDeclType == Token.VAR) {
                         addStrictWarning("msg.var.redecl", name);
                     } else if (symDeclType == Token.LP) {
@@ -2705,7 +2735,7 @@ public class Parser {
                         s = s.getParentScope()) {
                     s.addVarNameInBlock(name);
                 }
-                return;
+                return false;
 
             case Token.LP:
                 if (symbol != null) {
@@ -2714,7 +2744,7 @@ public class Parser {
                     addWarning("msg.dup.parms", name);
                 }
                 currentScriptOrFn.putSymbol(new Symbol(declType, name));
-                return;
+                return false;
 
             default:
                 throw codeBug();

@@ -5697,6 +5697,11 @@ public class ScriptRuntime {
                 }
             }
         } else if (type == FunctionNode.FUNCTION_EXPRESSION_STATEMENT) {
+            // Annex B.3.3.3: Skip hoisting if the function declaration would
+            // conflict with a let/const binding in eval code
+            if (function.getDescriptor().skipAnnexBHoisting()) {
+                return;
+            }
             String name = function.getFunctionName();
             if (name != null && name.length() != 0) {
                 // Always put function expression statements into initial

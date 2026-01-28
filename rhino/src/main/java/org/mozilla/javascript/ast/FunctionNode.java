@@ -118,6 +118,7 @@ public class FunctionNode extends ScriptNode {
     private boolean requiresArgumentObject;
     private boolean isGenerator;
     private boolean isES6Generator;
+    private boolean skipAnnexBHoisting;
     private List<Node> generatorResumePoints;
     private Map<Node, int[]> liveLocals;
     private Node generatorParamInitBlock; // IR block for default parameters init in generators
@@ -387,6 +388,19 @@ public class FunctionNode extends ScriptNode {
 
     public void setFunctionType(int type) {
         functionType = type;
+    }
+
+    /**
+     * Returns true if Annex B.3.3.3 hoisting should be skipped for this function. This is set when
+     * a block-level function declaration would conflict with a let/const binding in an outer scope
+     * during eval code execution.
+     */
+    public boolean getSkipAnnexBHoisting() {
+        return skipAnnexBHoisting;
+    }
+
+    public void setSkipAnnexBHoisting(boolean skip) {
+        skipAnnexBHoisting = skip;
     }
 
     public boolean isMethod() {

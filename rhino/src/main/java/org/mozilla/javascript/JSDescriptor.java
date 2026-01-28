@@ -30,6 +30,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
     private static final int REQUIRES_ACTIVATION_FRAME_FLAG = 1 << 10;
     private static final int REQUIRES_ARGUMENT_OBJECT_FLAG = 1 << 11;
     private static final int DECLARED_AS_FUNCTION_EXPRESSION_FLAG = 1 << 12;
+    private static final int SKIP_ANNEX_B_HOISTING_FLAG = 1 << 13;
 
     private final JSCode<T> code;
     private final JSCode<T> constructor;
@@ -81,6 +82,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
             boolean requiresActivationFrame,
             boolean requiresArgumentObject,
             boolean declaredAsFunctionExpression,
+            boolean skipAnnexBHoisting,
             SecurityController securityController,
             Object securityDomain,
             int functionType) {
@@ -105,6 +107,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         flags = flags | (requiresActivationFrame ? REQUIRES_ACTIVATION_FRAME_FLAG : 0);
         flags = flags | (requiresArgumentObject ? REQUIRES_ARGUMENT_OBJECT_FLAG : 0);
         flags = flags | (declaredAsFunctionExpression ? DECLARED_AS_FUNCTION_EXPRESSION_FLAG : 0);
+        flags = flags | (skipAnnexBHoisting ? SKIP_ANNEX_B_HOISTING_FLAG : 0);
         this.flags = flags;
 
         this.sourceFile = sourceFile;
@@ -271,6 +274,15 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         return (flags & DECLARED_AS_FUNCTION_EXPRESSION_FLAG) != 0;
     }
 
+    /**
+     * Returns true if Annex B.3.3.3 hoisting should be skipped for this function. This is set when
+     * a block-level function declaration would conflict with a let/const binding in an outer scope
+     * during eval code execution.
+     */
+    public boolean skipAnnexBHoisting() {
+        return (flags & SKIP_ANNEX_B_HOISTING_FLAG) != 0;
+    }
+
     public SecurityController getSecurityController() {
         return securityController;
     }
@@ -323,6 +335,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         public boolean requiresActivationFrame;
         public boolean requiresArgumentObject;
         public boolean declaredAsFunctionExpression;
+        public boolean skipAnnexBHoisting;
         public SecurityController securityController;
         public Object securityDomain;
         public int functionType;
@@ -394,6 +407,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
                             requiresActivationFrame,
                             requiresArgumentObject,
                             declaredAsFunctionExpression,
+                            skipAnnexBHoisting,
                             securityController,
                             securityDomain,
                             functionType);
