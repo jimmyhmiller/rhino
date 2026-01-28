@@ -91,11 +91,15 @@ public class LambdaAccessorSlot extends Slot {
 
         if (getterFunction != null) {
             desc.getter = this.getterFunction;
+        } else if (es6 && setterFunction != null) {
+            // ES6: accessor descriptors must have both get and set properties
+            desc.getter = Undefined.instance;
         }
 
         if (setterFunction != null) {
             desc.setter = this.setterFunction;
-        } else if (es6) {
+        } else if (es6 && getterFunction != null) {
+            // ES6: accessor descriptors must have both get and set properties
             desc.setter = Undefined.instance;
         }
 

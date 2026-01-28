@@ -68,11 +68,15 @@ public class AccessorSlot extends Slot {
         if (getter != null) {
             Function f = getter.asGetterFunction(fName, scope);
             desc.getter = f == null ? Undefined.instance : f;
+        } else if (es6 && setter != null) {
+            // ES6: accessor descriptors must have both get and set properties
+            desc.getter = Undefined.instance;
         }
         if (setter != null) {
             Function f = setter.asSetterFunction(fName, scope);
             desc.setter = f == null ? Undefined.instance : f;
-        } else if (es6) {
+        } else if (es6 && getter != null) {
+            // ES6: accessor descriptors must have both get and set properties
             desc.setter = Undefined.instance;
         }
 
