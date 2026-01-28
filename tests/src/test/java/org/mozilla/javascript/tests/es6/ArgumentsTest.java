@@ -237,8 +237,9 @@ public class ArgumentsTest {
                         + "} catch(e) { res += ' ex'; }\n"
                         + "res";
 
-        // Utils.assertWithAllModes_ES6("ex [object Arguments] ex ex", code);
-        Utils.assertWithAllModes_ES6("null [object Arguments] null null", code);
+        // ES6: Function.prototype has throwing accessors for 'caller' and 'arguments'
+        // Strict mode functions don't have own 'arguments' property, so access throws
+        Utils.assertWithAllModes_ES6("ex [object Arguments] ex ex", code);
         Utils.assertWithAllModes_1_8("null [object Arguments] null null", code);
     }
 
@@ -340,8 +341,8 @@ public class ArgumentsTest {
                         + "test('hi', 'there');\n"
                         + "res";
 
-        // Utils.assertWithAllModes_ES6("2 ex", code);
-        Utils.assertWithAllModes_ES6("2 null", code);
+        // ES6: Function.prototype has throwing accessors for 'caller' and 'arguments'
+        Utils.assertWithAllModes_ES6("2 ex", code);
         Utils.assertWithAllModes_1_8("2 null", code);
     }
 
@@ -641,12 +642,16 @@ public class ArgumentsTest {
                         + "    res += ' ' + (arguments === test.arguments);\n"
                         + "  } catch(e) { res += ' ex'; }"
                         + "}\n"
-                        + "res += test.arguments;\n"
+                        + "try {\n"
+                        + "  res += test.arguments;\n"
+                        + "} catch(e) { res += 'ex'; }\n"
                         + "test('hello', 'world');\n"
                         + "res";
 
-        // Utils.assertWithAllModes_ES6("ex ex", code);
-        Utils.assertWithAllModes_ES6("null false false", code);
+        // ES6: Function.prototype has throwing accessors for 'caller' and 'arguments'
+        // First ex has no space (outside function), second ex has no space (inside first catch),
+        // third ex has space (inside second catch)
+        Utils.assertWithAllModes_ES6("exex ex", code);
         Utils.assertWithAllModes_1_8("null false false", code);
     }
 

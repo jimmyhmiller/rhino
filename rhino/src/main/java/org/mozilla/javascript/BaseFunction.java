@@ -68,6 +68,24 @@ public class BaseFunction extends ScriptableObject implements Function {
         ctor.setPrototypePropertyAttributes(DONTENUM | READONLY | PERMANENT);
         if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
             ctor.setStandardPropertyAttributes(READONLY | DONTENUM);
+            // ES6: Function.prototype has throwing accessors for "caller" and "arguments"
+            // These throw TypeError when accessed or set (ECMA 262 AddRestrictedFunctionProperties)
+            LambdaFunction thrower =
+                    new LambdaFunction(
+                            scope,
+                            "",
+                            0,
+                            null,
+                            (Context c, Scriptable s, Scriptable t, Object[] args) -> {
+                                throw ScriptRuntime.typeError(
+                                        "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.");
+                            });
+            proto.setGetterOrSetter("caller", 0, thrower, true);
+            proto.setGetterOrSetter("caller", 0, thrower, false);
+            proto.setGetterOrSetter("arguments", 0, thrower, true);
+            proto.setGetterOrSetter("arguments", 0, thrower, false);
+            proto.setAttributes("caller", DONTENUM);
+            proto.setAttributes("arguments", DONTENUM);
         }
         ScriptableObject.defineProperty(scope, FUNCTION_CLASS, ctor, DONTENUM);
         if (sealed) {
@@ -205,6 +223,17 @@ public class BaseFunction extends ScriptableObject implements Function {
 
     protected boolean includeNonStandardProps() {
         return !Context.isCurrentContextStrict();
+    }
+
+    /**
+     * Removes the "arguments" property for ES6 generator functions. Generator functions should not
+     * have own "arguments" property - they should inherit the throwing accessor from
+     * Function.prototype. This is needed because the property is added during construction before
+     * we know if the function is a generator.
+     */
+    protected void removeArgumentsPropertyForGenerator() {
+        // Force remove the slot by returning null from compute, bypassing PERMANENT check
+        getMap().compute(this, "arguments", 0, (k, i, s, m, o) -> null);
     }
 
     private static Object lengthGetter(BaseFunction function, Scriptable start) {
