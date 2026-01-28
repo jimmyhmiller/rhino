@@ -2584,6 +2584,19 @@ public class Parser {
             if (matchToken(Token.ASSIGN, true)) {
                 init = assignExpr();
                 end = getNodeEnd(init);
+            } else if (!inForInit) {
+                // If no initializer, the next token must be ',', ';', EOL (for ASI),
+                // or end of block/input.
+                // This catches syntax errors like: let x 0; (where 0 is unexpected)
+                int nextTT = peekTokenOrEOL();
+                if (nextTT != Token.COMMA
+                        && nextTT != Token.SEMI
+                        && nextTT != Token.EOL
+                        && nextTT != Token.EOF
+                        && nextTT != Token.ERROR
+                        && nextTT != Token.RC) { // closing brace for block
+                    reportError("msg.syntax");
+                }
             }
 
             VariableInitializer vi = new VariableInitializer(kidPos, end - kidPos);

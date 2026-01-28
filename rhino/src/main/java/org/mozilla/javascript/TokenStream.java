@@ -396,7 +396,8 @@ class TokenStream implements Parser.CurrentPositionReporter {
                 Id_yield = Token.YIELD,
 
                 // 11.6.2.2 Future Reserved Words
-                Id_await = Token.RESERVED,
+                // Note: "await" is not included here - it's only reserved in module/async
+                // contexts which Rhino doesn't support. It returns as Token.NAME instead.
                 Id_enum = Token.RESERVED,
 
                 // 11.6.2.2 NOTE Strict Future Reserved Words
@@ -519,9 +520,10 @@ class TokenStream implements Parser.CurrentPositionReporter {
             case "yield":
                 id = Id_yield;
                 break;
-            case "await":
-                id = Id_await;
-                break;
+            // Note: "await" is intentionally not handled as a keyword here.
+            // Per ES6+, "await" is only reserved in module code and async functions.
+            // Since Rhino doesn't support async functions or modules, "await" is
+            // always a valid identifier and returns as Token.NAME.
             case "enum":
                 id = Id_enum;
                 break;
