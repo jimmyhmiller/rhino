@@ -155,6 +155,58 @@ public class NativeRegExp extends IdScriptableObject {
         proto.setParentScope(scope);
         proto.setPrototype(getObjectPrototype(scope));
 
+        // ES6 21.2.5: Define accessor properties on RegExp.prototype
+        // DONTENUM = non-enumerable, absence of PERMANENT = configurable
+        int accessorAttrs = ScriptableObject.DONTENUM;
+        proto.defineProperty(
+                cx,
+                "source",
+                (Scriptable thisObj) -> getSourceGetter(proto, thisObj),
+                null,
+                accessorAttrs);
+        proto.defineProperty(
+                cx,
+                "flags",
+                (Scriptable thisObj) -> getFlagsGetter(proto, thisObj),
+                null,
+                accessorAttrs);
+        proto.defineProperty(
+                cx,
+                "global",
+                (Scriptable thisObj) -> getFlagGetter(proto, thisObj, "global", JSREG_GLOB),
+                null,
+                accessorAttrs);
+        proto.defineProperty(
+                cx,
+                "ignoreCase",
+                (Scriptable thisObj) -> getFlagGetter(proto, thisObj, "ignoreCase", JSREG_FOLD),
+                null,
+                accessorAttrs);
+        proto.defineProperty(
+                cx,
+                "multiline",
+                (Scriptable thisObj) -> getFlagGetter(proto, thisObj, "multiline", JSREG_MULTILINE),
+                null,
+                accessorAttrs);
+        proto.defineProperty(
+                cx,
+                "dotAll",
+                (Scriptable thisObj) -> getFlagGetter(proto, thisObj, "dotAll", JSREG_DOTALL),
+                null,
+                accessorAttrs);
+        proto.defineProperty(
+                cx,
+                "sticky",
+                (Scriptable thisObj) -> getFlagGetter(proto, thisObj, "sticky", JSREG_STICKY),
+                null,
+                accessorAttrs);
+        proto.defineProperty(
+                cx,
+                "unicode",
+                (Scriptable thisObj) -> getFlagGetter(proto, thisObj, "unicode", JSREG_UNICODE),
+                null,
+                accessorAttrs);
+
         var ctor = NativeRegExpCtor.init(cx, scope, sealed);
         // Bug #324006: ECMA-262 15.10.6.1 says "The initial value of
         // RegExp.prototype.constructor is the builtin RegExp constructor."
@@ -174,6 +226,60 @@ public class NativeRegExp extends IdScriptableObject {
         ScriptRuntimeES6.addSymbolSpecies(cx, scope, ctor);
 
         return ctor;
+    }
+
+    // ES6 21.2.5.10 get RegExp.prototype.source
+    private static Object getSourceGetter(NativeRegExp proto, Scriptable thisObj) {
+        if (!(thisObj instanceof ScriptableObject)) {
+            throw ScriptRuntime.typeErrorById(
+                    "msg.incompat.call", "RegExp.prototype.source getter");
+        }
+        if (thisObj instanceof NativeRegExp) {
+            NativeRegExp re = (NativeRegExp) thisObj;
+            return new String(re.re.source);
+        }
+        // If this is RegExp.prototype itself, return "(?:)"
+        if (thisObj == proto) {
+            return "(?:)";
+        }
+        throw ScriptRuntime.typeErrorById("msg.incompat.call", "RegExp.prototype.source getter");
+    }
+
+    // ES6 21.2.5.3 get RegExp.prototype.flags
+    private static Object getFlagsGetter(NativeRegExp proto, Scriptable thisObj) {
+        if (!(thisObj instanceof ScriptableObject)) {
+            throw ScriptRuntime.typeErrorById("msg.incompat.call", "RegExp.prototype.flags getter");
+        }
+        if (thisObj instanceof NativeRegExp) {
+            NativeRegExp re = (NativeRegExp) thisObj;
+            StringBuilder buf = new StringBuilder();
+            re.appendFlags(buf);
+            return buf.toString();
+        }
+        // If this is RegExp.prototype itself, return ""
+        if (thisObj == proto) {
+            return "";
+        }
+        throw ScriptRuntime.typeErrorById("msg.incompat.call", "RegExp.prototype.flags getter");
+    }
+
+    // ES6 21.2.5.4-9 get RegExp.prototype.{global,ignoreCase,multiline,dotAll,sticky,unicode}
+    private static Object getFlagGetter(
+            NativeRegExp proto, Scriptable thisObj, String name, int flag) {
+        if (!(thisObj instanceof ScriptableObject)) {
+            throw ScriptRuntime.typeErrorById(
+                    "msg.incompat.call", "RegExp.prototype." + name + " getter");
+        }
+        if (thisObj instanceof NativeRegExp) {
+            NativeRegExp re = (NativeRegExp) thisObj;
+            return ScriptRuntime.wrapBoolean((re.re.flags & flag) != 0);
+        }
+        // If this is RegExp.prototype itself, return undefined
+        if (thisObj == proto) {
+            return Undefined.instance;
+        }
+        throw ScriptRuntime.typeErrorById(
+                "msg.incompat.call", "RegExp.prototype." + name + " getter");
     }
 
     NativeRegExp(Scriptable scope, RECompiled regexpCompiled) {
@@ -3717,16 +3823,8 @@ public class NativeRegExp extends IdScriptableObject {
         throw ScriptRuntime.constructError("SyntaxError", msg);
     }
 
-    private static final int Id_lastIndex = 1,
-            Id_source = 2,
-            Id_flags = 3,
-            Id_global = 4,
-            Id_ignoreCase = 5,
-            Id_multiline = 6,
-            Id_dotAll = 7,
-            Id_sticky = 8,
-            Id_unicode = 9,
-            MAX_INSTANCE_ID = 9;
+    // Only lastIndex is an instance property; source/flags/global/etc. are prototype accessors
+    private static final int Id_lastIndex = 1, MAX_INSTANCE_ID = 1;
 
     @Override
     protected int getMaxInstanceId() {
@@ -3735,113 +3833,24 @@ public class NativeRegExp extends IdScriptableObject {
 
     @Override
     protected int findInstanceIdInfo(String s) {
-        int id;
-        switch (s) {
-            case "lastIndex":
-                id = Id_lastIndex;
-                break;
-            case "source":
-                id = Id_source;
-                break;
-            case "flags":
-                id = Id_flags;
-                break;
-            case "global":
-                id = Id_global;
-                break;
-            case "ignoreCase":
-                id = Id_ignoreCase;
-                break;
-            case "multiline":
-                id = Id_multiline;
-                break;
-            case "dotAll":
-                id = Id_dotAll;
-                break;
-            case "sticky":
-                id = Id_sticky;
-                break;
-            case "unicode":
-                id = Id_unicode;
-                break;
-            default:
-                id = 0;
-                break;
+        if ("lastIndex".equals(s)) {
+            return instanceIdInfo(lastIndexAttr, Id_lastIndex);
         }
-
-        if (id == 0) return super.findInstanceIdInfo(s);
-
-        int attr;
-        switch (id) {
-            case Id_lastIndex:
-                attr = lastIndexAttr;
-                break;
-            case Id_source:
-            case Id_flags:
-            case Id_global:
-            case Id_ignoreCase:
-            case Id_multiline:
-            case Id_dotAll:
-            case Id_sticky:
-            case Id_unicode:
-                attr = PERMANENT | READONLY | DONTENUM;
-                break;
-            default:
-                throw new IllegalStateException();
-        }
-        return instanceIdInfo(attr, id);
+        return super.findInstanceIdInfo(s);
     }
 
     @Override
     protected String getInstanceIdName(int id) {
-        switch (id) {
-            case Id_lastIndex:
-                return "lastIndex";
-            case Id_source:
-                return "source";
-            case Id_flags:
-                return "flags";
-            case Id_global:
-                return "global";
-            case Id_ignoreCase:
-                return "ignoreCase";
-            case Id_multiline:
-                return "multiline";
-            case Id_dotAll:
-                return "dotAll";
-            case Id_sticky:
-                return "sticky";
-            case Id_unicode:
-                return "unicode";
+        if (id == Id_lastIndex) {
+            return "lastIndex";
         }
         return super.getInstanceIdName(id);
     }
 
     @Override
     protected Object getInstanceIdValue(int id) {
-        switch (id) {
-            case Id_lastIndex:
-                return lastIndex;
-            case Id_source:
-                return new String(re.source);
-            case Id_flags:
-                {
-                    StringBuilder buf = new StringBuilder();
-                    appendFlags(buf);
-                    return buf.toString();
-                }
-            case Id_global:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_GLOB) != 0);
-            case Id_ignoreCase:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_FOLD) != 0);
-            case Id_multiline:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_MULTILINE) != 0);
-            case Id_dotAll:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_DOTALL) != 0);
-            case Id_sticky:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_STICKY) != 0);
-            case Id_unicode:
-                return ScriptRuntime.wrapBoolean((re.flags & JSREG_UNICODE) != 0);
+        if (id == Id_lastIndex) {
+            return lastIndex;
         }
         return super.getInstanceIdValue(id);
     }
@@ -3866,18 +3875,9 @@ public class NativeRegExp extends IdScriptableObject {
 
     @Override
     protected void setInstanceIdValue(int id, Object value) {
-        switch (id) {
-            case Id_lastIndex:
-                setLastIndex(value);
-                return;
-            case Id_source:
-            case Id_flags:
-            case Id_global:
-            case Id_ignoreCase:
-            case Id_multiline:
-            case Id_dotAll:
-            case Id_sticky:
-                return;
+        if (id == Id_lastIndex) {
+            setLastIndex(value);
+            return;
         }
         super.setInstanceIdValue(id, value);
     }

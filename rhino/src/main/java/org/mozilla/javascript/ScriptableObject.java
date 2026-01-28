@@ -312,17 +312,9 @@ public abstract class ScriptableObject extends SlotMapOwner
                 // Property is readonly - set fails
                 return false;
             }
-            if (slot instanceof AccessorSlot) {
-                // It's an accessor - call the setter
-                AccessorSlot aslot = (AccessorSlot) slot;
-                if (aslot.setter != null && aslot.setter != Scriptable.NOT_FOUND) {
-                    // Call the setter
-                    slot.setValue(value, this, start, false);
-                    return true;
-                } else {
-                    // No setter - set fails
-                    return false;
-                }
+            if (slot.isSetterSlot()) {
+                // It's an accessor - use setValue which returns success/failure
+                return slot.setValue(value, this, start, false);
             }
             // Regular writable property - set it
             slot.setValue(value, this, start, false);
@@ -339,16 +331,9 @@ public abstract class ScriptableObject extends SlotMapOwner
                     // Prototype property is readonly - set fails
                     return false;
                 }
-                if (protoSlot instanceof AccessorSlot) {
-                    // It's an accessor on prototype - call the setter with start as receiver
-                    AccessorSlot aslot = (AccessorSlot) protoSlot;
-                    if (aslot.setter != null && aslot.setter != Scriptable.NOT_FOUND) {
-                        protoSlot.setValue(value, (ScriptableObject) proto, start, false);
-                        return true;
-                    } else {
-                        // No setter - set fails
-                        return false;
-                    }
+                if (protoSlot.isSetterSlot()) {
+                    // It's an accessor on prototype - use setValue which returns success/failure
+                    return protoSlot.setValue(value, (ScriptableObject) proto, start, false);
                 }
                 // Data property on prototype - create new property on receiver
             }
@@ -363,9 +348,9 @@ public abstract class ScriptableObject extends SlotMapOwner
                 if ((receiverSlot.getAttributes() & READONLY) != 0) {
                     return false;
                 }
-                if (receiverSlot instanceof AccessorSlot) {
-                    // Receiver has an accessor, not a data property
-                    return false;
+                if (receiverSlot.isSetterSlot()) {
+                    // Receiver has an accessor - use setValue which returns success/failure
+                    return receiverSlot.setValue(value, receiver, start, false);
                 }
             }
             // Set on receiver
@@ -3112,6 +3097,14 @@ public abstract class ScriptableObject extends SlotMapOwner
                 checkNotSealed(key, index);
             }
             slot = getMap().modify(this, key, index, 0);
+        }
+        // For accessor slots (getter/setter), call setValue and return true (handled).
+        // This ensures that accessor properties without setters don't trigger delegation.
+        // For regular data slots, return the result of setValue which returns false when
+        // owner != start, triggering own property creation on the receiver.
+        if (slot.isSetterSlot()) {
+            slot.setValue(value, this, start, isThrow);
+            return true;
         }
         return slot.setValue(value, this, start, isThrow);
     }

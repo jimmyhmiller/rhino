@@ -88,8 +88,13 @@ public class AccessorSlot extends Slot {
     public boolean setValue(Object value, Scriptable owner, Scriptable start, boolean isThrow) {
         if (setter == null) {
             if (getter != null) {
-                throwNoSetterException(start, value);
-                return true;
+                // ES6 9.1.9.1: If setter is undefined, return false
+                // Only throw if isThrow is true (e.g., regular assignment in strict mode)
+                // For Reflect.set (isThrow=false), just return false
+                if (isThrow) {
+                    throwNoSetterException(start, value);
+                }
+                return false;
             }
         } else {
             return setter.setValue(value, owner, start, isThrow);
