@@ -247,20 +247,83 @@ public class NativeRegExp extends IdScriptableObject {
 
     // ES6 21.2.5.3 get RegExp.prototype.flags
     private static Object getFlagsGetter(NativeRegExp proto, Scriptable thisObj) {
+        // Step 1-2: If Type(R) is not Object, throw TypeError
         if (!(thisObj instanceof ScriptableObject)) {
             throw ScriptRuntime.typeErrorById("msg.incompat.call", "RegExp.prototype.flags getter");
         }
+
+        // For NativeRegExp instances, use the internal flags directly
         if (thisObj instanceof NativeRegExp) {
             NativeRegExp re = (NativeRegExp) thisObj;
             StringBuilder buf = new StringBuilder();
             re.appendFlags(buf);
             return buf.toString();
         }
+
         // If this is RegExp.prototype itself, return ""
         if (thisObj == proto) {
             return "";
         }
-        throw ScriptRuntime.typeErrorById("msg.incompat.call", "RegExp.prototype.flags getter");
+
+        // Reject primitive wrapper types (Number, Boolean, String, Symbol, BigInt).
+        // Per ES spec, if .call() is passed a primitive in strict mode, it should
+        // not be boxed and Type(R) would be non-Object, causing a TypeError.
+        // Rhino boxes all primitives, so we detect and reject them here.
+        String className = thisObj.getClassName();
+        if ("Number".equals(className)
+                || "Boolean".equals(className)
+                || "String".equals(className)
+                || "Symbol".equals(className)
+                || "BigInt".equals(className)) {
+            throw ScriptRuntime.typeErrorById("msg.incompat.call", "RegExp.prototype.flags getter");
+        }
+
+        // Per ES6 spec, this getter works on any object by reading properties
+        StringBuilder result = new StringBuilder();
+
+        // Step 4-5: global
+        if (getBooleanFlag(thisObj, "global")) {
+            result.append('g');
+        }
+        // Step 6-7: hasIndices (d flag)
+        if (getBooleanFlag(thisObj, "hasIndices")) {
+            result.append('d');
+        }
+        // Step 8-9: ignoreCase
+        if (getBooleanFlag(thisObj, "ignoreCase")) {
+            result.append('i');
+        }
+        // Step 10-11: multiline
+        if (getBooleanFlag(thisObj, "multiline")) {
+            result.append('m');
+        }
+        // Step 12-13: dotAll
+        if (getBooleanFlag(thisObj, "dotAll")) {
+            result.append('s');
+        }
+        // Step 14-15: unicode
+        if (getBooleanFlag(thisObj, "unicode")) {
+            result.append('u');
+        }
+        // Step 16-17: unicodeSets
+        if (getBooleanFlag(thisObj, "unicodeSets")) {
+            result.append('v');
+        }
+        // Step 18-19: sticky
+        if (getBooleanFlag(thisObj, "sticky")) {
+            result.append('y');
+        }
+
+        return result.toString();
+    }
+
+    // Helper to get a boolean flag property, treating NOT_FOUND as undefined (falsy)
+    private static boolean getBooleanFlag(Scriptable obj, String name) {
+        Object value = ScriptableObject.getProperty(obj, name);
+        if (value == Scriptable.NOT_FOUND) {
+            return false;
+        }
+        return ScriptRuntime.toBoolean(value);
     }
 
     // ES6 21.2.5.4-9 get RegExp.prototype.{global,ignoreCase,multiline,dotAll,sticky,unicode}
