@@ -921,6 +921,22 @@ public class Parser {
                         consumeToken();
                         restStartLineno = lineNumber();
                         restStartColumn = columnNumber();
+
+                        // ES6: Rest parameter can be a destructuring pattern
+                        // e.g., function f(...[a, b]) {} or function f(...{x, y}) {}
+                        int nextTt = peekToken();
+                        if (nextTt == Token.LB || nextTt == Token.LC) {
+                            AstNode expr = destructuringAssignExpr();
+                            if (destructuring == null) {
+                                destructuring = new HashMap<>();
+                            }
+                            markDestructuring(expr);
+                            fnNode.addParam(expr);
+                            String pname = currentScriptOrFn.getNextTempName();
+                            defineSymbol(Token.LP, pname, false);
+                            destructuring.put(pname, expr);
+                            continue; // Skip the regular parameter handling below
+                        }
                     }
 
                     if (matchToken(Token.UNDEFINED, true)
