@@ -619,7 +619,18 @@ public class BaseFunction extends ScriptableObject implements Function {
         if (thisObj == null) {
             throw ScriptRuntime.notFunctionError(null);
         }
-        Object x = thisObj.getDefaultValue(ScriptRuntime.FunctionClass);
+        // Per ES spec, Function.prototype methods require 'this' to be a function.
+        // We should check thisObj directly, not use getDefaultValue which can call
+        // valueOf and return a non-function primitive.
+        Object x = thisObj;
+        if (x instanceof Delegator) {
+            x = ((Delegator) x).getDelegee();
+        }
+        if (x instanceof BaseFunction) {
+            return (BaseFunction) x;
+        }
+        // Fall back to getDefaultValue for backward compatibility with Delegator wrappers
+        x = thisObj.getDefaultValue(ScriptRuntime.FunctionClass);
         if (x instanceof Delegator) {
             x = ((Delegator) x).getDelegee();
         }
