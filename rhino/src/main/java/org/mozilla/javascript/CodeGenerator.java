@@ -1678,23 +1678,27 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         Node constructor = node.getFirstChild();
         Node protoMethods = constructor.getNext();
         Node staticMethods = protoMethods.getNext();
+        Node superClass = staticMethods.getNext(); // May be null
 
         // First, emit the constructor function
         visitExpression(constructor, 0);
         // Stack: [constructor]
 
-        // Emit prototype method object literal storage
+        // If there's a superclass, evaluate it
+        boolean hasSuperClass = superClass != null;
+        if (hasSuperClass) {
+            visitExpression(superClass, 0);
+            // Stack: [constructor, superClass]
+        }
+
+        // Emit prototype method storage (only NewLiteralStorage, no NativeObject)
         Object[] protoIds = (Object[]) protoMethods.getProp(Node.OBJECT_IDS_PROP);
         int protoIdsIndex = literalIds.size();
         literalIds.add(protoIds);
 
-        boolean protoHasComputed =
-                protoIds != null
-                        && java.util.Arrays.stream(protoIds).anyMatch(id -> id instanceof Node);
-        addIndexOp(Icode_LITERAL_NEW_OBJECT, protoIdsIndex);
-        addUint8(protoHasComputed ? 1 : 0);
-        stackChange(2);
-        // Stack: [constructor, protoStorage, protoObject]
+        addIndexOp(Icode_CLASS_STORAGE, protoIdsIndex);
+        stackChange(1);
+        // Stack: [constructor, (superClass?), protoStorage]
 
         int protoIndex = 0;
         for (Node protoChild = protoMethods.getFirstChild();
@@ -1710,21 +1714,16 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             visitLiteralValue(protoChild);
             protoIndex++;
         }
-        // Stack: [constructor, protoStorage]
-        stackChange(-1); // Pop protoObject placeholder (filled by OBJECTLIT)
+        // Stack: [constructor, (superClass?), protoStorage]
 
-        // Emit static method object literal storage
+        // Emit static method storage (only NewLiteralStorage, no NativeObject)
         Object[] staticIds = (Object[]) staticMethods.getProp(Node.OBJECT_IDS_PROP);
         int staticIdsIndex = literalIds.size();
         literalIds.add(staticIds);
 
-        boolean staticHasComputed =
-                staticIds != null
-                        && java.util.Arrays.stream(staticIds).anyMatch(id -> id instanceof Node);
-        addIndexOp(Icode_LITERAL_NEW_OBJECT, staticIdsIndex);
-        addUint8(staticHasComputed ? 1 : 0);
-        stackChange(2);
-        // Stack: [constructor, protoStorage, staticStorage, staticObject]
+        addIndexOp(Icode_CLASS_STORAGE, staticIdsIndex);
+        stackChange(1);
+        // Stack: [constructor, (superClass?), protoStorage, staticStorage]
 
         int staticIndex = 0;
         for (Node staticChild = staticMethods.getFirstChild();
@@ -1740,17 +1739,22 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             visitLiteralValue(staticChild);
             staticIndex++;
         }
-        // Stack: [constructor, protoStorage, staticStorage]
-        stackChange(-1); // Pop staticObject placeholder
+        // Stack: [constructor, (superClass?), protoStorage, staticStorage]
 
         // Emit Icode_CLASS_DEF which will:
         // - Pop staticStorage
         // - Pop protoStorage
+        // - Pop superClass (if present)
         // - Pop constructor
         // - Call ScriptRuntime.createClass
         // - Push the result (configured constructor)
         addIcode(Icode_CLASS_DEF);
-        stackChange(-2); // Pops protoStorage and staticStorage, constructor stays
+        addUint8(hasSuperClass ? 1 : 0); // Flag: 1 = has superclass, 0 = no superclass
+        if (hasSuperClass) {
+            stackChange(-3); // Pops protoStorage, staticStorage, superClass; constructor stays
+        } else {
+            stackChange(-2); // Pops protoStorage and staticStorage; constructor stays
+        }
         // Stack: [constructor (with methods configured)]
     }
 

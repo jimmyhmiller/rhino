@@ -747,6 +747,12 @@ public final class IRFactory {
         int lineno = classNode.getLineno();
         int column = classNode.getColumn();
 
+        // Transform the superclass expression if present
+        Node superClassNode = null;
+        if (classNode.getSuperClass() != null) {
+            superClassNode = transform(classNode.getSuperClass());
+        }
+
         // Find the constructor method, or create a default one
         FunctionNode constructorFn = null;
         for (ClassElement element : classNode.getElements()) {
@@ -757,8 +763,9 @@ public final class IRFactory {
         }
 
         // If no constructor was defined, create a default one
+        boolean hasSuperClass = classNode.getSuperClass() != null;
         if (constructorFn == null) {
-            constructorFn = createDefaultConstructor(classNode);
+            constructorFn = createDefaultConstructor(classNode, hasSuperClass);
         }
 
         // Set the function name to the class name
@@ -771,7 +778,7 @@ public final class IRFactory {
 
         // Build up the class expression with methods
         // We create an object literal for methods to be added to the prototype
-        Node classExpr = buildClassExpression(classNode, constructorNode);
+        Node classExpr = buildClassExpression(classNode, constructorNode, superClassNode);
 
         // For class declarations, create an assignment to the class name
         // Use SETLETINIT to properly initialize the let binding (exits TDZ)
@@ -796,7 +803,8 @@ public final class IRFactory {
     }
 
     /** Builds the class expression by combining the constructor with method definitions. */
-    private Node buildClassExpression(ClassNode classNode, Node constructorNode) {
+    private Node buildClassExpression(
+            ClassNode classNode, Node constructorNode, Node superClassNode) {
         List<ClassElement> elements = classNode.getElements();
 
         // Check if there are any non-constructor methods
@@ -807,8 +815,9 @@ public final class IRFactory {
             }
         }
 
-        // If no methods, just return the constructor
-        if (methods.isEmpty()) {
+        // If no methods and no superclass, just return the constructor
+        // But if there's a superclass, we need the CLASS node to set up inheritance
+        if (methods.isEmpty() && superClassNode == null) {
             return constructorNode;
         }
 
@@ -874,29 +883,38 @@ public final class IRFactory {
         protoMethods.putProp(Node.OBJECT_IDS_PROP, protoProps.toArray());
         staticMethods.putProp(Node.OBJECT_IDS_PROP, staticProps.toArray());
 
-        // Create a CLASS node that holds constructor + proto methods + static methods
-        // Structure: CLASS node with three children:
+        // Create a CLASS node that holds constructor + proto methods + static methods + superClass
+        // Structure: CLASS node with three or four children:
         //   1. constructor (FUNCTION node)
         //   2. protoMethods (OBJECTLIT node)
         //   3. staticMethods (OBJECTLIT node)
+        //   4. superClass (optional - expression node for the parent class)
         Node classNode2 = new Node(Token.CLASS);
         classNode2.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
         classNode2.addChildToBack(constructorNode);
         classNode2.addChildToBack(protoMethods);
         classNode2.addChildToBack(staticMethods);
+        if (superClassNode != null) {
+            classNode2.addChildToBack(superClassNode);
+        }
 
         return classNode2;
     }
 
     /** Creates a default constructor for a class. */
-    private FunctionNode createDefaultConstructor(ClassNode classNode) {
+    private FunctionNode createDefaultConstructor(ClassNode classNode, boolean hasSuperClass) {
         FunctionNode fn = new FunctionNode();
         fn.setFunctionType(FunctionNode.FUNCTION_EXPRESSION);
         fn.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
 
-        // Create empty body
+        // Create body
         Block body = new Block();
         body.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+
+        // For derived classes, the default constructor needs to call super(...args)
+        // For now, we create an empty body - super() support will be added later
+        // TODO: When super() is implemented, derived class default constructor should be:
+        //       constructor(...args) { super(...args); }
 
         fn.setBody(body);
         return fn;

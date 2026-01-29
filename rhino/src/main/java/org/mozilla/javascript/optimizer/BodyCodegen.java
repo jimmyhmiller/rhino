@@ -2788,14 +2788,15 @@ class BodyCodegen {
     /**
      * Visits a CLASS node and generates code to create a class.
      *
-     * <p>The CLASS node has three children: 1. constructor (FUNCTION node) 2. protoMethods
+     * <p>The CLASS node has three or four children: 1. constructor (FUNCTION node) 2. protoMethods
      * (OBJECTLIT node) - methods for the prototype 3. staticMethods (OBJECTLIT node) - static
-     * methods for the constructor
+     * methods for the constructor 4. superClass (optional) - the parent class expression
      */
     private void visitClassLiteral(Node node) {
         Node constructor = node.getFirstChild();
         Node protoMethods = constructor.getNext();
         Node staticMethods = protoMethods.getNext();
+        Node superClass = staticMethods.getNext(); // May be null
 
         Object[] protoProperties = (Object[]) protoMethods.getProp(Node.OBJECT_IDS_PROP);
         Object[] staticProperties = (Object[]) staticMethods.getProp(Node.OBJECT_IDS_PROP);
@@ -2804,6 +2805,15 @@ class BodyCodegen {
 
         // Generate the constructor function
         generateExpression(constructor, node);
+        // Stack: [constructor]
+
+        // Store superClass in a local if present
+        short superClassLocal = -1;
+        if (superClass != null) {
+            generateExpression(superClass, node);
+            superClassLocal = getNewWordLocal();
+            cfw.addAStore(superClassLocal);
+        }
         // Stack: [constructor]
 
         // Generate prototype methods storage
@@ -2959,6 +2969,14 @@ class BodyCodegen {
         cfw.addALoad(staticKeysLocal);
         cfw.addALoad(staticValuesLocal);
         cfw.addALoad(staticGetterSettersLocal);
+
+        // Push superClass (or null)
+        if (superClassLocal != -1) {
+            cfw.addALoad(superClassLocal);
+        } else {
+            cfw.add(ByteCode.ACONST_NULL);
+        }
+
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
 
@@ -2971,6 +2989,7 @@ class BodyCodegen {
                         + "[Ljava/lang/Object;"
                         + "[Ljava/lang/Object;"
                         + "[I"
+                        + "Ljava/lang/Object;"
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + ")Lorg/mozilla/javascript/Callable;");
@@ -2982,6 +3001,9 @@ class BodyCodegen {
         releaseWordLocal(protoKeysLocal);
         releaseWordLocal(protoValuesLocal);
         releaseWordLocal(protoGetterSettersLocal);
+        if (superClassLocal != -1) {
+            releaseWordLocal(superClassLocal);
+        }
     }
 
     private void visitSpecialCall(Node node, int type, int specialType, Node child) {

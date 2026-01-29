@@ -1754,6 +1754,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_NEW_SPREAD] = new DoNewSpread();
         instructionObjs[base + Icode_CALLSPECIAL_SPREAD] = new DoCallSpecialSpread();
         instructionObjs[base + Icode_CLASS_DEF] = new DoClassDef();
+        instructionObjs[base + Icode_CLASS_STORAGE] = new DoClassStorage();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
@@ -4842,12 +4843,23 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoClassDef extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
-            // Stack: [constructor, protoStorage, staticStorage]
+            // Read flag byte: 1 = has superclass, 0 = no superclass
+            int hasSuperClassFlag = 0xFF & frame.idata.itsICode[frame.pc];
+            ++frame.pc;
+
+            // Stack: [constructor, (superClass?), protoStorage, staticStorage]
             var staticStore = (NewLiteralStorage) frame.stack[state.stackTop];
             --state.stackTop;
 
             var protoStore = (NewLiteralStorage) frame.stack[state.stackTop];
             --state.stackTop;
+
+            // Get superclass if present
+            Object superClass = null;
+            if (hasSuperClassFlag != 0) {
+                superClass = frame.stack[state.stackTop];
+                --state.stackTop;
+            }
 
             Callable constructor = (Callable) frame.stack[state.stackTop];
 
@@ -4861,8 +4873,22 @@ public final class Interpreter extends Icode implements Evaluator {
                             staticStore.getKeys(),
                             staticStore.getValues(),
                             staticStore.getGetterSetters(),
+                            superClass,
                             cx,
                             frame.scope);
+            return null;
+        }
+    }
+
+    private static class DoClassStorage extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Create NewLiteralStorage from the ids in literalIds
+            // indexReg contains the index into literalIds
+            Object[] ids = (Object[]) frame.idata.literalIds[state.indexReg];
+            NewLiteralStorage storage =
+                    NewLiteralStorage.create(cx, ids == null ? new Object[0] : ids);
+            frame.stack[++state.stackTop] = storage;
             return null;
         }
     }

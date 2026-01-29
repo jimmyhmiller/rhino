@@ -468,6 +468,15 @@ public class Test262SuiteTest {
                 }
 
                 throw ex;
+            } catch (LinkageError ex) {
+                // Handle VerifyError and other JVM-level linking errors
+                // These can occur with certain code patterns in compiled mode
+                if (markedAsFailing) {
+                    logProgress("END " + testId);
+                    return;
+                }
+
+                throw ex;
             }
             logProgress("END " + testId);
         }

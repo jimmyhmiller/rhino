@@ -199,8 +199,11 @@ abstract class Icode {
             // ES6 class definition - creates class from constructor + methods
             Icode_CLASS_DEF = Icode_CALLSPECIAL_SPREAD - 1,
 
+            // ES6 class method storage - creates only NewLiteralStorage for class methods
+            Icode_CLASS_STORAGE = Icode_CLASS_DEF - 1,
+
             // Last icode
-            MIN_ICODE = Icode_CLASS_DEF;
+            MIN_ICODE = Icode_CLASS_STORAGE;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -420,6 +423,8 @@ abstract class Icode {
                 return "CALLSPECIAL_SPREAD";
             case Icode_CLASS_DEF:
                 return "CLASS_DEF";
+            case Icode_CLASS_STORAGE:
+                return "CLASS_STORAGE";
         }
 
         // icode without name

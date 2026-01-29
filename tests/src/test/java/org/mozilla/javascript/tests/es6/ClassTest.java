@@ -115,4 +115,98 @@ public class ClassTest {
                                 + "c.add(5).multiply(3).add(1).getValue();");
         assertEquals(16, ((Number) result).intValue());
     }
+
+    @Test
+    public void testClassExtends() {
+        Object result =
+                eval(
+                        "class Animal {\n"
+                                + "  constructor(name) { this.name = name; }\n"
+                                + "  speak() { return this.name + ' makes a sound'; }\n"
+                                + "}\n"
+                                + "class Dog extends Animal {\n"
+                                + "  constructor(name) { this.name = name; }\n"
+                                + "  speak() { return this.name + ' barks'; }\n"
+                                + "}\n"
+                                + "var d = new Dog('Rex');\n"
+                                + "d.speak();");
+        assertEquals("Rex barks", result);
+    }
+
+    @Test
+    public void testClassExtendsPrototypeChain() {
+        Object result =
+                eval(
+                        "class Animal {\n"
+                                + "  constructor(name) { this.name = name; }\n"
+                                + "  speak() { return this.name + ' makes a sound'; }\n"
+                                + "}\n"
+                                + "class Dog extends Animal {\n"
+                                + "  constructor(name) { this.name = name; }\n"
+                                + "}\n"
+                                + "var d = new Dog('Rex');\n"
+                                + "d.speak();");
+        // Dog doesn't override speak(), so it should use Animal's
+        assertEquals("Rex makes a sound", result);
+    }
+
+    @Test
+    public void testClassExtendsInstanceOf() {
+        Object result =
+                eval(
+                        "class Animal {}\n"
+                                + "class Dog extends Animal {}\n"
+                                + "var d = new Dog();\n"
+                                + "(d instanceof Dog) && (d instanceof Animal);");
+        assertEquals(true, result);
+    }
+
+    @Test
+    public void testClassExtendsStaticInheritance() {
+        Object result =
+                eval(
+                        "class Animal {\n"
+                                + "  static species() { return 'Animal'; }\n"
+                                + "}\n"
+                                + "class Dog extends Animal {\n"
+                                + "}\n"
+                                + "Dog.species();");
+        // Static methods should be inherited
+        assertEquals("Animal", result);
+    }
+
+    @Test
+    public void testClassExtendsObject() {
+        // Extend built-in Object
+        Object result =
+                eval(
+                        "class Subclass extends Object {}\n"
+                                + "var sub = new Subclass();\n"
+                                + "(sub instanceof Subclass) && (sub instanceof Object);");
+        assertEquals(true, result);
+    }
+
+    @Test
+    public void testClassExtendsInterpreted() {
+        // Test in interpreted mode
+        try (Context cx = Context.enter()) {
+            cx.setLanguageVersion(Context.VERSION_ES6);
+            cx.setOptimizationLevel(-1); // Force interpreter mode
+            Global global = new Global(cx);
+            Scriptable scope = cx.newObject(global);
+            scope.setPrototype(global);
+            scope.setParentScope(null);
+            Object result =
+                    cx.evaluateString(
+                            scope,
+                            "class Animal { speak() { return 'animal'; } }\n"
+                                    + "class Dog extends Animal {}\n"
+                                    + "var d = new Dog();\n"
+                                    + "d.speak();",
+                            "test.js",
+                            1,
+                            null);
+            assertEquals("animal", result);
+        }
+    }
 }

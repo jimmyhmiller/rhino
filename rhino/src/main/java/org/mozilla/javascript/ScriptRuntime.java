@@ -6054,6 +6054,7 @@ public class ScriptRuntime {
      * @param staticIds Property names/symbols for static methods
      * @param staticValues The method functions for static members
      * @param staticGetterSetters Flags indicating getter (-1), setter (1), or normal method (0)
+     * @param superClass The superclass (parent class) to extend from, or null
      * @param cx The current context
      * @param scope The current scope
      * @return The constructor function with prototype and static members set up
@@ -6066,11 +6067,48 @@ public class ScriptRuntime {
             Object[] staticIds,
             Object[] staticValues,
             int[] staticGetterSetters,
+            Object superClass,
             Context cx,
             Scriptable scope) {
 
-        // Get the prototype from the constructor
         Scriptable constructorObj = (Scriptable) constructor;
+
+        // Set up inheritance if there's a superclass
+        if (superClass != null) {
+            if (!(superClass instanceof Callable)) {
+                throw typeError("msg.class.extends.not.callable");
+            }
+            Scriptable superConstructor = (Scriptable) superClass;
+
+            // Get the superclass prototype
+            Object superProtoObj = superConstructor.get("prototype", superConstructor);
+            Scriptable superProto = null;
+            if (superProtoObj != Scriptable.NOT_FOUND && superProtoObj != null) {
+                if (!(superProtoObj instanceof Scriptable)) {
+                    throw typeError("msg.class.extends.prototype.not.object");
+                }
+                superProto = (Scriptable) superProtoObj;
+            }
+
+            // Create new prototype: Object.create(superClass.prototype)
+            // Use NativeObject directly like Object.create does
+            ScriptableObject newProto = new NativeObject();
+            newProto.setParentScope(scope);
+            newProto.setPrototype(superProto);
+
+            // Set constructor.prototype = newProto
+            constructorObj.put("prototype", constructorObj, newProto);
+
+            // Set newProto.constructor = constructor
+            newProto.put("constructor", newProto, constructor);
+
+            // Set constructor.__proto__ = superClass (for static inheritance)
+            if (constructorObj instanceof ScriptableObject) {
+                ((ScriptableObject) constructorObj).setPrototype(superConstructor);
+            }
+        }
+
+        // Get the prototype from the constructor (may have been replaced above)
         Object protoObj = constructorObj.get("prototype", constructorObj);
         if (protoObj instanceof Scriptable) {
             Scriptable prototype = (Scriptable) protoObj;
