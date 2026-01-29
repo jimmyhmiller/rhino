@@ -298,18 +298,31 @@ public class NativeObject extends ScriptableObject implements Map {
 
     private static Object js_defineGetterOrSetter(
             Context cx, Scriptable scope, boolean isSetter, Object thisObj, Object[] args) {
+        // Step 1: Let O be ? ToObject(this value).
+        // Must be done FIRST per spec - throws TypeError for null/undefined
+        if (thisObj == null || Undefined.isUndefined(thisObj)) {
+            throw ScriptRuntime.typeErrorById(
+                    "msg.called.null.or.undefined",
+                    isSetter ? "__defineSetter__" : "__defineGetter__");
+        }
+        Scriptable o = ScriptRuntime.toObject(cx, scope, thisObj);
+
+        // Step 2: If IsCallable(getter/setter) is false, throw a TypeError exception.
+        // This MUST happen BEFORE ToPropertyKey per spec
         if (args.length < 2 || !(args[1] instanceof Callable)) {
             Object badArg = (args.length >= 2 ? args[1] : Undefined.instance);
             throw ScriptRuntime.notFunctionError(badArg);
         }
-        if (!(thisObj instanceof ScriptableObject)) {
+
+        // Step 3: Let key be ? ToPropertyKey(P).
+        StringIdOrIndex s =
+                ScriptRuntime.toStringIdOrIndex(args.length > 0 ? args[0] : Undefined.instance);
+
+        if (!(o instanceof ScriptableObject)) {
             throw Context.reportRuntimeErrorById(
-                    "msg.extend.scriptable",
-                    thisObj == null ? "null" : thisObj.getClass().getName(),
-                    String.valueOf(args[0]));
+                    "msg.extend.scriptable", o.getClass().getName(), String.valueOf(args[0]));
         }
-        ScriptableObject so = (ScriptableObject) thisObj;
-        StringIdOrIndex s = ScriptRuntime.toStringIdOrIndex(args[0]);
+        ScriptableObject so = (ScriptableObject) o;
         int index = s.stringId != null ? 0 : s.index;
         Callable getterOrSetter = (Callable) args[1];
         so.setGetterOrSetter(s.stringId, index, getterOrSetter, isSetter);
@@ -330,10 +343,24 @@ public class NativeObject extends ScriptableObject implements Map {
 
     private static Object js_lookupGetterOrSetter(
             Context cx, Scriptable scope, boolean isSetter, Object thisObj, Object[] args) {
-        if (args.length < 1 || !(thisObj instanceof ScriptableObject)) return Undefined.instance;
+        // Step 1: Let O be ? ToObject(this value).
+        // Must be done FIRST per spec - throws TypeError for null/undefined
+        if (thisObj == null || Undefined.isUndefined(thisObj)) {
+            throw ScriptRuntime.typeErrorById(
+                    "msg.called.null.or.undefined",
+                    isSetter ? "__lookupSetter__" : "__lookupGetter__");
+        }
+        Scriptable o = ScriptRuntime.toObject(cx, scope, thisObj);
 
-        ScriptableObject so = (ScriptableObject) thisObj;
-        StringIdOrIndex s = ScriptRuntime.toStringIdOrIndex(args[0]);
+        if (!(o instanceof ScriptableObject)) {
+            return Undefined.instance;
+        }
+
+        // Step 2: Let key be ? ToPropertyKey(P).
+        StringIdOrIndex s =
+                ScriptRuntime.toStringIdOrIndex(args.length > 0 ? args[0] : Undefined.instance);
+
+        ScriptableObject so = (ScriptableObject) o;
         int index = s.stringId != null ? 0 : s.index;
         Object gs;
         for (; ; ) {
