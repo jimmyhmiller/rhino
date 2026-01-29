@@ -680,7 +680,16 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                             // stack: f, storage -> result
                             stackChange(-1);
                         } else {
-                            addIcode(Icode_CALL_SPREAD);
+                            int callType =
+                                    node.getIntProp(Node.SPECIALCALL_PROP, Node.NON_SPECIALCALL);
+                            if (callType != Node.NON_SPECIALCALL) {
+                                // Special call (eval) with spread - embed call type and line number
+                                addIcode(Icode_CALLSPECIAL_SPREAD);
+                                addUint8(callType);
+                                addUint16(lineNumber & 0xFFFF);
+                            } else {
+                                addIcode(Icode_CALL_SPREAD);
+                            }
                             // stack: f, thisObj, storage -> result
                             stackChange(-2);
                         }

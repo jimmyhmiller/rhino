@@ -874,6 +874,15 @@ public final class Interpreter extends Icode implements Evaluator {
                         break;
                     }
 
+                case Icode_CALLSPECIAL_SPREAD:
+                    {
+                        int callType = iCode[pc] & 0xFF;
+                        int line = getIndex(iCode, pc + 1);
+                        out.println(tname + " " + callType + " " + line);
+                        pc += 3;
+                        break;
+                    }
+
                 case Token.CATCH_SCOPE:
                     {
                         boolean afterFisrtFlag = (iCode[pc] != 0);
@@ -1146,6 +1155,11 @@ public final class Interpreter extends Icode implements Evaluator {
                 // is new
                 // line number
                 return 1 + 1 + 1 + 2;
+
+            case Icode_CALLSPECIAL_SPREAD:
+                // call type
+                // line number
+                return 1 + 1 + 2;
 
             case Token.CATCH_SCOPE:
                 // scope flag
@@ -1738,6 +1752,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_REQ_OBJ_COERCIBLE] = new DoReqObjCoercible();
         instructionObjs[base + Icode_CALL_SPREAD] = new DoCallSpread();
         instructionObjs[base + Icode_NEW_SPREAD] = new DoNewSpread();
+        instructionObjs[base + Icode_CALLSPECIAL_SPREAD] = new DoCallSpecialSpread();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
@@ -4383,6 +4398,51 @@ public final class Interpreter extends Icode implements Evaluator {
             }
 
             frame.stack[state.stackTop] = fun.construct(cx, newScope, args);
+            return null;
+        }
+    }
+
+    private static class DoCallSpecialSpread extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Stack: LookupResult, NewLiteralStorage -> result
+            byte[] iCode = frame.idata.itsICode;
+
+            if (state.instructionCounting) {
+                cx.instructionCount += INVOCATION_COST;
+            }
+
+            // Read callType and sourceLine from icode stream
+            int callType = iCode[frame.pc] & 0xFF;
+            int sourceLine = getIndex(iCode, frame.pc + 1);
+
+            NewLiteralStorage storage = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+            ScriptRuntime.LookupResult result =
+                    (ScriptRuntime.LookupResult) frame.stack[state.stackTop];
+
+            Callable fun = result.getCallable();
+            Scriptable funThisObj = result.getThis();
+
+            Object[] args = storage.getValues();
+            if (args == null) {
+                args = ScriptRuntime.emptyArgs;
+            }
+
+            frame.stack[state.stackTop] =
+                    ScriptRuntime.callSpecial(
+                            cx,
+                            fun,
+                            funThisObj,
+                            args,
+                            frame.scope,
+                            frame.thisObj,
+                            callType,
+                            frame.fnOrScript.getDescriptor().getSourceName(),
+                            sourceLine,
+                            false);
+
+            frame.pc += 3; // callType (1) + sourceLine (2)
             return null;
         }
     }

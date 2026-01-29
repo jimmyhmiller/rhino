@@ -193,8 +193,11 @@ abstract class Icode {
             Icode_CALL_SPREAD = Icode_REQ_OBJ_COERCIBLE - 1,
             Icode_NEW_SPREAD = Icode_CALL_SPREAD - 1,
 
+            // Special call (eval) with spread arguments
+            Icode_CALLSPECIAL_SPREAD = Icode_NEW_SPREAD - 1,
+
             // Last icode
-            MIN_ICODE = Icode_NEW_SPREAD;
+            MIN_ICODE = Icode_CALLSPECIAL_SPREAD;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -410,6 +413,8 @@ abstract class Icode {
                 return "CALL_SPREAD";
             case Icode_NEW_SPREAD:
                 return "NEW_SPREAD";
+            case Icode_CALLSPECIAL_SPREAD:
+                return "CALLSPECIAL_SPREAD";
         }
 
         // icode without name

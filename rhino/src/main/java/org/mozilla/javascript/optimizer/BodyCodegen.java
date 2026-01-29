@@ -1544,24 +1544,42 @@ class BodyCodegen {
                 break;
 
             case Token.GETELEM:
-                generateExpression(child, node); // object
-                if (node.getIntProp(Node.OPTIONAL_CHAINING, 0) == 1) {
-                    int getElem = cfw.acquireLabel();
-                    int after = cfw.acquireLabel();
+                {
+                    Node indexNode = child.getNext();
+                    // In generators, if the index expression contains a yield, evaluate
+                    // it first to avoid having values on the stack across yield points.
+                    // This prevents VerifyError from type mismatches after stack restoration.
+                    short indexTempLocal = -1;
+                    if (isGenerator && indexNode != null && findNestedYield(indexNode) != null) {
+                        // Evaluate index first and save to temp
+                        generateExpression(indexNode, node);
+                        indexTempLocal = getNewWordLocal();
+                        cfw.addAStore(indexTempLocal);
+                    }
 
-                    cfw.add(ByteCode.DUP);
-                    addOptRuntimeInvoke("isNullOrUndefined", "(Ljava/lang/Object;)Z");
-                    cfw.add(ByteCode.IFEQ, getElem);
+                    generateExpression(child, node); // object
+                    if (node.getIntProp(Node.OPTIONAL_CHAINING, 0) == 1) {
+                        int getElem = cfw.acquireLabel();
+                        int after = cfw.acquireLabel();
 
-                    cfw.add(ByteCode.POP);
-                    Codegen.pushUndefined(cfw);
-                    cfw.add(ByteCode.GOTO, after);
+                        cfw.add(ByteCode.DUP);
+                        addOptRuntimeInvoke("isNullOrUndefined", "(Ljava/lang/Object;)Z");
+                        cfw.add(ByteCode.IFEQ, getElem);
 
-                    cfw.markLabel(getElem);
-                    finishGetElemGeneration(node, child);
-                    cfw.markLabel(after);
-                } else {
-                    finishGetElemGeneration(node, child);
+                        cfw.add(ByteCode.POP);
+                        Codegen.pushUndefined(cfw);
+                        cfw.add(ByteCode.GOTO, after);
+
+                        cfw.markLabel(getElem);
+                        finishGetElemGeneration(node, child, indexTempLocal);
+                        cfw.markLabel(after);
+                    } else {
+                        finishGetElemGeneration(node, child, indexTempLocal);
+                    }
+
+                    if (indexTempLocal != -1) {
+                        releaseWordLocal(indexTempLocal);
+                    }
                 }
                 break;
 
@@ -1878,7 +1896,16 @@ class BodyCodegen {
     }
 
     private void finishGetElemGeneration(Node node, Node child) {
-        generateExpression(child.getNext(), node); // id
+        finishGetElemGeneration(node, child, (short) -1);
+    }
+
+    private void finishGetElemGeneration(Node node, Node child, short indexTempLocal) {
+        if (indexTempLocal != -1) {
+            // Index was already evaluated and stored in temp (for generator yield handling)
+            cfw.addALoad(indexTempLocal);
+        } else {
+            generateExpression(child.getNext(), node); // id
+        }
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
 
@@ -1932,6 +1959,19 @@ class BodyCodegen {
             child = child.getNext();
         }
         return null;
+    }
+
+    // Check if any of a list of sibling nodes (or their descendants) contains a yield.
+    private boolean hasYieldInSiblings(Node firstSibling) {
+        for (Node sibling = firstSibling; sibling != null; sibling = sibling.getNext()) {
+            if (sibling.getType() == Token.YIELD || sibling.getType() == Token.YIELD_STAR) {
+                return true;
+            }
+            if (findNestedYield(sibling) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void generateYieldPoint(Node node, boolean exprContext) {
@@ -2836,14 +2876,30 @@ class BodyCodegen {
         Node firstArgChild = child.getNext();
         Integer afterLabel = null;
 
+        // In generators, if any argument contains a yield, we need to store the
+        // LookupResult in a local variable and use CHECKCAST when retrieving it.
+        // This is because yield saves/restores the stack as Object[], losing type info.
+        boolean argsHaveYield = isGenerator && hasYieldInSiblings(firstArgChild);
+        short lookupResultLocal = -1;
+
         // Push a LookupResult or null to the stack
         generateLookupResult(child, node);
+
+        if (argsHaveYield) {
+            // Store as Object to survive yield save/restore
+            cfw.add(ByteCode.CHECKCAST, "java/lang/Object");
+            lookupResultLocal = getNewWordLocal();
+            cfw.addAStore(lookupResultLocal);
+        }
 
         if (node.getIntProp(Node.OPTIONAL_CHAINING, 0) == 1) {
             // Generate code to check for null lookup result
             afterLabel = cfw.acquireLabel();
             int doCallLabel = cfw.acquireLabel();
 
+            if (argsHaveYield) {
+                cfw.addALoad(lookupResultLocal);
+            }
             cfw.add(ByteCode.DUP);
             addOptRuntimeInvoke("isNullOrUndefined", "(Ljava/lang/Object;)Z");
             cfw.add(ByteCode.IFEQ, doCallLabel);
@@ -2854,6 +2910,9 @@ class BodyCodegen {
             cfw.add(ByteCode.GOTO, afterLabel);
 
             cfw.markLabel(doCallLabel);
+            if (argsHaveYield) {
+                cfw.add(ByteCode.POP); // Pop the DUP'd value
+            }
         }
 
         // We have to process the args now, and not later, because
@@ -2861,12 +2920,19 @@ class BodyCodegen {
         generateCallArgArray(node, firstArgChild, false);
         cfw.addAStore(argsLocal);
 
+        // Restore LookupResult from local if we saved it
+        if (argsHaveYield) {
+            cfw.addALoad(lookupResultLocal);
+            cfw.add(ByteCode.CHECKCAST, "org/mozilla/javascript/ScriptRuntime$LookupResult");
+            releaseWordLocal(lookupResultLocal);
+        }
+
         if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
             // Extract the function but ignore the "this" that comes back
             // in favor of the one that we've been saving up for.
             cfw.addInvoke(
                     ByteCode.INVOKEVIRTUAL,
-                    "org.mozilla.javascript.ScriptRuntime$LookupResult",
+                    "org/mozilla/javascript/ScriptRuntime$LookupResult",
                     "getCallable",
                     "()Lorg/mozilla/javascript/Callable;");
             cfw.addALoad(thisObjLocal);
@@ -2929,6 +2995,7 @@ class BodyCodegen {
     private void visitStandardCallWithSpread(Node node, Node child) {
         assert node.getType() == Token.CALL;
 
+        int specialType = node.getIntProp(Node.SPECIALCALL_PROP, Node.NON_SPECIALCALL);
         Node firstArgChild = child.getNext();
 
         // Push a LookupResult to the stack
@@ -2941,24 +3008,70 @@ class BodyCodegen {
         // Extract function and this from LookupResult
         popFunctionAndThis();
 
-        // stack: ... functionObj thisObj
-        cfw.addALoad(contextLocal);
-        cfw.add(ByteCode.SWAP);
-        // stack: ... functionObj cx thisObj
-        cfw.addALoad(variableObjectLocal);
-        cfw.add(ByteCode.SWAP);
-        // stack: ... functionObj cx scope thisObj
-        cfw.addALoad(argsLocal);
+        if (specialType != Node.NON_SPECIALCALL) {
+            // Special call (eval) with spread arguments
+            // stack: ... functionObj thisObj
+            // Need to build: cx, fun, thisObj, args[], scope, callerThis, specialType, sourceName,
+            // lineNumber, isOptional
 
-        cfw.addInvoke(
-                ByteCode.INVOKEINTERFACE,
-                "org/mozilla/javascript/Callable",
-                "call",
-                "(Lorg/mozilla/javascript/Context;"
-                        + "Lorg/mozilla/javascript/Scriptable;"
-                        + "Lorg/mozilla/javascript/Scriptable;"
-                        + "[Ljava/lang/Object;"
-                        + ")Ljava/lang/Object;");
+            // Store thisObj in a local temporarily
+            short tempThisLocal = getNewWordLocal();
+            cfw.addAStore(tempThisLocal);
+            // stack: ... functionObj
+
+            // Store functionObj in a local temporarily
+            short tempFunLocal = getNewWordLocal();
+            cfw.addAStore(tempFunLocal);
+            // stack: ...
+
+            // Now push in the right order for callSpecial
+            cfw.addALoad(contextLocal);
+            cfw.addALoad(tempFunLocal);
+            cfw.addALoad(tempThisLocal);
+            cfw.addALoad(argsLocal);
+            cfw.addALoad(variableObjectLocal);
+            cfw.addALoad(thisObjLocal);
+            cfw.addPush(specialType);
+            String sourceName = scriptOrFn.getSourceName();
+            cfw.addPush(sourceName == null ? "" : sourceName);
+            cfw.addPush(itsLineNumber);
+            cfw.addPush(false);
+
+            releaseWordLocal(tempFunLocal);
+            releaseWordLocal(tempThisLocal);
+
+            addScriptRuntimeInvoke(
+                    "callSpecial",
+                    "(Lorg/mozilla/javascript/Context;"
+                            + "Lorg/mozilla/javascript/Callable;"
+                            + "Lorg/mozilla/javascript/Scriptable;"
+                            + "[Ljava/lang/Object;"
+                            + "Lorg/mozilla/javascript/Scriptable;"
+                            + "Lorg/mozilla/javascript/Scriptable;"
+                            + "I"
+                            + "Ljava/lang/String;IZ"
+                            + ")Ljava/lang/Object;");
+        } else {
+            // Normal call with spread arguments
+            // stack: ... functionObj thisObj
+            cfw.addALoad(contextLocal);
+            cfw.add(ByteCode.SWAP);
+            // stack: ... functionObj cx thisObj
+            cfw.addALoad(variableObjectLocal);
+            cfw.add(ByteCode.SWAP);
+            // stack: ... functionObj cx scope thisObj
+            cfw.addALoad(argsLocal);
+
+            cfw.addInvoke(
+                    ByteCode.INVOKEINTERFACE,
+                    "org/mozilla/javascript/Callable",
+                    "call",
+                    "(Lorg/mozilla/javascript/Context;"
+                            + "Lorg/mozilla/javascript/Scriptable;"
+                            + "Lorg/mozilla/javascript/Scriptable;"
+                            + "[Ljava/lang/Object;"
+                            + ")Ljava/lang/Object;");
+        }
     }
 
     private void visitStandardNewWithSpread(Node node, Node child) {
