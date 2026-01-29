@@ -1425,7 +1425,21 @@ public class Parser {
                 return pn;
 
             case Token.RETURN:
+                pn = returnOrYield(tt, false);
+                break;
             case Token.YIELD:
+                // In ES6 generators, yield can appear in comma expressions at statement level.
+                // We handle this by falling through to the default expression parsing,
+                // which will properly handle "yield, yield" as a comma expression.
+                // assignExpr() will then call returnOrYield() to parse each yield.
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && isCurrentFunctionGenerator()) {
+                    lineno = ts.getLineno();
+                    column = ts.getTokenColumn();
+                    pn = new ExpressionStatement(expr(false), !insideFunctionBody());
+                    pn.setLineColumnNumber(lineno, column);
+                    break;
+                }
                 pn = returnOrYield(tt, false);
                 break;
 
@@ -2336,6 +2350,13 @@ public class Parser {
             case Token.EOF:
             case Token.EOL:
             case Token.ERROR:
+            case Token.COMMA:
+                // Per ES spec, yield takes an AssignmentExpression, not an Expression.
+                // So comma terminates the yield operand (allowing "yield, yield" in generators).
+                break;
+            case Token.COLON:
+                // Colon terminates yield when used in conditional expression (e.g., "a ? yield :
+                // b")
                 break;
             case Token.YIELD:
                 if (compilerEnv.getLanguageVersion() < Context.VERSION_ES6) {
@@ -2344,7 +2365,7 @@ public class Parser {
                 }
             // fallthrough
             default:
-                e = expr(false);
+                e = assignExpr();
                 end = getNodeEnd(e);
         }
 
@@ -2826,7 +2847,10 @@ public class Parser {
             int opPos = ts.tokenBeg;
             if (compilerEnv.isStrictMode() && !pn.hasSideEffects())
                 addStrictWarning("msg.no.side.effects", "", pos, nodeEnd(pn) - pos);
-            if (peekToken() == Token.YIELD) reportError("msg.yield.parenthesized");
+            // In ES6 generators, yield is a valid expression that can appear after comma
+            if (peekToken() == Token.YIELD && !isCurrentFunctionGenerator()) {
+                reportError("msg.yield.parenthesized");
+            }
             if (allowTrailingComma && peekToken() == Token.RP) {
                 pn.putIntProp(Node.TRAILING_COMMA, 1);
                 return pn;
@@ -2834,6 +2858,17 @@ public class Parser {
             pn = new InfixExpression(Token.COMMA, pn, assignExpr(), opPos);
         }
         return pn;
+    }
+
+    /** Check if current function is an ES6 generator */
+    private boolean isCurrentFunctionGenerator() {
+        if (!insideFunctionBody()) {
+            return false;
+        }
+        if (currentScriptOrFn instanceof FunctionNode) {
+            return ((FunctionNode) currentScriptOrFn).isES6Generator();
+        }
+        return false;
     }
 
     private AstNode assignExpr() throws IOException {
@@ -3254,7 +3289,8 @@ public class Parser {
                     // Quick fix to handle scenario like f1(a,); but not f1(a,b
                     break;
                 }
-                if (peekToken() == Token.YIELD) {
+                // In ES6 generators, yield is a valid expression in function arguments
+                if (peekToken() == Token.YIELD && !isCurrentFunctionGenerator()) {
                     reportError("msg.yield.parenthesized");
                 }
                 AstNode en;

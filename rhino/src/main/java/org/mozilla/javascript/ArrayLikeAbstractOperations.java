@@ -354,6 +354,13 @@ public class ArrayLikeAbstractOperations {
         }
         Function f = (Function) callbackArg;
         Scriptable parent = ScriptableObject.getTopLevelScope(f);
+
+        // Spec says to call callback with undefined as this.
+        // For strict callbacks, this remains undefined.
+        // For non-strict callbacks, undefined is coerced to global object.
+        boolean isCallbackStrict = !(f instanceof JSFunction) || ((JSFunction) f).isStrict();
+        Scriptable thisArg = isCallbackStrict ? Undefined.SCRIPTABLE_UNDEFINED : parent;
+
         // hack to serve both reduce and reduceRight with the same loop
         boolean movingLeft = operation == ReduceOperation.REDUCE;
         Object value = args.length > 1 ? args[1] : NOT_FOUND;
@@ -368,7 +375,7 @@ public class ArrayLikeAbstractOperations {
                 value = elem;
             } else {
                 Object[] innerArgs = {value, elem, index, o};
-                value = f.call(cx, parent, parent, innerArgs);
+                value = f.call(cx, parent, thisArg, innerArgs);
             }
         }
         if (value == NOT_FOUND) {

@@ -718,34 +718,63 @@ public class NativeObject extends ScriptableObject implements Map {
             } else {
                 ids = sourceObj.getIds();
             }
-            for (Object key : ids) {
-                if (key instanceof Integer) {
-                    int intId = (Integer) key;
-                    // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy traps)
-                    if (isOwnEnumerableProperty(cx, sourceObj, intId)) {
-                        Object val = sourceObj.get(intId, sourceObj);
-                        AbstractEcmaObjectOperations.put(cx, targetObj, intId, val, true);
-                    }
-                } else if (key instanceof String) {
-                    String stringId = ScriptRuntime.toString(key);
-                    // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy traps)
-                    if (isOwnEnumerableProperty(cx, sourceObj, stringId)) {
-                        Object val = sourceObj.get(stringId, sourceObj);
-                        AbstractEcmaObjectOperations.put(cx, targetObj, stringId, val, true);
-                    }
-                }
-            }
 
-            // This is a separate loop for Symbols, as they must be
-            // copied over after string properties
-            if (sourceObj instanceof ScriptableObject) {
+            // For Proxy objects, we must iterate keys in exact order from ownKeys trap
+            // per ECMAScript spec. All major engines preserve this order.
+            if (sourceObj instanceof NativeProxy) {
                 for (Object key : ids) {
-                    if (key instanceof Symbol) {
+                    if (key instanceof Integer) {
+                        int intId = (Integer) key;
+                        if (isOwnEnumerableProperty(cx, sourceObj, intId)) {
+                            Object val = sourceObj.get(intId, sourceObj);
+                            AbstractEcmaObjectOperations.put(cx, targetObj, intId, val, true);
+                        }
+                    } else if (key instanceof String) {
+                        String stringId = (String) key;
+                        if (isOwnEnumerableProperty(cx, sourceObj, stringId)) {
+                            Object val = sourceObj.get(stringId, sourceObj);
+                            AbstractEcmaObjectOperations.put(cx, targetObj, stringId, val, true);
+                        }
+                    } else if (key instanceof Symbol) {
                         Symbol sym = (Symbol) key;
-                        // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy traps)
                         if (isOwnEnumerableProperty(cx, sourceObj, sym)) {
                             Object val = ((ScriptableObject) sourceObj).get(sym, sourceObj);
                             AbstractEcmaObjectOperations.put(cx, targetObj, sym, val, true);
+                        }
+                    }
+                }
+            } else {
+                // For ordinary objects: process integers, strings, then symbols
+                for (Object key : ids) {
+                    if (key instanceof Integer) {
+                        int intId = (Integer) key;
+                        // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy traps)
+                        if (isOwnEnumerableProperty(cx, sourceObj, intId)) {
+                            Object val = sourceObj.get(intId, sourceObj);
+                            AbstractEcmaObjectOperations.put(cx, targetObj, intId, val, true);
+                        }
+                    } else if (key instanceof String) {
+                        String stringId = ScriptRuntime.toString(key);
+                        // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy traps)
+                        if (isOwnEnumerableProperty(cx, sourceObj, stringId)) {
+                            Object val = sourceObj.get(stringId, sourceObj);
+                            AbstractEcmaObjectOperations.put(cx, targetObj, stringId, val, true);
+                        }
+                    }
+                }
+
+                // This is a separate loop for Symbols, as they must be
+                // copied over after string properties
+                if (sourceObj instanceof ScriptableObject) {
+                    for (Object key : ids) {
+                        if (key instanceof Symbol) {
+                            Symbol sym = (Symbol) key;
+                            // Per spec: Call [[GetOwnProperty]] which may throw (e.g., for Proxy
+                            // traps)
+                            if (isOwnEnumerableProperty(cx, sourceObj, sym)) {
+                                Object val = ((ScriptableObject) sourceObj).get(sym, sourceObj);
+                                AbstractEcmaObjectOperations.put(cx, targetObj, sym, val, true);
+                            }
                         }
                     }
                 }

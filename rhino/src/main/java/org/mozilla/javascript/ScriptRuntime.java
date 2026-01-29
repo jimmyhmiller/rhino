@@ -3445,6 +3445,14 @@ public class ScriptRuntime {
         }
 
         Callable f = (Callable) value;
+
+        // For strict functions, this should be undefined when called without explicit this.
+        // For non-strict functions, this should be the global object (or declaration scope).
+        boolean isFunctionStrict = !(f instanceof JSFunction) || ((JSFunction) f).isStrict();
+        if (isFunctionStrict) {
+            return new LookupResult(f, Undefined.SCRIPTABLE_UNDEFINED, value);
+        }
+
         Scriptable thisObj = null;
         if (f instanceof Function) {
             thisObj = ((Function) f).getDeclarationScope();
