@@ -353,13 +353,34 @@ final class NativeReflect extends ScriptableObject {
             Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
         ScriptableObject target = checkTarget(args);
 
-        final List<Object> strings = new ArrayList<>();
-        final List<Object> symbols = new ArrayList<>();
-
         Object[] ids;
         try (var map = target.startCompoundOp(false)) {
             ids = target.getIds(map, true, true);
         }
+
+        // For Proxy objects, preserve the exact order returned by [[OwnPropertyKeys]].
+        // For ordinary objects, reorder to: string keys first, then symbol keys.
+        // Per ECMA-262, ordinary objects order keys as: integer indices (ascending),
+        // then string keys (creation order), then symbol keys (creation order).
+        // Proxy objects return keys in whatever order the trap specifies.
+        if (target instanceof NativeProxy) {
+            // Convert any non-string/symbol keys to strings
+            Object[] keys = new Object[ids.length];
+            for (int i = 0; i < ids.length; i++) {
+                Object o = ids[i];
+                if (o instanceof Symbol) {
+                    keys[i] = o;
+                } else {
+                    keys[i] = ScriptRuntime.toString(o);
+                }
+            }
+            return cx.newArray(scope, keys);
+        }
+
+        // For ordinary objects, separate strings and symbols
+        final List<Object> strings = new ArrayList<>();
+        final List<Object> symbols = new ArrayList<>();
+
         for (Object o : ids) {
             if (o instanceof Symbol) {
                 symbols.add(o);
