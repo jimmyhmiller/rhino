@@ -1191,7 +1191,23 @@ class BodyCodegen {
                 break;
 
             case Token.THIS:
-                cfw.addALoad(thisObjLocal);
+                {
+                    // In strict mode, primitive 'this' values may be wrapped in PrimitiveThisValue.
+                    // We need to unwrap to get the actual primitive for operations like instanceof.
+                    cfw.addALoad(thisObjLocal);
+                    cfw.add(ByteCode.DUP);
+                    cfw.add(ByteCode.INSTANCEOF, "org/mozilla/javascript/PrimitiveThisValue");
+                    int notPrimitive = cfw.acquireLabel();
+                    cfw.add(ByteCode.IFEQ, notPrimitive);
+                    // It's a PrimitiveThisValue, unwrap it
+                    cfw.add(ByteCode.CHECKCAST, "org/mozilla/javascript/PrimitiveThisValue");
+                    cfw.addInvoke(
+                            ByteCode.INVOKEVIRTUAL,
+                            "org/mozilla/javascript/PrimitiveThisValue",
+                            "getPrimitiveValue",
+                            "()Ljava/lang/Object;");
+                    cfw.markLabel(notPrimitive);
+                }
                 break;
 
             case Token.SUPER:

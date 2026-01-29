@@ -3720,26 +3720,55 @@ public class ScriptRuntime {
             }
         } else {
             // Spec-compliant behavior
+            // For replacing null/undefined with global: built-ins and strict functions should NOT
+            // have this replacement, only non-strict user functions.
+            // Original logic: !(target instanceof JSFunction) means built-ins are treated as strict
+            boolean shouldNotReplaceNullUndefined =
+                    !(target instanceof JSFunction) || ((JSFunction) target).isStrict();
+
+            // For primitive 'this' handling: only user-defined strict functions should preserve
+            // primitives (not built-ins)
+            boolean isUserDefinedStrict =
+                    (target instanceof JSFunction && ((JSFunction) target).isStrict())
+                            || (target instanceof NativeFunction
+                                    && ((NativeFunction) target).isStrict());
+
             if (l != 0) {
-                callThis =
-                        arg0 == Undefined.instance
-                                ? Undefined.SCRIPTABLE_UNDEFINED
-                                : toObjectOrNull(cx, arg0, scope);
+                if (arg0 == Undefined.instance) {
+                    callThis = Undefined.SCRIPTABLE_UNDEFINED;
+                } else if (arg0 == null) {
+                    callThis = null;
+                } else if (isUserDefinedStrict && isPrimitiveThisValue(arg0)) {
+                    // In strict mode, primitive 'this' values should NOT be wrapped to objects.
+                    // Create a PrimitiveThisValue that preserves the primitive for instanceof
+                    // checks, while still allowing property access through the wrapper.
+                    Scriptable wrapper = toObject(cx, scope, arg0);
+                    callThis = new PrimitiveThisValue(arg0, wrapper);
+                } else {
+                    callThis = toObjectOrNull(cx, arg0, scope);
+                }
             } else {
                 callThis = Undefined.SCRIPTABLE_UNDEFINED;
             }
 
-            // Replace missing this with global object only for non-strict functions
+            // Replace missing this with global object only for non-strict user functions
+            // Built-ins and strict functions should keep null/undefined as-is
             boolean missingCallThis =
                     callThis == null || callThis == Undefined.SCRIPTABLE_UNDEFINED;
-            boolean isFunctionStrict =
-                    !(target instanceof JSFunction) || ((JSFunction) target).isStrict();
-            if (missingCallThis && !isFunctionStrict) {
+            if (missingCallThis && !shouldNotReplaceNullUndefined) {
                 callThis = getTopCallScope(cx);
             }
         }
 
         return callThis;
+    }
+
+    /**
+     * Check if a value is a primitive that should be preserved as 'this' in strict mode. In strict
+     * mode, primitives passed as 'this' should NOT be converted to wrapper objects.
+     */
+    private static boolean isPrimitiveThisValue(Object value) {
+        return value instanceof CharSequence || value instanceof Number || value instanceof Boolean;
     }
 
     /**

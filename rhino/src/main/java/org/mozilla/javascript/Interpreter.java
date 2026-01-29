@@ -4263,7 +4263,14 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoThis extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
-            frame.stack[++state.stackTop] = frame.thisObj;
+            // In strict mode, primitive 'this' values are wrapped in PrimitiveThisValue.
+            // When accessing 'this', we need to return the actual primitive value
+            // so that operations like 'this instanceof String' return false.
+            Object thisValue = frame.thisObj;
+            if (thisValue instanceof PrimitiveThisValue) {
+                thisValue = ((PrimitiveThisValue) thisValue).getPrimitiveValue();
+            }
+            frame.stack[++state.stackTop] = thisValue;
             return null;
         }
     }
