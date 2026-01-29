@@ -336,7 +336,21 @@ final class NativeDate extends IdScriptableObject {
                 }
             case SymbolId_toPrimitive:
                 {
-                    Scriptable o = ScriptRuntime.toObject(cx, scope, thisObj);
+                    // Per ES spec 20.4.4.45: Step 2. If Type(O) is not Object, throw TypeError.
+                    // When called via .call() with a primitive, the primitive gets wrapped in
+                    // an object (NativeNumber, NativeString, NativeBoolean). But the spec says
+                    // if the original value wasn't an object, we should throw TypeError.
+                    // We detect this by checking for primitive wrapper types.
+                    if (thisObj == null
+                            || Undefined.isUndefined(thisObj)
+                            || thisObj instanceof NativeNumber
+                            || thisObj instanceof NativeString
+                            || thisObj instanceof NativeBoolean) {
+                        throw ScriptRuntime.constructError(
+                                "TypeError",
+                                "Date.prototype[Symbol.toPrimitive] requires that 'this' be an Object");
+                    }
+                    Scriptable o = (Scriptable) thisObj;
                     final Object arg0 = args.length > 0 ? args[0] : Undefined.instance;
                     final String hint = (arg0 instanceof CharSequence) ? arg0.toString() : null;
                     Class<?> typeHint = null;
