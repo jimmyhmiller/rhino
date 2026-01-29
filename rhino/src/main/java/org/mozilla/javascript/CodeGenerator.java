@@ -1277,6 +1277,10 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 visitLiteral(node, child);
                 break;
 
+            case Token.CLASS:
+                visitClass(node);
+                break;
+
             case Token.ARRAYCOMP:
                 visitArrayComprehension(node, child, child.getNext());
                 break;
@@ -1661,6 +1665,93 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         } else {
             throw badTree(node);
         }
+    }
+
+    /**
+     * Visits a CLASS node and emits code to create a class.
+     *
+     * <p>The CLASS node has three children: 1. constructor (FUNCTION node) 2. protoMethods
+     * (OBJECTLIT node) - methods for the prototype 3. staticMethods (OBJECTLIT node) - static
+     * methods for the constructor
+     */
+    private void visitClass(Node node) {
+        Node constructor = node.getFirstChild();
+        Node protoMethods = constructor.getNext();
+        Node staticMethods = protoMethods.getNext();
+
+        // First, emit the constructor function
+        visitExpression(constructor, 0);
+        // Stack: [constructor]
+
+        // Emit prototype method object literal storage
+        Object[] protoIds = (Object[]) protoMethods.getProp(Node.OBJECT_IDS_PROP);
+        int protoIdsIndex = literalIds.size();
+        literalIds.add(protoIds);
+
+        boolean protoHasComputed =
+                protoIds != null
+                        && java.util.Arrays.stream(protoIds).anyMatch(id -> id instanceof Node);
+        addIndexOp(Icode_LITERAL_NEW_OBJECT, protoIdsIndex);
+        addUint8(protoHasComputed ? 1 : 0);
+        stackChange(2);
+        // Stack: [constructor, protoStorage, protoObject]
+
+        int protoIndex = 0;
+        for (Node protoChild = protoMethods.getFirstChild();
+                protoChild != null;
+                protoChild = protoChild.getNext()) {
+            Object propertyId = protoIds == null ? null : protoIds[protoIndex];
+            if (propertyId instanceof Node) {
+                Node computedPropertyNode = (Node) propertyId;
+                visitExpression(computedPropertyNode.first, 0);
+                addIcode(Icode_LITERAL_KEY_SET);
+                stackChange(-1);
+            }
+            visitLiteralValue(protoChild);
+            protoIndex++;
+        }
+        // Stack: [constructor, protoStorage]
+        stackChange(-1); // Pop protoObject placeholder (filled by OBJECTLIT)
+
+        // Emit static method object literal storage
+        Object[] staticIds = (Object[]) staticMethods.getProp(Node.OBJECT_IDS_PROP);
+        int staticIdsIndex = literalIds.size();
+        literalIds.add(staticIds);
+
+        boolean staticHasComputed =
+                staticIds != null
+                        && java.util.Arrays.stream(staticIds).anyMatch(id -> id instanceof Node);
+        addIndexOp(Icode_LITERAL_NEW_OBJECT, staticIdsIndex);
+        addUint8(staticHasComputed ? 1 : 0);
+        stackChange(2);
+        // Stack: [constructor, protoStorage, staticStorage, staticObject]
+
+        int staticIndex = 0;
+        for (Node staticChild = staticMethods.getFirstChild();
+                staticChild != null;
+                staticChild = staticChild.getNext()) {
+            Object propertyId = staticIds == null ? null : staticIds[staticIndex];
+            if (propertyId instanceof Node) {
+                Node computedPropertyNode = (Node) propertyId;
+                visitExpression(computedPropertyNode.first, 0);
+                addIcode(Icode_LITERAL_KEY_SET);
+                stackChange(-1);
+            }
+            visitLiteralValue(staticChild);
+            staticIndex++;
+        }
+        // Stack: [constructor, protoStorage, staticStorage]
+        stackChange(-1); // Pop staticObject placeholder
+
+        // Emit Icode_CLASS_DEF which will:
+        // - Pop staticStorage
+        // - Pop protoStorage
+        // - Pop constructor
+        // - Call ScriptRuntime.createClass
+        // - Push the result (configured constructor)
+        addIcode(Icode_CLASS_DEF);
+        stackChange(-2); // Pops protoStorage and staticStorage, constructor stays
+        // Stack: [constructor (with methods configured)]
     }
 
     private void visitObjectLiteralWithSpread(

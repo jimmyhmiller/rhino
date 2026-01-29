@@ -22,6 +22,8 @@ import org.mozilla.javascript.ast.BigIntLiteral;
 import org.mozilla.javascript.ast.Block;
 import org.mozilla.javascript.ast.BreakStatement;
 import org.mozilla.javascript.ast.CatchClause;
+import org.mozilla.javascript.ast.ClassElement;
+import org.mozilla.javascript.ast.ClassNode;
 import org.mozilla.javascript.ast.ComputedPropertyKey;
 import org.mozilla.javascript.ast.ConditionalExpression;
 import org.mozilla.javascript.ast.ContinueStatement;
@@ -175,6 +177,8 @@ public final class IRFactory {
                 return transformForLoop((ForLoop) node);
             case Token.FUNCTION:
                 return transformFunction((FunctionNode) node);
+            case Token.CLASS:
+                return transformClass((ClassNode) node);
             case Token.GENEXPR:
                 return transformGenExpr((GeneratorExpression) node);
             case Token.GETELEM:
@@ -731,6 +735,171 @@ public final class IRFactory {
             savedVars.restore();
             outerScopeIsStrict = savedStrict;
         }
+    }
+
+    /**
+     * Transforms an ES6 class declaration/expression into equivalent IR.
+     *
+     * <p>A class is transformed into a function (the constructor). Methods are added to the
+     * prototype using Object.defineProperty-like semantics.
+     */
+    private Node transformClass(ClassNode classNode) {
+        int lineno = classNode.getLineno();
+        int column = classNode.getColumn();
+
+        // Find the constructor method, or create a default one
+        FunctionNode constructorFn = null;
+        for (ClassElement element : classNode.getElements()) {
+            if (!element.isStatic() && element.isConstructor()) {
+                constructorFn = element.getMethod();
+                break;
+            }
+        }
+
+        // If no constructor was defined, create a default one
+        if (constructorFn == null) {
+            constructorFn = createDefaultConstructor(classNode);
+        }
+
+        // Set the function name to the class name
+        if (classNode.getClassName() != null) {
+            constructorFn.setFunctionName(classNode.getClassName());
+        }
+
+        // Transform the constructor function - this returns a FUNCTION node
+        Node constructorNode = transformFunction(constructorFn);
+
+        // Build up the class expression with methods
+        // We create an object literal for methods to be added to the prototype
+        Node classExpr = buildClassExpression(classNode, constructorNode);
+
+        // For class declarations, create an assignment to the class name
+        // Use SETLETINIT to properly initialize the let binding (exits TDZ)
+        if (classNode.isStatement() && classNode.getClassName() != null) {
+            String className = classNode.getClassNameString();
+            Node nameNode = parser.createName(className);
+            nameNode.setLineColumnNumber(lineno, column);
+            nameNode.setType(Token.BINDNAME);
+
+            // Create let initialization: className = classExpr
+            // SETLETINIT properly handles the TDZ for let declarations
+            Node assignment = new Node(Token.SETLETINIT, nameNode, classExpr);
+            assignment.setLineColumnNumber(lineno, column);
+
+            // Wrap in EXPR_VOID for statement context
+            Node exprStmt = new Node(Token.EXPR_VOID, assignment);
+            exprStmt.setLineColumnNumber(lineno, column);
+            return exprStmt;
+        }
+
+        return classExpr;
+    }
+
+    /** Builds the class expression by combining the constructor with method definitions. */
+    private Node buildClassExpression(ClassNode classNode, Node constructorNode) {
+        List<ClassElement> elements = classNode.getElements();
+
+        // Check if there are any non-constructor methods
+        List<ClassElement> methods = new ArrayList<>();
+        for (ClassElement element : elements) {
+            if (!element.isConstructor()) {
+                methods.add(element);
+            }
+        }
+
+        // If no methods, just return the constructor
+        if (methods.isEmpty()) {
+            return constructorNode;
+        }
+
+        // Build an object literal for the prototype methods
+        Node protoMethods = new Node(Token.OBJECTLIT);
+        protoMethods.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+
+        // Build an object literal for static methods
+        Node staticMethods = new Node(Token.OBJECTLIT);
+        staticMethods.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+
+        List<Object> protoProps = new ArrayList<>();
+        List<Object> staticProps = new ArrayList<>();
+
+        for (ClassElement element : methods) {
+            FunctionNode methodFn = element.getMethod();
+            if (methodFn == null) {
+                continue;
+            }
+
+            // For now, clear the method definition flag to avoid needing home objects.
+            // When we implement 'extends' and 'super' support, we'll need to revisit this
+            // and properly set up home objects during class creation.
+            methodFn.setMethodDefinition(false);
+
+            // Transform the method function
+            Node methodNode = transformFunction(methodFn);
+
+            // Mark getter/setter/method
+            if (element.isGetter()) {
+                methodNode = createUnary(Token.GET, methodNode);
+            } else if (element.isSetter()) {
+                methodNode = createUnary(Token.SET, methodNode);
+            } else {
+                methodNode = createUnary(Token.METHOD, methodNode);
+            }
+
+            // Get the property key
+            AstNode propNameAst = element.getPropertyName();
+            Object propKey = Parser.getPropKey(propNameAst);
+
+            if (propKey == null) {
+                // Computed property - transform the expression
+                Node keyNode = transform(propNameAst);
+                if (element.isStatic()) {
+                    staticProps.add(keyNode);
+                    staticMethods.addChildToBack(methodNode);
+                } else {
+                    protoProps.add(keyNode);
+                    protoMethods.addChildToBack(methodNode);
+                }
+            } else {
+                if (element.isStatic()) {
+                    staticProps.add(propKey);
+                    staticMethods.addChildToBack(methodNode);
+                } else {
+                    protoProps.add(propKey);
+                    protoMethods.addChildToBack(methodNode);
+                }
+            }
+        }
+
+        protoMethods.putProp(Node.OBJECT_IDS_PROP, protoProps.toArray());
+        staticMethods.putProp(Node.OBJECT_IDS_PROP, staticProps.toArray());
+
+        // Create a CLASS node that holds constructor + proto methods + static methods
+        // Structure: CLASS node with three children:
+        //   1. constructor (FUNCTION node)
+        //   2. protoMethods (OBJECTLIT node)
+        //   3. staticMethods (OBJECTLIT node)
+        Node classNode2 = new Node(Token.CLASS);
+        classNode2.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+        classNode2.addChildToBack(constructorNode);
+        classNode2.addChildToBack(protoMethods);
+        classNode2.addChildToBack(staticMethods);
+
+        return classNode2;
+    }
+
+    /** Creates a default constructor for a class. */
+    private FunctionNode createDefaultConstructor(ClassNode classNode) {
+        FunctionNode fn = new FunctionNode();
+        fn.setFunctionType(FunctionNode.FUNCTION_EXPRESSION);
+        fn.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+
+        // Create empty body
+        Block body = new Block();
+        body.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+
+        fn.setBody(body);
+        return fn;
     }
 
     private Node transformFunctionCall(FunctionCall node) {

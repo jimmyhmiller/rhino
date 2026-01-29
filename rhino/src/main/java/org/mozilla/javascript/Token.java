@@ -254,7 +254,10 @@ public class Token {
                             + 1, // Switch to new per-iteration scope (leave old, enter new)
             REQ_OBJ_COERCIBLE =
                     SWITCH_PER_ITER_SCOPE + 1, // RequireObjectCoercible check for destructuring
-            LAST_TOKEN = REQ_OBJ_COERCIBLE + 1;
+            CLASS = REQ_OBJ_COERCIBLE + 1, // ES6 class keyword
+            EXTENDS = CLASS + 1, // ES6 extends keyword
+            STATIC = EXTENDS + 1, // ES6 static keyword
+            LAST_TOKEN = STATIC + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -615,6 +618,12 @@ public class Token {
                 return "YIELD";
             case SUPER:
                 return "SUPER";
+            case CLASS:
+                return "CLASS";
+            case EXTENDS:
+                return "EXTENDS";
+            case STATIC:
+                return "STATIC";
             case EXP:
                 return "EXP";
             case CONST:
@@ -738,6 +747,12 @@ public class Token {
                 return "yield";
             case Token.SUPER:
                 return "super";
+            case Token.CLASS:
+                return "class";
+            case Token.EXTENDS:
+                return "extends";
+            case Token.STATIC:
+                return "static";
             case Token.CATCH:
                 return "catch";
             case Token.CONST:

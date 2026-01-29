@@ -1347,6 +1347,10 @@ class BodyCodegen {
                 visitObjectLiteral(node, child, false);
                 break;
 
+            case Token.CLASS:
+                visitClassLiteral(node);
+                break;
+
             case Token.NOT:
                 {
                     int trueTarget = cfw.acquireLabel();
@@ -2779,6 +2783,205 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + ")V");
+    }
+
+    /**
+     * Visits a CLASS node and generates code to create a class.
+     *
+     * <p>The CLASS node has three children: 1. constructor (FUNCTION node) 2. protoMethods
+     * (OBJECTLIT node) - methods for the prototype 3. staticMethods (OBJECTLIT node) - static
+     * methods for the constructor
+     */
+    private void visitClassLiteral(Node node) {
+        Node constructor = node.getFirstChild();
+        Node protoMethods = constructor.getNext();
+        Node staticMethods = protoMethods.getNext();
+
+        Object[] protoProperties = (Object[]) protoMethods.getProp(Node.OBJECT_IDS_PROP);
+        Object[] staticProperties = (Object[]) staticMethods.getProp(Node.OBJECT_IDS_PROP);
+        int protoCount = protoProperties == null ? 0 : protoProperties.length;
+        int staticCount = staticProperties == null ? 0 : staticProperties.length;
+
+        // Generate the constructor function
+        generateExpression(constructor, node);
+        // Stack: [constructor]
+
+        // Generate prototype methods storage
+        // Create NewLiteralStorage for proto methods
+        cfw.addALoad(contextLocal);
+        cfw.addPush(protoCount);
+        cfw.addPush(true); // isObject
+        addOptRuntimeInvoke(
+                "createLiteralStorage",
+                "(Lorg/mozilla/javascript/Context;IZ)Lorg/mozilla/javascript/NewLiteralStorage;");
+        // Stack: [constructor, protoStorage]
+
+        // Fill proto storage with methods
+        int protoIdx = 0;
+        for (Node protoChild = protoMethods.getFirstChild();
+                protoChild != null;
+                protoChild = protoChild.getNext()) {
+            cfw.add(ByteCode.DUP); // Stack: [constructor, protoStorage, protoStorage]
+            addLoadPropertyId(node, protoProperties, protoIdx);
+            // Stack: [constructor, protoStorage, protoStorage, key]
+            cfw.addInvoke(
+                    ByteCode.INVOKEVIRTUAL,
+                    "org/mozilla/javascript/NewLiteralStorage",
+                    "pushKey",
+                    "(Ljava/lang/Object;)V");
+            // Stack: [constructor, protoStorage]
+
+            cfw.add(ByteCode.DUP); // Stack: [constructor, protoStorage, protoStorage]
+            addLoadPropertyValue(node, protoChild);
+            // Stack: [constructor, protoStorage, protoStorage, value]
+            String methodName = getStoreMethodNameForLiteralProperty(protoChild);
+            cfw.addInvoke(
+                    ByteCode.INVOKEVIRTUAL,
+                    "org/mozilla/javascript/NewLiteralStorage",
+                    methodName,
+                    "(Ljava/lang/Object;)V");
+            // Stack: [constructor, protoStorage]
+            protoIdx++;
+        }
+
+        // Generate static methods storage
+        // Create NewLiteralStorage for static methods
+        cfw.addALoad(contextLocal);
+        cfw.addPush(staticCount);
+        cfw.addPush(true); // isObject
+        addOptRuntimeInvoke(
+                "createLiteralStorage",
+                "(Lorg/mozilla/javascript/Context;IZ)Lorg/mozilla/javascript/NewLiteralStorage;");
+        // Stack: [constructor, protoStorage, staticStorage]
+
+        // Fill static storage with methods
+        int staticIdx = 0;
+        for (Node staticChild = staticMethods.getFirstChild();
+                staticChild != null;
+                staticChild = staticChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            // Stack: [constructor, protoStorage, staticStorage, staticStorage]
+            addLoadPropertyId(node, staticProperties, staticIdx);
+            // Stack: [constructor, protoStorage, staticStorage, staticStorage, key]
+            cfw.addInvoke(
+                    ByteCode.INVOKEVIRTUAL,
+                    "org/mozilla/javascript/NewLiteralStorage",
+                    "pushKey",
+                    "(Ljava/lang/Object;)V");
+            // Stack: [constructor, protoStorage, staticStorage]
+
+            cfw.add(ByteCode.DUP);
+            // Stack: [constructor, protoStorage, staticStorage, staticStorage]
+            addLoadPropertyValue(node, staticChild);
+            // Stack: [constructor, protoStorage, staticStorage, staticStorage, value]
+            String methodName = getStoreMethodNameForLiteralProperty(staticChild);
+            cfw.addInvoke(
+                    ByteCode.INVOKEVIRTUAL,
+                    "org/mozilla/javascript/NewLiteralStorage",
+                    methodName,
+                    "(Ljava/lang/Object;)V");
+            // Stack: [constructor, protoStorage, staticStorage]
+            staticIdx++;
+        }
+
+        // Now call ScriptRuntime.createClass
+        // Stack: [constructor, protoStorage, staticStorage]
+        // We need to rearrange and extract arrays from storage
+
+        // Extract static arrays first (staticStorage on top)
+        cfw.add(ByteCode.DUP); // Stack: [constructor, protoStorage, staticStorage, staticStorage]
+        cfw.addInvoke(
+                ByteCode.INVOKEVIRTUAL,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "getKeys",
+                "()[Ljava/lang/Object;");
+        // Stack: [constructor, protoStorage, staticStorage, staticKeys]
+        short staticKeysLocal = getNewWordLocal();
+        cfw.addAStore(staticKeysLocal);
+        // Stack: [constructor, protoStorage, staticStorage]
+
+        cfw.add(ByteCode.DUP);
+        cfw.addInvoke(
+                ByteCode.INVOKEVIRTUAL,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "getValues",
+                "()[Ljava/lang/Object;");
+        short staticValuesLocal = getNewWordLocal();
+        cfw.addAStore(staticValuesLocal);
+        // Stack: [constructor, protoStorage, staticStorage]
+
+        cfw.addInvoke(
+                ByteCode.INVOKEVIRTUAL,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "getGetterSetters",
+                "()[I");
+        short staticGetterSettersLocal = getNewWordLocal();
+        cfw.addAStore(staticGetterSettersLocal);
+        // Stack: [constructor, protoStorage]
+
+        // Extract proto arrays
+        cfw.add(ByteCode.DUP);
+        cfw.addInvoke(
+                ByteCode.INVOKEVIRTUAL,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "getKeys",
+                "()[Ljava/lang/Object;");
+        short protoKeysLocal = getNewWordLocal();
+        cfw.addAStore(protoKeysLocal);
+        // Stack: [constructor, protoStorage]
+
+        cfw.add(ByteCode.DUP);
+        cfw.addInvoke(
+                ByteCode.INVOKEVIRTUAL,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "getValues",
+                "()[Ljava/lang/Object;");
+        short protoValuesLocal = getNewWordLocal();
+        cfw.addAStore(protoValuesLocal);
+        // Stack: [constructor, protoStorage]
+
+        cfw.addInvoke(
+                ByteCode.INVOKEVIRTUAL,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "getGetterSetters",
+                "()[I");
+        short protoGetterSettersLocal = getNewWordLocal();
+        cfw.addAStore(protoGetterSettersLocal);
+        // Stack: [constructor]
+
+        // Cast constructor to Callable
+        cfw.add(ByteCode.CHECKCAST, "org/mozilla/javascript/Callable");
+
+        // Now push all arguments for createClass
+        cfw.addALoad(protoKeysLocal);
+        cfw.addALoad(protoValuesLocal);
+        cfw.addALoad(protoGetterSettersLocal);
+        cfw.addALoad(staticKeysLocal);
+        cfw.addALoad(staticValuesLocal);
+        cfw.addALoad(staticGetterSettersLocal);
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(variableObjectLocal);
+
+        addScriptRuntimeInvoke(
+                "createClass",
+                "(Lorg/mozilla/javascript/Callable;"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[I"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[I"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Lorg/mozilla/javascript/Scriptable;"
+                        + ")Lorg/mozilla/javascript/Callable;");
+
+        // Release locals
+        releaseWordLocal(staticKeysLocal);
+        releaseWordLocal(staticValuesLocal);
+        releaseWordLocal(staticGetterSettersLocal);
+        releaseWordLocal(protoKeysLocal);
+        releaseWordLocal(protoValuesLocal);
+        releaseWordLocal(protoGetterSettersLocal);
     }
 
     private void visitSpecialCall(Node node, int type, int specialType, Node child) {

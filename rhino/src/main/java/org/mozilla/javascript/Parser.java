@@ -25,6 +25,8 @@ import org.mozilla.javascript.ast.BigIntLiteral;
 import org.mozilla.javascript.ast.Block;
 import org.mozilla.javascript.ast.BreakStatement;
 import org.mozilla.javascript.ast.CatchClause;
+import org.mozilla.javascript.ast.ClassElement;
+import org.mozilla.javascript.ast.ClassNode;
 import org.mozilla.javascript.ast.Comment;
 import org.mozilla.javascript.ast.ComputedPropertyKey;
 import org.mozilla.javascript.ast.ConditionalExpression;
@@ -741,6 +743,10 @@ public class Parser {
                             consumeToken();
                             n = function(FunctionNode.FUNCTION_STATEMENT);
                             break;
+                        case Token.CLASS:
+                            consumeToken();
+                            n = classDeclaration(ClassNode.CLASS_STATEMENT);
+                            break;
                         default:
                             n = statement();
                             if (inDirectivePrologue) {
@@ -1133,6 +1139,255 @@ public class Parser {
         return fnNode;
     }
 
+    /**
+     * Parses an ES6 class declaration or expression.
+     *
+     * <pre>
+     * ClassDeclaration:
+     *     class BindingIdentifier ClassTail
+     * ClassExpression:
+     *     class BindingIdentifier_opt ClassTail
+     * ClassTail:
+     *     ClassHeritage_opt { ClassBody_opt }
+     * ClassHeritage:
+     *     extends LeftHandSideExpression
+     * </pre>
+     *
+     * @param classType CLASS_STATEMENT or CLASS_EXPRESSION
+     * @return the ClassNode
+     */
+    private ClassNode classDeclaration(int classType) throws IOException {
+        if (compilerEnv.getLanguageVersion() < Context.VERSION_ES6) {
+            reportError("msg.class.not.available");
+        }
+
+        int classStart = ts.tokenBeg;
+        int lineno = lineNumber();
+        int column = columnNumber();
+
+        Name className = null;
+        AstNode superClass = null;
+
+        // Parse optional class name
+        if (matchToken(Token.NAME, true)) {
+            className = createNameNode(true, Token.NAME);
+            if (inUseStrictDirective) {
+                String id = className.getIdentifier();
+                if ("eval".equals(id) || "arguments".equals(id)) {
+                    reportError("msg.bad.id.strict", id);
+                }
+            }
+        } else if (classType == ClassNode.CLASS_STATEMENT) {
+            // Class declarations require a name
+            reportError("msg.class.name.expected");
+        }
+
+        // Define the class name in the enclosing scope for declarations
+        if (classType == ClassNode.CLASS_STATEMENT && className != null) {
+            defineSymbol(Token.LET, className.getIdentifier());
+        }
+
+        // Parse optional extends clause
+        if (matchToken(Token.EXTENDS, true)) {
+            superClass = memberExpr(false);
+        }
+
+        // Parse class body
+        mustMatchToken(Token.LC, "msg.no.brace.class", true);
+        int lcPos = ts.tokenBeg;
+
+        ClassNode classNode = new ClassNode(classStart);
+        classNode.setClassName(className);
+        classNode.setSuperClass(superClass);
+        classNode.setClassType(classType);
+        classNode.setLc(lcPos - classStart);
+        classNode.setLineColumnNumber(lineno, column);
+
+        // Enter a new scope for the class body
+        // Class body is implicitly strict mode
+        boolean savedStrictMode = inUseStrictDirective;
+        inUseStrictDirective = true;
+
+        try {
+            // Parse class elements
+            while (peekToken() != Token.RC) {
+                if (peekToken() == Token.SEMI) {
+                    consumeToken();
+                    continue;
+                }
+                ClassElement element = parseClassElement();
+                if (element != null) {
+                    classNode.addElement(element);
+                }
+            }
+        } finally {
+            inUseStrictDirective = savedStrictMode;
+        }
+
+        mustMatchToken(Token.RC, "msg.no.brace.class", true);
+        classNode.setRc(ts.tokenBeg - classStart);
+        classNode.setLength(ts.tokenEnd - classStart);
+
+        return classNode;
+    }
+
+    /**
+     * Parses a single class element (method definition).
+     *
+     * <pre>
+     * ClassElement:
+     *     MethodDefinition
+     *     static MethodDefinition
+     *     ;
+     * </pre>
+     */
+    private ClassElement parseClassElement() throws IOException {
+        int pos = ts.tokenBeg;
+        boolean isStatic = false;
+        boolean isGenerator = false;
+
+        // Check for 'static' keyword
+        if (matchToken(Token.STATIC, true)) {
+            // Could be 'static' method or a method named 'static'
+            int next = peekToken();
+            if (next == Token.LP) {
+                // Method named 'static' - method()
+                return parseClassMethod(
+                        pos, createNameNode(false, Token.NAME, "static"), false, false);
+            } else if (next == Token.RC || next == Token.SEMI) {
+                // Just 'static' followed by } or ; - treat as method named 'static'
+                // This is actually a syntax error in real ES6, but we'll let it slide
+                reportError("msg.class.unexpected.static");
+                return null;
+            }
+            isStatic = true;
+            pos = ts.tokenBeg;
+        }
+
+        // Check for generator method
+        if (matchToken(Token.MUL, true)) {
+            isGenerator = true;
+        }
+
+        // Check for getter/setter
+        int entryKind = METHOD_ENTRY;
+        int tt = peekToken();
+
+        if (tt == Token.NAME || tt == Token.STRING || tt == Token.NUMBER) {
+            String tokenStr = ts.getString();
+            if (!isGenerator && ("get".equals(tokenStr) || "set".equals(tokenStr))) {
+                consumeToken();
+                int nextTt = peekToken();
+                if (nextTt != Token.LP) {
+                    // It's a getter or setter
+                    entryKind = "get".equals(tokenStr) ? GET_ENTRY : SET_ENTRY;
+                } else {
+                    // It's a method named 'get' or 'set'
+                    return parseClassMethod(
+                            pos, createNameNode(false, Token.NAME, tokenStr), isStatic, false);
+                }
+            }
+        }
+
+        // Parse property name
+        AstNode propName = classPropertyName();
+        if (propName == null) {
+            reportError("msg.bad.prop");
+            return null;
+        }
+        consumeToken();
+
+        // Parse method
+        return parseClassMethod(pos, propName, isStatic, isGenerator, entryKind);
+    }
+
+    private ClassElement parseClassMethod(
+            int pos, AstNode propName, boolean isStatic, boolean isGenerator) throws IOException {
+        return parseClassMethod(pos, propName, isStatic, isGenerator, METHOD_ENTRY);
+    }
+
+    private ClassElement parseClassMethod(
+            int pos, AstNode propName, boolean isStatic, boolean isGenerator, int entryKind)
+            throws IOException {
+        // Check if this is a constructor (name is "constructor" and not static)
+        boolean isConstructor = false;
+        if (!isStatic && propName instanceof Name) {
+            isConstructor = "constructor".equals(((Name) propName).getIdentifier());
+        }
+
+        // Parse the function
+        // Constructor is NOT a method definition, other class methods are
+        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, !isConstructor);
+
+        // The function should be anonymous since we already parsed the name
+        Name fnName = fn.getFunctionName();
+        if (fnName != null && fnName.length() != 0) {
+            reportError("msg.bad.prop");
+        }
+
+        // Create the class element
+        ClassElement element = new ClassElement(pos);
+        element.setPropertyName(propName);
+        element.setMethod(fn);
+        element.setIsStatic(isStatic);
+        element.setIsComputed(propName instanceof ComputedPropertyKey);
+        element.setLength(getNodeEnd(fn) - pos);
+
+        // Set up the method form - but NOT for constructors
+        if (!isConstructor) {
+            switch (entryKind) {
+                case GET_ENTRY:
+                    fn.setFunctionIsGetterMethod();
+                    break;
+                case SET_ENTRY:
+                    fn.setFunctionIsSetterMethod();
+                    break;
+                case METHOD_ENTRY:
+                    fn.setFunctionIsNormalMethod();
+                    if (isGenerator) {
+                        fn.setIsES6Generator();
+                    }
+                    break;
+            }
+        }
+
+        return element;
+    }
+
+    /** Parses a class property name (similar to object literal property names). */
+    private AstNode classPropertyName() throws IOException {
+        int tt = peekToken();
+        switch (tt) {
+            case Token.NAME:
+                return createNameNode();
+            case Token.STRING:
+                return createStringLiteral();
+            case Token.NUMBER:
+            case Token.BIGINT:
+                return createNumericLiteral(tt, true);
+            case Token.LB:
+                // Computed property name
+                consumeToken();
+                int pos = ts.tokenBeg;
+                AstNode expr = assignExpr();
+                mustMatchToken(Token.RB, "msg.no.bracket.index", true);
+                ComputedPropertyKey cpk = new ComputedPropertyKey(pos, ts.tokenEnd - pos);
+                cpk.setExpression(expr);
+                return cpk;
+            default:
+                return null;
+        }
+    }
+
+    private Name createNameNode(boolean checkActivation, int token, String name) {
+        Name nameNode = new Name(ts.tokenBeg, name);
+        nameNode.setLineColumnNumber(lineNumber(), columnNumber());
+        if (checkActivation) {
+            checkActivationName(name, token);
+        }
+        return nameNode;
+    }
+
     private AstNode arrowFunction(AstNode params, int startLine, int startColumn)
             throws IOException {
         int baseLineno = lineNumber(); // line number where source starts
@@ -1482,6 +1737,10 @@ public class Parser {
             case Token.FUNCTION:
                 consumeToken();
                 return function(FunctionNode.FUNCTION_EXPRESSION_STATEMENT);
+
+            case Token.CLASS:
+                consumeToken();
+                return classDeclaration(ClassNode.CLASS_STATEMENT);
 
             case Token.DEFAULT:
                 pn = defaultXmlNamespace();
@@ -3796,6 +4055,10 @@ public class Parser {
             case Token.FUNCTION:
                 consumeToken();
                 return function(FunctionNode.FUNCTION_EXPRESSION);
+
+            case Token.CLASS:
+                consumeToken();
+                return classDeclaration(ClassNode.CLASS_EXPRESSION);
 
             case Token.LB:
                 consumeToken();

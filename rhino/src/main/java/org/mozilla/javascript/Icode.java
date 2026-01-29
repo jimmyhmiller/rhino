@@ -196,8 +196,11 @@ abstract class Icode {
             // Special call (eval) with spread arguments
             Icode_CALLSPECIAL_SPREAD = Icode_NEW_SPREAD - 1,
 
+            // ES6 class definition - creates class from constructor + methods
+            Icode_CLASS_DEF = Icode_CALLSPECIAL_SPREAD - 1,
+
             // Last icode
-            MIN_ICODE = Icode_CALLSPECIAL_SPREAD;
+            MIN_ICODE = Icode_CLASS_DEF;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -415,6 +418,8 @@ abstract class Icode {
                 return "NEW_SPREAD";
             case Icode_CALLSPECIAL_SPREAD:
                 return "CALLSPECIAL_SPREAD";
+            case Icode_CLASS_DEF:
+                return "CLASS_DEF";
         }
 
         // icode without name

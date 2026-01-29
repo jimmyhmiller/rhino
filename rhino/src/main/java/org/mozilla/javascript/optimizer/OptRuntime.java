@@ -317,6 +317,10 @@ public final class OptRuntime extends ScriptRuntime {
         store.spread(cx, scope, source, sourcePosition);
     }
 
+    public static NewLiteralStorage createLiteralStorage(Context cx, int size, boolean isObject) {
+        return NewLiteralStorage.create(cx, size, isObject);
+    }
+
     public static class GeneratorState {
         static final String CLASS_NAME =
                 "org/mozilla/javascript/optimizer/OptRuntime$GeneratorState";

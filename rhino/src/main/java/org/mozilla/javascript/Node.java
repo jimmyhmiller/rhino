@@ -75,7 +75,9 @@ public class Node implements Iterable<Node> {
             CONST_FOR_LOOP_SCOPE = 36,
             FOR_IN_OF_LOOP_VAR = 37, // Marks let/const declarations in for-in/for-of loops
             LET_FOR_LOOP_SCOPE = 38, // Marks let wrapper scope in for-loops for WITH scope creation
-            LAST_PROP = LET_FOR_LOOP_SCOPE,
+            CLASS_CONSTRUCTOR =
+                    39, // Marks a function as a class constructor (cannot be called without 'new')
+            LAST_PROP = CLASS_CONSTRUCTOR,
             FIRST_PROP = FUNCTION_PROP;
 
     // values of ISNUMBER_PROP to specify
@@ -475,6 +477,8 @@ public class Node implements Iterable<Node> {
                 return "for_in_of_loop_var";
             case LET_FOR_LOOP_SCOPE:
                 return "let_for_loop_scope";
+            case CLASS_CONSTRUCTOR:
+                return "class_constructor";
 
             default:
                 Kit.codeBug();

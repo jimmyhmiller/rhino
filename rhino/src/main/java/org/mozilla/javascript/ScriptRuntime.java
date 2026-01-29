@@ -6043,6 +6043,47 @@ public class ScriptRuntime {
         }
     }
 
+    /**
+     * Creates an ES6 class by setting up the constructor's prototype with methods and adding static
+     * methods to the constructor itself.
+     *
+     * @param constructor The constructor function for the class
+     * @param protoIds Property names/symbols for prototype methods
+     * @param protoValues The method functions for the prototype
+     * @param protoGetterSetters Flags indicating getter (-1), setter (1), or normal method (0)
+     * @param staticIds Property names/symbols for static methods
+     * @param staticValues The method functions for static members
+     * @param staticGetterSetters Flags indicating getter (-1), setter (1), or normal method (0)
+     * @param cx The current context
+     * @param scope The current scope
+     * @return The constructor function with prototype and static members set up
+     */
+    public static Callable createClass(
+            Callable constructor,
+            Object[] protoIds,
+            Object[] protoValues,
+            int[] protoGetterSetters,
+            Object[] staticIds,
+            Object[] staticValues,
+            int[] staticGetterSetters,
+            Context cx,
+            Scriptable scope) {
+
+        // Get the prototype from the constructor
+        Scriptable constructorObj = (Scriptable) constructor;
+        Object protoObj = constructorObj.get("prototype", constructorObj);
+        if (protoObj instanceof Scriptable) {
+            Scriptable prototype = (Scriptable) protoObj;
+            // Fill prototype with instance methods
+            fillObjectLiteral(prototype, protoIds, protoValues, protoGetterSetters, cx, scope);
+        }
+
+        // Fill constructor with static methods
+        fillObjectLiteral(constructorObj, staticIds, staticValues, staticGetterSetters, cx, scope);
+
+        return constructor;
+    }
+
     public static boolean isArrayObject(Object obj) {
         return obj instanceof NativeArray || obj instanceof Arguments;
     }

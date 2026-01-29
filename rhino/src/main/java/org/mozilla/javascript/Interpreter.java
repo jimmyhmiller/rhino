@@ -1753,6 +1753,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_CALL_SPREAD] = new DoCallSpread();
         instructionObjs[base + Icode_NEW_SPREAD] = new DoNewSpread();
         instructionObjs[base + Icode_CALLSPECIAL_SPREAD] = new DoCallSpecialSpread();
+        instructionObjs[base + Icode_CLASS_DEF] = new DoClassDef();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
@@ -4834,6 +4835,34 @@ public final class Interpreter extends Icode implements Evaluator {
             }
             frame.stack[state.stackTop] =
                     ScriptRuntime.newArrayLiteral(store.getValues(), skipIndexes, cx, frame.scope);
+            return null;
+        }
+    }
+
+    private static class DoClassDef extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Stack: [constructor, protoStorage, staticStorage]
+            var staticStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
+            var protoStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
+            Callable constructor = (Callable) frame.stack[state.stackTop];
+
+            // Call the runtime helper to set up the class
+            frame.stack[state.stackTop] =
+                    ScriptRuntime.createClass(
+                            constructor,
+                            protoStore.getKeys(),
+                            protoStore.getValues(),
+                            protoStore.getGetterSetters(),
+                            staticStore.getKeys(),
+                            staticStore.getValues(),
+                            staticStore.getGetterSetters(),
+                            cx,
+                            frame.scope);
             return null;
         }
     }
