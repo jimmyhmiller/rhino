@@ -326,13 +326,9 @@ final class NativeDate extends IdScriptableObject {
                                 ScriptRuntime.toString(o),
                                 ScriptRuntime.toString(toISO));
                     }
-                    Object result = ((Callable) toISO).call(cx, scope, o, ScriptRuntime.emptyArgs);
-                    if (!ScriptRuntime.isPrimitive(result)) {
-                        throw ScriptRuntime.typeErrorById(
-                                "msg.toisostring.must.return.primitive",
-                                ScriptRuntime.toString(result));
-                    }
-                    return result;
+                    // Per ES spec, toJSON just returns the result of calling toISOString.
+                    // There's no requirement for it to be a primitive.
+                    return ((Callable) toISO).call(cx, scope, o, ScriptRuntime.emptyArgs);
                 }
             case SymbolId_toPrimitive:
                 {

@@ -26,9 +26,9 @@ js> expectError(function() {
   >   Date.prototype.toJSON.call({toISOString:5}, '')
   > }, TypeError)
 
-js> expectError(function() {
-  >   Date.prototype.toJSON.call({toISOString:function(){ return [] }}, '')
-  > }, TypeError)
+js> // Per ES spec, toISOString can return any value (doesn't have to be primitive)
+js> Date.prototype.toJSON.call({toISOString:function(){ return [] }}, '').length
+0
 
 js> Date.prototype.toJSON.call({toISOString: function() { return 'w00t' }}, '')
 w00t
