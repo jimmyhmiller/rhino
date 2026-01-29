@@ -815,11 +815,8 @@ public final class IRFactory {
             }
         }
 
-        // If no methods and no superclass, just return the constructor
-        // But if there's a superclass, we need the CLASS node to set up inheritance
-        if (methods.isEmpty() && superClassNode == null) {
-            return constructorNode;
-        }
+        // Always create a CLASS node so that createClass is called to properly
+        // set up the class (e.g., make prototype property non-writable)
 
         // Build an object literal for the prototype methods
         Node protoMethods = new Node(Token.OBJECTLIT);

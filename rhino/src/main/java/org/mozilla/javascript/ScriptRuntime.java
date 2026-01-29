@@ -6119,6 +6119,15 @@ public class ScriptRuntime {
         // Fill constructor with static methods
         fillObjectLiteral(constructorObj, staticIds, staticValues, staticGetterSetters, cx, scope);
 
+        // ES6 14.5.14: Class prototype property is non-writable, non-enumerable, non-configurable
+        if (constructor instanceof BaseFunction) {
+            ((BaseFunction) constructor)
+                    .setPrototypePropertyAttributes(
+                            ScriptableObject.PERMANENT
+                                    | ScriptableObject.DONTENUM
+                                    | ScriptableObject.READONLY);
+        }
+
         return constructor;
     }
 
