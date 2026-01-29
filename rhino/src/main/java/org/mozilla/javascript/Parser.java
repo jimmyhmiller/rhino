@@ -395,6 +395,11 @@ public class Parser {
                 sawEOL = true;
                 tt = ts.getToken();
             } else {
+                // Per ECMAScript spec, if a MultiLineComment contains a line terminator,
+                // then the entire comment is considered to be a LineTerminator for ASI purposes.
+                if (ts.getCommentContainsLineTerminator()) {
+                    sawEOL = true;
+                }
                 if (compilerEnv.isRecordingComments()) {
                     String comment = ts.getAndResetCurrentComment();
                     recordComment(ts.getTokenStartLineno(), ts.getTokenColumn(), comment);

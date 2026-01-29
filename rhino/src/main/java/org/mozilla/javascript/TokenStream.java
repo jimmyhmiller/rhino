@@ -1364,6 +1364,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
                     // is it a /* or /** comment?
                     if (matchChar('*')) {
                         boolean lookForSlash = false;
+                        commentContainsLineTerminator = false;
                         tokenStartLastLineEnd = lastLineEnd;
                         tokenStartLineno = lineno;
                         tokenBeg = cursor - 2;
@@ -1390,6 +1391,10 @@ class TokenStream implements Parser.CurrentPositionReporter {
                             } else {
                                 lookForSlash = false;
                                 tokenEnd = cursor;
+                            }
+                            // Track line terminators for ASI purposes (CR, LF, LS, PS)
+                            if (c == '\n' || c == '\r' || c == 0x2028 || c == 0x2029) {
+                                commentContainsLineTerminator = true;
                             }
                         }
                     }
@@ -2477,6 +2482,14 @@ class TokenStream implements Parser.CurrentPositionReporter {
         return commentType;
     }
 
+    /**
+     * Returns true if the last scanned multi-line comment contained a line terminator. Per
+     * ECMAScript spec, such comments should be treated as LineTerminators for ASI purposes.
+     */
+    public boolean getCommentContainsLineTerminator() {
+        return commentContainsLineTerminator;
+    }
+
     private void markCommentStart() {
         markCommentStart("");
     }
@@ -2532,6 +2545,10 @@ class TokenStream implements Parser.CurrentPositionReporter {
 
     // stuff other than whitespace since start of line
     private boolean dirtyLine;
+
+    // Track if the last multi-line comment contained a line terminator.
+    // Per ECMAScript spec, such comments should be treated as LineTerminators for ASI purposes.
+    private boolean commentContainsLineTerminator;
 
     String regExpFlags;
 
