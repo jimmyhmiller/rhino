@@ -148,23 +148,60 @@ public class AbstractEcmaObjectOperations {
         try (var map = obj.startCompoundOp(false)) {
             ids = obj.getIds(map, true, true);
         }
+        // Per spec, proxies should receive minimal descriptors in their defineProperty trap.
+        // For ordinary objects, we modify the existing descriptor which works correctly.
+        // NativeProxy overrides the 4-argument defineOwnProperty to delegate to the trap-aware
+        // 3-argument version, so we can use the same code path for both.
+        boolean isProxy = obj instanceof NativeProxy;
+
         for (Object key : ids) {
             DescriptorInfo desc = obj.getOwnPropertyDescriptor(cx, key);
 
             if (level == INTEGRITY_LEVEL.SEALED) {
                 if (desc.isConfigurable()) {
-                    desc.configurable = false;
-
-                    obj.defineOwnProperty(cx, key, desc, false);
+                    if (isProxy) {
+                        // Per spec 6.a.i: for proxies, call with only { [[Configurable]]: false }
+                        DescriptorInfo sealDesc =
+                                new DescriptorInfo(
+                                        Scriptable.NOT_FOUND,
+                                        Scriptable.NOT_FOUND,
+                                        Boolean.FALSE,
+                                        Scriptable.NOT_FOUND,
+                                        Scriptable.NOT_FOUND,
+                                        Scriptable.NOT_FOUND);
+                        obj.defineOwnProperty(cx, key, sealDesc, false);
+                    } else {
+                        // For ordinary objects, modify the existing descriptor
+                        desc.configurable = false;
+                        obj.defineOwnProperty(cx, key, desc, false);
+                    }
                 }
             } else {
-                if (desc.isDataDescriptor() && desc.isWritable()) {
-                    desc.writable = false;
+                if (isProxy) {
+                    // Per spec 7.b.ii: for proxies, pass minimal descriptor
+                    Object writable = Scriptable.NOT_FOUND;
+                    if (desc.isDataDescriptor() && desc.isWritable()) {
+                        writable = Boolean.FALSE;
+                    }
+                    DescriptorInfo freezeDesc =
+                            new DescriptorInfo(
+                                    Scriptable.NOT_FOUND,
+                                    writable,
+                                    Boolean.FALSE,
+                                    Scriptable.NOT_FOUND,
+                                    Scriptable.NOT_FOUND,
+                                    Scriptable.NOT_FOUND);
+                    obj.defineOwnProperty(cx, key, freezeDesc, false);
+                } else {
+                    // For ordinary objects, modify the existing descriptor
+                    if (desc.isDataDescriptor() && desc.isWritable()) {
+                        desc.writable = false;
+                    }
+                    if (desc.isConfigurable()) {
+                        desc.configurable = false;
+                    }
+                    obj.defineOwnProperty(cx, key, desc, false);
                 }
-                if (desc.isConfigurable()) {
-                    desc.configurable = false;
-                }
-                obj.defineOwnProperty(cx, key, desc, false);
             }
         }
 

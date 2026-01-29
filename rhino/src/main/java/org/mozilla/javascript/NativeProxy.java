@@ -1136,6 +1136,17 @@ class NativeProxy extends ScriptableObject {
     }
 
     /**
+     * Override the 4-argument version to ensure proxy traps are properly called. The checkValid
+     * parameter is ignored for proxies since proxy trap handling includes its own validation.
+     */
+    @Override
+    protected boolean defineOwnProperty(
+            Context cx, Object id, DescriptorInfo desc, boolean checkValid) {
+        // Delegate to the 3-argument version which handles the proxy trap
+        return defineOwnProperty(cx, id, desc);
+    }
+
+    /**
      * see <a
      * href="https://262.ecma-international.org/12.0/#sec-proxy-object-internal-methods-and-internal-slots-isextensible">10.5.3
      * [[IsExtensible]] ()</a>
