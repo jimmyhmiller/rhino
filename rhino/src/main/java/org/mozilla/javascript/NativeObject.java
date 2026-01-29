@@ -225,24 +225,29 @@ public class NativeObject extends ScriptableObject implements Map {
 
     private static Object js_isPrototypeOf(
             Context cx, JSFunction f, Object nt, Scriptable s, Object thisObj, Object[] args) {
+        // Per ES spec 20.1.3.2 Object.prototype.isPrototypeOf(V):
+        // 1. If Type(V) is not Object, return false.
+        // 2. Let O be ? ToObject(this value).
+        // Step 1 must happen BEFORE step 2, so we check V first.
+        if (args.length == 0 || !(args[0] instanceof Scriptable)) {
+            return Boolean.FALSE;
+        }
+
+        // Now step 2: Let O be ? ToObject(this value)
         if (cx.getLanguageVersion() >= Context.VERSION_1_8
                 && (thisObj == null || Undefined.isUndefined(thisObj))) {
             throw ScriptRuntime.typeErrorById(
                     "msg." + (thisObj == null ? "null" : "undef") + ".to.object");
         }
 
-        boolean result = false;
-        if (args.length != 0 && args[0] instanceof Scriptable) {
-            Scriptable v = (Scriptable) args[0];
-            do {
-                v = v.getPrototype();
-                if (v == thisObj) {
-                    result = true;
-                    break;
-                }
-            } while (v != null);
-        }
-        return ScriptRuntime.wrapBoolean(result);
+        Scriptable v = (Scriptable) args[0];
+        do {
+            v = v.getPrototype();
+            if (v == thisObj) {
+                return Boolean.TRUE;
+            }
+        } while (v != null);
+        return Boolean.FALSE;
     }
 
     private static Object js_protoGetter(Scriptable thisObj) {
