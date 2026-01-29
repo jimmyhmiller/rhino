@@ -68,7 +68,20 @@ public class ScriptRuntime {
     /** Returns representation of the [[ThrowTypeError]] object. See ECMA 5 spec, 13.2.3 */
     public static BaseFunction typeErrorThrower(Context cx) {
         if (cx.typeErrorThrower == null) {
-            BaseFunction thrower = new ThrowTypeError(cx.topCallScope);
+            BaseFunction thrower = new ThrowTypeError(cx.topCallScope, true);
+            cx.typeErrorThrower = thrower;
+        }
+        return cx.typeErrorThrower;
+    }
+
+    /**
+     * Returns representation of the [[ThrowTypeError]] object with an explicit function prototype.
+     * This variant is needed during Function initialization when Function.prototype is being
+     * created and cannot be looked up from the scope yet.
+     */
+    public static BaseFunction typeErrorThrower(Context cx, Scriptable functionPrototype) {
+        if (cx.typeErrorThrower == null) {
+            BaseFunction thrower = new ThrowTypeError(functionPrototype);
             cx.typeErrorThrower = thrower;
         }
         return cx.typeErrorThrower;
@@ -77,8 +90,19 @@ public class ScriptRuntime {
     private static final class ThrowTypeError extends BaseFunction {
         private static final long serialVersionUID = -5891740962154902286L;
 
-        ThrowTypeError(Scriptable scope) {
-            setPrototype(ScriptableObject.getFunctionPrototype(scope));
+        /**
+         * Create ThrowTypeError with prototype from scope.
+         *
+         * @param scope the scope to get Function.prototype from
+         * @param useScope dummy parameter to distinguish from the other constructor
+         */
+        ThrowTypeError(Scriptable scope, boolean useScope) {
+            this(ScriptableObject.getFunctionPrototype(scope));
+        }
+
+        /** Create ThrowTypeError with explicit function prototype. */
+        ThrowTypeError(Scriptable functionPrototype) {
+            setPrototype(functionPrototype);
 
             setAttributes("length", DONTENUM | PERMANENT | READONLY);
             setAttributes("name", DONTENUM | PERMANENT | READONLY);

@@ -53,7 +53,12 @@ class Arguments extends ScriptableObject {
                 ScriptableObject.DONTENUM);
         defineProperty("length", lengthObj, ScriptableObject.DONTENUM);
 
-        if (activation.isStrict) {
+        // Per ES spec (9.4.4.6 CreateUnmappedArgumentsObject), unmapped arguments should be
+        // created for:
+        // 1. Strict mode functions
+        // 2. Functions with non-simple parameters (default params, rest params, destructuring)
+        boolean useUnmappedArguments = activation.isStrict || hasNonSimpleParameters(f);
+        if (useUnmappedArguments) {
             // ECMAScript2015
             // 9.4.4.6 CreateUnmappedArgumentsObject(argumentsList)
             //   8. Perform DefinePropertyOrThrow(obj, "caller", PropertyDescriptor {[[Get]]:
@@ -85,6 +90,21 @@ class Arguments extends ScriptableObject {
                 defineProperty("caller", (Object) null, ScriptableObject.DONTENUM);
             }
         }
+    }
+
+    /**
+     * Check if a function has non-simple parameters. Per ES spec, functions with non-simple
+     * parameters (default params, rest params, destructuring) should have unmapped arguments.
+     */
+    private static boolean hasNonSimpleParameters(JSFunction function) {
+        JSDescriptor<?> desc = function.getDescriptor();
+        if (desc == null) {
+            return false;
+        }
+        // A function has non-simple parameters if it has default parameters or rest argument
+        // Destructuring is handled separately by hasDefaultParameters (as it uses the same
+        // internal mechanism)
+        return desc.hasDefaultParameters() || desc.hasRestArg();
     }
 
     @Override

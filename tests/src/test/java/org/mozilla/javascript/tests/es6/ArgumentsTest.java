@@ -256,8 +256,11 @@ public class ArgumentsTest {
                         + "res";
 
         // Utils.assertWithAllModes_ES6("undefined length,name,prototype", code);
-        Utils.assertWithAllModes_ES6("[object Object] arguments,arity,length,name,prototype", code);
-        Utils.assertWithAllModes_1_8("[object Object] arguments,arity,length,name,prototype", code);
+        // Non-strict functions have own 'arguments' and 'caller' properties
+        Utils.assertWithAllModes_ES6(
+                "[object Object] arguments,arity,caller,length,name,prototype", code);
+        Utils.assertWithAllModes_1_8(
+                "[object Object] arguments,arity,caller,length,name,prototype", code);
     }
 
     @Test

@@ -68,41 +68,15 @@ public class BaseFunction extends ScriptableObject implements Function {
         ctor.setPrototypePropertyAttributes(DONTENUM | READONLY | PERMANENT);
         if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
             ctor.setStandardPropertyAttributes(READONLY | DONTENUM);
-            // ES6: Function.prototype has accessor for "caller" and "arguments"
-            // For restricted functions (strict, generators, arrows, methods), these throw
-            // TypeError.
-            // For non-strict regular functions, these return undefined (legacy behavior).
-            LambdaFunction callerGetter =
-                    new LambdaFunction(
-                            scope,
-                            "",
-                            0,
-                            null,
-                            (Context c, Scriptable s, Scriptable t, Object[] args) -> {
-                                if (isRestrictedFunction(t)) {
-                                    throw ScriptRuntime.typeError(
-                                            "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.");
-                                }
-                                return Undefined.instance;
-                            });
-            LambdaFunction callerSetter =
-                    new LambdaFunction(
-                            scope,
-                            "",
-                            0,
-                            null,
-                            (Context c, Scriptable s, Scriptable t, Object[] args) -> {
-                                if (isRestrictedFunction(t)) {
-                                    throw ScriptRuntime.typeError(
-                                            "'caller' and 'arguments' are restricted function properties and cannot be accessed in this context.");
-                                }
-                                // For non-strict functions, silently ignore the set
-                                return Undefined.instance;
-                            });
-            proto.setGetterOrSetter("caller", 0, callerGetter, true);
-            proto.setGetterOrSetter("caller", 0, callerSetter, false);
-            proto.setGetterOrSetter("arguments", 0, callerGetter, true);
-            proto.setGetterOrSetter("arguments", 0, callerSetter, false);
+            // ES6/ES2015+: Function.prototype has accessor for "caller" and "arguments"
+            // Per spec, these use %ThrowTypeError% as both getter and setter.
+            // The same %ThrowTypeError% intrinsic is used throughout the realm.
+            // We pass proto directly since Function.prototype isn't in the scope yet.
+            BaseFunction throwTypeError = ScriptRuntime.typeErrorThrower(cx, proto);
+            proto.setGetterOrSetter("caller", 0, throwTypeError, true);
+            proto.setGetterOrSetter("caller", 0, throwTypeError, false);
+            proto.setGetterOrSetter("arguments", 0, throwTypeError, true);
+            proto.setGetterOrSetter("arguments", 0, throwTypeError, false);
             proto.setAttributes("caller", DONTENUM);
             proto.setAttributes("arguments", DONTENUM);
         }
@@ -262,9 +236,16 @@ public class BaseFunction extends ScriptableObject implements Function {
                     PERMANENT | DONTENUM,
                     BaseFunction::argumentsGetter,
                     BaseFunction::argumentsSetter);
-            // Note: "caller" is NOT added as an own property. In ES6 mode, it's inherited
-            // from Function.prototype with a smart accessor that throws for restricted
-            // functions and returns undefined for non-strict functions.
+            // ES6+: "caller" is added as an own property for non-strict functions.
+            // This shadows the %ThrowTypeError% accessor on Function.prototype.
+            // Restricted functions (strict, generators, arrows, methods) should not have
+            // this property - they inherit the throwing accessor from Function.prototype.
+            ScriptableObject.defineBuiltInProperty(
+                    this,
+                    "caller",
+                    PERMANENT | DONTENUM,
+                    BaseFunction::callerGetter,
+                    BaseFunction::callerSetter);
         }
     }
 
@@ -273,14 +254,16 @@ public class BaseFunction extends ScriptableObject implements Function {
     }
 
     /**
-     * Removes the "arguments" property for ES6 restricted functions (generators, strict functions,
-     * arrow functions, methods). These functions should not have own "arguments" property - they
-     * should inherit the throwing accessor from Function.prototype. This is needed because the
-     * property is added during construction before we know if the function is restricted.
+     * Removes the "arguments" and "caller" properties for ES6 restricted functions (generators,
+     * strict functions, arrow functions, methods). These functions should not have own "arguments"
+     * or "caller" properties - they should inherit the throwing accessor from Function.prototype.
+     * This is needed because the properties are added during construction before we know if the
+     * function is restricted.
      */
     protected void removeRestrictedPropertiesForGenerator() {
-        // Force remove the slot by returning null from compute, bypassing PERMANENT check
+        // Force remove the slots by returning null from compute, bypassing PERMANENT check
         getMap().compute(this, "arguments", 0, (k, i, s, m, o) -> null);
+        getMap().compute(this, "caller", 0, (k, i, s, m, o) -> null);
     }
 
     private static Object lengthGetter(BaseFunction function, Scriptable start) {
@@ -302,6 +285,20 @@ public class BaseFunction extends ScriptableObject implements Function {
             Scriptable start,
             boolean isThrow) {
         function.argumentsObj = value;
+        return true;
+    }
+
+    private static Object callerGetter(BaseFunction function, Scriptable start) {
+        return function.getCaller();
+    }
+
+    private static boolean callerSetter(
+            BaseFunction function,
+            Object value,
+            Scriptable owner,
+            Scriptable start,
+            boolean isThrow) {
+        // For non-strict functions, silently ignore the set (write to a field if needed)
         return true;
     }
 
@@ -854,6 +851,28 @@ public class BaseFunction extends ScriptableObject implements Function {
             return new Arguments.ReadonlyArguments((Arguments) arguments, cx);
         }
         return arguments;
+    }
+
+    private Object getCaller() {
+        // <Function name>.caller is deprecated. Returns the calling function.
+        // Per ES spec, for non-strict functions this returns the caller function.
+        // For strict functions, this property should not exist (handled by prototype accessor).
+        // When the caller can't be determined, return undefined to maintain backward compatibility.
+        Context cx = Context.getContext();
+        NativeCall activation = ScriptRuntime.findFunctionActivation(cx, this);
+        if (activation == null) {
+            // Function is not currently executing
+            return Undefined.instance;
+        }
+        // The caller is the function that called this function
+        NativeCall callerActivation = activation.parentActivationCall;
+        if (callerActivation == null) {
+            // Called from top level or caller doesn't have an activation frame
+            // Return undefined for backward compatibility with tests that check for this
+            return Undefined.instance;
+        }
+        // Return the caller function
+        return callerActivation.function;
     }
 
     private static Scriptable jsConstructor(
