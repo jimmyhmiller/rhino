@@ -999,7 +999,9 @@ class NativeProxy extends ScriptableObject {
 
         Function trap = getTrap(TRAP_GET_OWN_PROPERTY_DESCRIPTOR);
         if (trap != null) {
-            Object trapResultObj = callTrap(trap, new Object[] {target, id});
+            // Per spec, property keys passed to traps must be strings or symbols
+            Object keyForTrap = ScriptRuntime.isSymbol(id) ? id : ScriptRuntime.toString(id);
+            Object trapResultObj = callTrap(trap, new Object[] {target, keyForTrap});
             if (!Undefined.isUndefined(trapResultObj)
                     && !(trapResultObj instanceof Scriptable
                             && !ScriptRuntime.isSymbol(trapResultObj))) {
@@ -1087,12 +1089,16 @@ class NativeProxy extends ScriptableObject {
 
         Function trap = getTrap(TRAP_DEFINE_PROPERTY);
         if (trap != null) {
+            // Per spec, property keys passed to traps must be strings or symbols
+            Object keyForTrap = ScriptRuntime.isSymbol(id) ? id : ScriptRuntime.toString(id);
             boolean booleanTrapResult =
                     ScriptRuntime.toBoolean(
                             callTrap(
                                     trap,
                                     new Object[] {
-                                        target, id, desc.toObject(trap.getDeclarationScope())
+                                        target,
+                                        keyForTrap,
+                                        desc.toObject(trap.getDeclarationScope())
                                     }));
             if (!booleanTrapResult) {
                 return false;

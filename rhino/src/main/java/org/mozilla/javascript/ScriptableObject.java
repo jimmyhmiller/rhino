@@ -1691,6 +1691,10 @@ public abstract class ScriptableObject extends SlotMapOwner
     /**
      * Defines one or more properties on this object.
      *
+     * <p>Per ES spec ObjectDefineProperties: 1. Let props be ? ToObject(Properties). 2. Let keys be
+     * ? props.[[OwnPropertyKeys]](). 3. For each key, call [[GetOwnProperty]] to check if property
+     * exists and is enumerable. 4. If enumerable, call [[Get]] to get the descriptor object.
+     *
      * @param cx the current Context
      * @param props a map of property ids to property descriptors
      */
@@ -1699,15 +1703,34 @@ public abstract class ScriptableObject extends SlotMapOwner
         try (var map = props.startCompoundOp(false)) {
             ids = props.getIds(map, false, true);
         }
-        DescriptorInfo[] descs = new DescriptorInfo[ids.length];
+
+        // Collect valid descriptors - per spec, we need to call [[GetOwnProperty]] first
+        // to check if property exists and is enumerable before calling [[Get]]
+        java.util.List<Object> validIds = new java.util.ArrayList<>();
+        java.util.List<DescriptorInfo> validDescs = new java.util.ArrayList<>();
+
         for (int i = 0, len = ids.length; i < len; ++i) {
-            Object descObj = ScriptRuntime.getObjectElem(props, ids[i], cx);
-            var desc = new DescriptorInfo(ensureScriptableObject(descObj));
-            checkPropertyDefinition(desc);
-            descs[i] = desc;
+            Object id = ids[i];
+
+            // Step 4a: Let propDesc be ? props.[[GetOwnProperty]](nextKey)
+            DescriptorInfo propDesc = props.getOwnPropertyDescriptor(cx, id);
+
+            // Step 4b: If propDesc is not undefined and propDesc.[[Enumerable]] is true
+            if (propDesc != null
+                    && !Undefined.isUndefined(propDesc)
+                    && propDesc.isEnumerable(true)) {
+                // Step 4b.i: Let descObj be ? Get(props, nextKey)
+                Object descObj = ScriptRuntime.getObjectElem(props, id, cx);
+                var desc = new DescriptorInfo(ensureScriptableObject(descObj));
+                checkPropertyDefinition(desc);
+                validIds.add(id);
+                validDescs.add(desc);
+            }
         }
-        for (int i = 0, len = ids.length; i < len; ++i) {
-            defineOwnProperty(cx, ids[i], descs[i]);
+
+        // Step 6: For each pair from descriptors in list order
+        for (int i = 0, size = validIds.size(); i < size; ++i) {
+            defineOwnProperty(cx, validIds.get(i), validDescs.get(i));
         }
     }
 
@@ -3365,6 +3388,24 @@ public abstract class ScriptableObject extends SlotMapOwner
      * <p>An array index is defined as an integer in the range [0, 2^32-2] (i.e., 0 to 4294967294).
      * Keys may be stored as Integer (for small indices) or String (for larger indices).
      */
+    /**
+     * This comparator sorts property keys in spec-compliant order per OrdinaryOwnPropertyKeys:
+     *
+     * <ol>
+     *   <li>Array index keys first, in ascending numeric order
+     *   <li>String keys (non-index), in insertion order
+     *   <li>Symbol keys, in insertion order
+     * </ol>
+     *
+     * <p>An array index is defined as an integer in the range [0, 2^32-2] (i.e., 0 to 4294967294).
+     * Keys may be stored as Integer (for small indices) or String (for larger indices).
+     *
+     * <p>Since this class already keeps string/symbol keys in insertion-time order, we treat all
+     * non-index strings as equal to each other, and all symbols as equal to each other. The
+     * "Arrays.sort" method will then not change their relative order, but simply move all the array
+     * index properties to the front, and all symbols to the back, since this method is defined to
+     * be stable.
+     */
     public static final class KeyComparator implements Comparator<Object>, Serializable {
         private static final long serialVersionUID = 6411335891523988149L;
 
@@ -3376,16 +3417,35 @@ public abstract class ScriptableObject extends SlotMapOwner
             long index1 = toArrayIndex(o1);
             long index2 = toArrayIndex(o2);
 
+            // Both are array indices - compare numerically
+            if (index1 >= 0 && index2 >= 0) {
+                return Long.compare(index1, index2);
+            }
+
+            // o1 is array index, o2 is not - array indices come first
             if (index1 >= 0) {
-                if (index2 >= 0) {
-                    return Long.compare(index1, index2);
-                }
-                return -1; // o1 is array index, o2 is not
+                return -1;
             }
+
+            // o2 is array index, o1 is not - array indices come first
             if (index2 >= 0) {
-                return 1; // o2 is array index, o1 is not
+                return 1;
             }
-            return 0; // both are non-index strings, maintain insertion order
+
+            // Neither is an array index - check for symbols
+            // Per ES spec: strings come before symbols
+            boolean isSymbol1 = o1 instanceof Symbol;
+            boolean isSymbol2 = o2 instanceof Symbol;
+
+            if (isSymbol1 && !isSymbol2) {
+                return 1; // o1 is symbol, o2 is string - symbols come after
+            }
+            if (!isSymbol1 && isSymbol2) {
+                return -1; // o1 is string, o2 is symbol - strings come first
+            }
+
+            // Both are strings or both are symbols - maintain insertion order
+            return 0;
         }
 
         /**
