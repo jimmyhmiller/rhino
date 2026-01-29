@@ -1895,10 +1895,6 @@ class BodyCodegen {
         }
     }
 
-    private void finishGetElemGeneration(Node node, Node child) {
-        finishGetElemGeneration(node, child, (short) -1);
-    }
-
     private void finishGetElemGeneration(Node node, Node child, short indexTempLocal) {
         if (indexTempLocal != -1) {
             // Index was already evaluated and stored in temp (for generator yield handling)

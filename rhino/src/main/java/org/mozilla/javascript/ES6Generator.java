@@ -125,9 +125,9 @@ public final class ES6Generator extends ScriptableObject {
 
     private Scriptable resumeDelegee(Context cx, Scriptable scope, Object value) {
         try {
-            // Be super-careful and only pass an arg to next if it expects one
-            Object[] nextArgs =
-                    Undefined.isUndefined(value) ? ScriptRuntime.emptyArgs : new Object[] {value};
+            // Per ES spec 7.4.2 IteratorNext, when value is passed (even if undefined),
+            // we must call next(value), not next() with no arguments.
+            Object[] nextArgs = new Object[] {value};
 
             var nextFn = ScriptRuntime.getPropAndThis(delegee, ES6Iterator.NEXT_METHOD, cx, scope);
             Object nr = nextFn.call(cx, scope, nextArgs);
