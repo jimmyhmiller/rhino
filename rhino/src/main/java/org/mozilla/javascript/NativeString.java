@@ -1031,8 +1031,12 @@ final class NativeString extends ScriptableObject {
             // If method is not undefined, it should be a Callable
             if (matcher != null && !Undefined.isUndefined(matcher)) {
                 if (!(matcher instanceof Callable)) {
-                    throw ScriptRuntime.notFunctionError(
-                            searchValue, matcher, SymbolKey.REPLACE.getName());
+                    // Don't call toString on searchValue - use a simpler error message
+                    // to avoid triggering user-defined toString
+                    throw ScriptRuntime.typeErrorById(
+                            "msg.isnt.function",
+                            SymbolKey.REPLACE.getName(),
+                            ScriptRuntime.typeof(matcher));
                 }
                 return ((Callable) matcher)
                         .call(
