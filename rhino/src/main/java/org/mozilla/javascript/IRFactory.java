@@ -771,6 +771,9 @@ public final class IRFactory {
             constructorFn = createDefaultConstructor(classNode, hasSuperClass);
         }
 
+        // Mark all class constructors - they cannot be called without 'new'
+        constructorFn.putIntProp(Node.CLASS_CONSTRUCTOR, 1);
+
         // Mark derived class constructors for TDZ checking of 'this' before super()
         if (hasSuperClass) {
             constructorFn.setDerivedClassConstructor(true);

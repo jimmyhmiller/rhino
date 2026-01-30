@@ -32,6 +32,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
     private static final int DECLARED_AS_FUNCTION_EXPRESSION_FLAG = 1 << 12;
     private static final int SKIP_ANNEX_B_HOISTING_FLAG = 1 << 13;
     private static final int IS_DERIVED_CLASS_CONSTRUCTOR_FLAG = 1 << 14;
+    private static final int IS_CLASS_CONSTRUCTOR_FLAG = 1 << 15;
 
     private final JSCode<T> code;
     private final JSCode<T> constructor;
@@ -85,6 +86,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
             boolean declaredAsFunctionExpression,
             boolean skipAnnexBHoisting,
             boolean isDerivedClassConstructor,
+            boolean isClassConstructor,
             SecurityController securityController,
             Object securityDomain,
             int functionType) {
@@ -111,6 +113,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         flags = flags | (declaredAsFunctionExpression ? DECLARED_AS_FUNCTION_EXPRESSION_FLAG : 0);
         flags = flags | (skipAnnexBHoisting ? SKIP_ANNEX_B_HOISTING_FLAG : 0);
         flags = flags | (isDerivedClassConstructor ? IS_DERIVED_CLASS_CONSTRUCTOR_FLAG : 0);
+        flags = flags | (isClassConstructor ? IS_CLASS_CONSTRUCTOR_FLAG : 0);
         this.flags = flags;
 
         this.sourceFile = sourceFile;
@@ -292,6 +295,14 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
      */
     public boolean isDerivedClassConstructor() {
         return (flags & IS_DERIVED_CLASS_CONSTRUCTOR_FLAG) != 0;
+    }
+
+    /**
+     * Returns true if this is a class constructor. Class constructors cannot be called without
+     * 'new' - doing so should throw a TypeError.
+     */
+    public boolean isClassConstructor() {
+        return (flags & IS_CLASS_CONSTRUCTOR_FLAG) != 0;
     }
 
     public SecurityController getSecurityController() {

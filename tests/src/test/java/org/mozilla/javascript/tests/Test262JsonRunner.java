@@ -125,7 +125,7 @@ public class Test262JsonRunner {
     public static void main(String[] args) throws Exception {
         String engineName = null;
         String outputDir = null;
-        String test262Path = "tests/test262";
+        String test262Path = "test262";
         int threads = Runtime.getRuntime().availableProcessors();
 
         for (int i = 0; i < args.length; i++) {
