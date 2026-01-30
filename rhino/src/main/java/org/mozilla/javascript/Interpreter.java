@@ -72,7 +72,8 @@ public final class Interpreter extends Icode implements Evaluator {
         final boolean useActivation;
         boolean isContinuationsTopFrame;
 
-        final Scriptable thisObj;
+        // Non-final: for derived class constructors, thisObj is set by super() call
+        Scriptable thisObj;
 
         // Original arguments passed to this function, used for default constructor super() calls
         Object[] originalArgs;
@@ -2163,7 +2164,19 @@ public final class Interpreter extends Icode implements Evaluator {
                 if (newFrame.frozen) {
                     newFrame = newFrame.cloneFrozen();
                 }
-                setCallResult(newFrame, frame.result, frame.resultDbl);
+                // For derived class constructors returning undefined, use 'this' as result.
+                // Per ES6 spec 9.2.2 [[Construct]] step 13.d.f: when returning undefined,
+                // the result is the value of 'this' bound by super().
+                Object result = frame.result;
+                double resultDbl = frame.resultDbl;
+                JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+                if (desc != null
+                        && desc.isDerivedClassConstructor()
+                        && frame.superCalled
+                        && result == Undefined.instance) {
+                    result = frame.thisObj;
+                }
+                setCallResult(newFrame, result, resultDbl);
                 return new StateContinueResult(newFrame, state.indexReg);
             }
             return new StateBreakResult(frame);
@@ -5035,29 +5048,33 @@ public final class Interpreter extends Icode implements Evaluator {
                             state.indexReg);
             state.stackTop -= state.indexReg;
 
-            // Call the super constructor with the current 'this' object
-            // Use superCall() for BaseFunction to get proper [[Construct]] semantics
-            Object result;
-            if (superConstructor instanceof BaseFunction) {
-                result =
-                        ((BaseFunction) superConstructor)
-                                .superCall(cx, frame.scope, frame.thisObj, args);
+            // Call the super constructor using [[Construct]] semantics.
+            // In ES6, super() invokes the parent's [[Construct]] which creates the instance.
+            // The created instance becomes 'this' for the derived class.
+            Scriptable newInstance;
+            if (superConstructor instanceof Function) {
+                newInstance = ((Function) superConstructor).construct(cx, frame.scope, args);
             } else {
-                result = superConstructor.call(cx, frame.scope, frame.thisObj, args);
+                throw ScriptRuntime.typeErrorById("msg.not.ctor");
             }
+
+            // Set the prototype of the new instance based on the derived class
+            // (new.target semantics - the instance uses the derived class's prototype)
+            if (fnOrScript instanceof BaseFunction) {
+                Scriptable derivedProto = ((BaseFunction) fnOrScript).getClassPrototype();
+                if (derivedProto != null) {
+                    newInstance.setPrototype(derivedProto);
+                }
+            }
+
+            // The new instance becomes 'this' for the derived class constructor
+            frame.thisObj = newInstance;
 
             // Mark that super() has been called - 'this' is now accessible
             frame.superCalled = true;
 
-            // The result of super() is 'this' (or the return value if the parent constructor
-            // explicitly returns an object)
-            if (result instanceof Scriptable) {
-                // If parent constructor returned an object, use that
-                frame.stack[++state.stackTop] = result;
-            } else {
-                // Otherwise, use the current thisObj (the normal case)
-                frame.stack[++state.stackTop] = frame.thisObj;
-            }
+            // Push the new instance onto the stack (result of super() expression)
+            frame.stack[++state.stackTop] = newInstance;
 
             return null;
         }
@@ -5099,27 +5116,31 @@ public final class Interpreter extends Icode implements Evaluator {
                 args = ScriptRuntime.emptyArgs;
             }
 
-            // Call the super constructor with the current 'this' object
-            // Use superCall() for BaseFunction to get proper [[Construct]] semantics
-            Object result;
-            if (superConstructor instanceof BaseFunction) {
-                result =
-                        ((BaseFunction) superConstructor)
-                                .superCall(cx, frame.scope, frame.thisObj, args);
+            // Call the super constructor using [[Construct]] semantics.
+            // In ES6, super() invokes the parent's [[Construct]] which creates the instance.
+            Scriptable newInstance;
+            if (superConstructor instanceof Function) {
+                newInstance = ((Function) superConstructor).construct(cx, frame.scope, args);
             } else {
-                result = superConstructor.call(cx, frame.scope, frame.thisObj, args);
+                throw ScriptRuntime.typeErrorById("msg.not.ctor");
             }
+
+            // Set the prototype of the new instance based on the derived class
+            if (fnOrScript instanceof BaseFunction) {
+                Scriptable derivedProto = ((BaseFunction) fnOrScript).getClassPrototype();
+                if (derivedProto != null) {
+                    newInstance.setPrototype(derivedProto);
+                }
+            }
+
+            // The new instance becomes 'this' for the derived class constructor
+            frame.thisObj = newInstance;
 
             // Mark that super() has been called - 'this' is now accessible
             frame.superCalled = true;
 
-            // The result of super() is 'this' (or the return value if the parent constructor
-            // explicitly returns an object)
-            if (result instanceof Scriptable) {
-                frame.stack[++state.stackTop] = result;
-            } else {
-                frame.stack[++state.stackTop] = frame.thisObj;
-            }
+            // Push the new instance onto the stack
+            frame.stack[++state.stackTop] = newInstance;
 
             return null;
         }
@@ -5155,27 +5176,30 @@ public final class Interpreter extends Icode implements Evaluator {
                 args = ScriptRuntime.emptyArgs;
             }
 
-            // Call the super constructor with the current 'this' object
-            // Use superCall() for BaseFunction to get proper [[Construct]] semantics
-            Object result;
-            if (superConstructor instanceof BaseFunction) {
-                result =
-                        ((BaseFunction) superConstructor)
-                                .superCall(cx, frame.scope, frame.thisObj, args);
+            // Call the super constructor using [[Construct]] semantics.
+            Scriptable newInstance;
+            if (superConstructor instanceof Function) {
+                newInstance = ((Function) superConstructor).construct(cx, frame.scope, args);
             } else {
-                result = superConstructor.call(cx, frame.scope, frame.thisObj, args);
+                throw ScriptRuntime.typeErrorById("msg.not.ctor");
             }
+
+            // Set the prototype of the new instance based on the derived class
+            if (fnOrScript instanceof BaseFunction) {
+                Scriptable derivedProto = ((BaseFunction) fnOrScript).getClassPrototype();
+                if (derivedProto != null) {
+                    newInstance.setPrototype(derivedProto);
+                }
+            }
+
+            // The new instance becomes 'this' for the derived class constructor
+            frame.thisObj = newInstance;
 
             // Mark that super() has been called - 'this' is now accessible
             frame.superCalled = true;
 
-            // The result of super() is 'this' (or the return value if the parent constructor
-            // explicitly returns an object)
-            if (result instanceof Scriptable) {
-                frame.stack[++state.stackTop] = result;
-            } else {
-                frame.stack[++state.stackTop] = frame.thisObj;
-            }
+            // Push the new instance onto the stack
+            frame.stack[++state.stackTop] = newInstance;
 
             return null;
         }

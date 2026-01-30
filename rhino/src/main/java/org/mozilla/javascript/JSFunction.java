@@ -195,7 +195,11 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         if (descriptor.getConstructor() == null) {
             throw ScriptRuntime.typeErrorById("msg.not.ctor", getFunctionName());
         }
-        var thisObj = homeObject == null ? createObject(cx, scope) : null;
+        // Create instance for base class constructors and normal functions.
+        // For derived class constructors (superConstructor != null), the instance is created
+        // by super(), not here. Note: homeObject may be set on class constructors for
+        // super.property access, but that doesn't affect instance creation.
+        var thisObj = (getSuperConstructor() == null) ? createObject(cx, scope) : null;
         // Pass `this` in as new.target for now. This can change when
         // the public `construct` signature changes.
         var res = descriptor.getConstructor().execute(cx, this, this, scope, thisObj, args);

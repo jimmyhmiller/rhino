@@ -660,17 +660,20 @@ class BodyCodegen {
             cfw.add(ByteCode.ARETURN);
 
         } else if (hasVarsInRegs) {
-            // In derived class constructors, check return value per ES6 spec 9.2.2 step 13.
+            // In derived class constructors, check and transform return value per ES6 spec 9.2.2
+            // step 13.
             // - Returning an object is always OK
             // - Returning non-undefined primitive throws TypeError
             // - Returning undefined without super() throws ReferenceError
+            // - Returning undefined with super() called returns 'this'
             if (isDerivedClassConstructor && superCalledLocal != -1) {
                 // Stack: returnValue
-                cfw.add(ByteCode.DUP); // Stack: returnValue, returnValue
-                cfw.addILoad(superCalledLocal); // Stack: returnValue, returnValue, superCalled
+                cfw.addALoad(thisObjLocal); // Stack: returnValue, thisObj
+                cfw.addILoad(superCalledLocal); // Stack: returnValue, thisObj, superCalled
                 addScriptRuntimeInvoke(
-                        "checkDerivedConstructorReturn",
-                        "(Ljava/lang/Object;I)V"); // Stack: returnValue
+                        "getDerivedConstructorReturn",
+                        "(Ljava/lang/Object;Lorg/mozilla/javascript/Scriptable;I)Ljava/lang/Object;");
+                // Stack: transformedReturnValue
             }
             cfw.add(ByteCode.ARETURN);
 
@@ -686,15 +689,17 @@ class BodyCodegen {
             // under exception propagation as well.
             int finallyHandler = cfw.acquireLabel();
 
-            // In derived class constructors, check return value per ES6 spec 9.2.2 step 13.
-            // This check is inside the exception handler range so activation cleanup happens.
+            // In derived class constructors, check and transform return value per ES6 spec 9.2.2
+            // step 13. This check is inside the exception handler range so activation cleanup
+            // happens.
             if (isDerivedClassConstructor && superCalledLocal != -1) {
                 // Stack: returnValue
-                cfw.add(ByteCode.DUP); // Stack: returnValue, returnValue
-                cfw.addILoad(superCalledLocal); // Stack: returnValue, returnValue, superCalled
+                cfw.addALoad(thisObjLocal); // Stack: returnValue, thisObj
+                cfw.addILoad(superCalledLocal); // Stack: returnValue, thisObj, superCalled
                 addScriptRuntimeInvoke(
-                        "checkDerivedConstructorReturn",
-                        "(Ljava/lang/Object;I)V"); // Stack: returnValue
+                        "getDerivedConstructorReturn",
+                        "(Ljava/lang/Object;Lorg/mozilla/javascript/Scriptable;I)Ljava/lang/Object;");
+                // Stack: transformedReturnValue
             }
 
             // Mark end of try block (before activation exit)
@@ -3293,7 +3298,7 @@ class BodyCodegen {
         // Push fnCurrent (the current function that has superConstructor set)
         cfw.addALoad(funObjLocal);
 
-        // Push thisObj
+        // Push thisObj (will be replaced by super constructor result)
         cfw.addALoad(thisObjLocal);
 
         // Push the function's arguments array directly
@@ -3304,6 +3309,7 @@ class BodyCodegen {
         cfw.addALoad(variableObjectLocal);
 
         // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope)
+        // Returns the new instance created by the super constructor
         addScriptRuntimeInvoke(
                 "callSuperConstructor",
                 "(Lorg/mozilla/javascript/Callable;"
@@ -3312,6 +3318,11 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + ")Lorg/mozilla/javascript/Scriptable;");
+
+        // Store the result as the new 'this' for this constructor
+        // The super constructor creates the instance, which becomes our 'this'
+        cfw.add(ByteCode.DUP); // Keep a copy on stack for the super() expression result
+        cfw.addAStore(thisObjLocal);
 
         // Mark that super() has been called - 'this' is now accessible
         if (isDerivedClassConstructor && superCalledLocal != -1) {
@@ -3339,7 +3350,7 @@ class BodyCodegen {
         // Push fnCurrent (the current function that has superConstructor set)
         cfw.addALoad(funObjLocal);
 
-        // Push thisObj
+        // Push thisObj (will be replaced by super constructor result)
         cfw.addALoad(thisObjLocal);
 
         // Generate the arguments array - check for spread arguments
@@ -3355,6 +3366,7 @@ class BodyCodegen {
         cfw.addALoad(variableObjectLocal);
 
         // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope)
+        // Returns the new instance created by the super constructor
         addScriptRuntimeInvoke(
                 "callSuperConstructor",
                 "(Lorg/mozilla/javascript/Callable;"
@@ -3363,6 +3375,11 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + ")Lorg/mozilla/javascript/Scriptable;");
+
+        // Store the result as the new 'this' for this constructor
+        // The super constructor creates the instance, which becomes our 'this'
+        cfw.add(ByteCode.DUP); // Keep a copy on stack for the super() expression result
+        cfw.addAStore(thisObjLocal);
 
         // Mark that super() has been called - 'this' is now accessible
         if (isDerivedClassConstructor && superCalledLocal != -1) {

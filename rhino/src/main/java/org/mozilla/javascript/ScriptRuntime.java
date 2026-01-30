@@ -5797,7 +5797,9 @@ public class ScriptRuntime {
      *
      * @param result the return value from the constructor
      * @param superCalled true if super() was called (1), false otherwise (0)
+     * @deprecated Use {@link #getDerivedConstructorReturn} instead
      */
+    @Deprecated
     public static void checkDerivedConstructorReturn(Object result, int superCalled) {
         // Step 13a: Returning an object is always OK
         if (result instanceof Scriptable) {
@@ -5815,6 +5817,37 @@ public class ScriptRuntime {
                     "Must call super constructor in derived class before returning from derived constructor");
         }
         // OK - returning undefined with super() called
+    }
+
+    /**
+     * Gets the proper return value for a derived class constructor per ES6 spec 9.2.2 step 13.
+     * Returns thisObj if the constructor returns undefined and super() was called. Throws TypeError
+     * or ReferenceError if the return is invalid.
+     *
+     * @param result the return value from the constructor
+     * @param thisObj the 'this' object set by super()
+     * @param superCalled true if super() was called (1), false otherwise (0)
+     * @return the proper return value for the constructor
+     */
+    public static Object getDerivedConstructorReturn(
+            Object result, Scriptable thisObj, int superCalled) {
+        // Step 13a: Returning an object is always OK
+        if (result instanceof Scriptable) {
+            return result;
+        }
+        // Step 13c: Returning a non-undefined primitive throws TypeError
+        if (result != Undefined.instance) {
+            throw constructError(
+                    "TypeError", "Derived constructors may only return object or undefined");
+        }
+        // Step 13d.f: Returning undefined - check if super() was called
+        if (superCalled == 0) {
+            throw constructError(
+                    "ReferenceError",
+                    "Must call super constructor in derived class before returning from derived constructor");
+        }
+        // Returning undefined with super() called - return 'this'
+        return thisObj;
     }
 
     /**
@@ -6206,21 +6239,26 @@ public class ScriptRuntime {
             throw typeErrorById("msg.super.not.in.derived.ctor");
         }
 
-        // Use superCall() if available - this signals [[Construct]] semantics with an existing
-        // thisObj.
-        // For built-in constructors (LambdaConstructor), this allows proper initialization.
-        Object result;
-        if (superConstructor instanceof BaseFunction) {
-            result = ((BaseFunction) superConstructor).superCall(cx, scope, thisObj, args);
+        // Call the super constructor using [[Construct]] semantics.
+        // In ES6, super() invokes the parent's [[Construct]] which creates the instance.
+        // The created instance becomes 'this' for the derived class.
+        Scriptable newInstance;
+        if (superConstructor instanceof Function) {
+            newInstance = ((Function) superConstructor).construct(cx, scope, args);
         } else {
-            result = superConstructor.call(cx, scope, thisObj, args);
+            throw typeErrorById("msg.not.ctor");
         }
 
-        // If the super constructor returned an object, use that instead of thisObj
-        if (result instanceof Scriptable) {
-            return (Scriptable) result;
+        // Set the prototype of the new instance based on the derived class
+        // (new.target semantics - the instance uses the derived class's prototype)
+        if (callee instanceof BaseFunction) {
+            Scriptable derivedProto = ((BaseFunction) callee).getClassPrototype();
+            if (derivedProto != null) {
+                newInstance.setPrototype(derivedProto);
+            }
         }
-        return thisObj;
+
+        return newInstance;
     }
 
     public static boolean isArrayObject(Object obj) {
