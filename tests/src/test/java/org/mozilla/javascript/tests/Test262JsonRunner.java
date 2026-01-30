@@ -389,6 +389,9 @@ public class Test262JsonRunner {
     }
 
     private void writeResults() throws IOException {
+        System.out.printf("Writing results to %s%n", outputDir);
+        System.out.printf("Total test results to write: %d%n", testResults.size());
+
         // Build hierarchical structure
         Map<String, Object> rootFiles = new TreeMap<>();
         int totalTests = 0;
@@ -436,14 +439,17 @@ public class Test262JsonRunner {
         index.put("files", files);
 
         writeJsonFile(outputDir.resolve("index.json"), index);
+        System.out.printf("Wrote index.json: total=%d, passed=%d%n", totalTests, totalPassed);
 
         // Write engines.json
         Map<String, String> enginesInfo = new LinkedHashMap<>();
         enginesInfo.put(engineName, getRhinoVersion());
         writeJsonFile(outputDir.resolve("engines.json"), enginesInfo);
+        System.out.println("Wrote engines.json");
 
         // Write per-directory JSON files
         writeDirectoryJson(rootFiles, outputDir, "");
+        System.out.println("Wrote all directory JSON files");
     }
 
     private void aggregateResults(Map<String, Object> source, Map<String, Object> target) {
