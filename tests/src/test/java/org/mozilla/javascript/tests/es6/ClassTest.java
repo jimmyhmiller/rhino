@@ -209,4 +209,32 @@ public class ClassTest {
             assertEquals("animal", result);
         }
     }
+
+    @Test
+    public void testSuperCallInterpreted() {
+        // Test super() in interpreter mode
+        try (Context cx = Context.enter()) {
+            cx.setLanguageVersion(Context.VERSION_ES6);
+            cx.setOptimizationLevel(-1); // Force interpreter mode
+            Global global = new Global(cx);
+            Scriptable scope = cx.newObject(global);
+            scope.setPrototype(global);
+            scope.setParentScope(null);
+            Object result =
+                    cx.evaluateString(
+                            scope,
+                            "class Animal {\n"
+                                    + "  constructor(name) { this.name = name; }\n"
+                                    + "}\n"
+                                    + "class Dog extends Animal {\n"
+                                    + "  constructor(name) { super(name); }\n"
+                                    + "}\n"
+                                    + "var d = new Dog('Rex');\n"
+                                    + "d.name;",
+                            "test.js",
+                            1,
+                            null);
+            assertEquals("Rex", result);
+        }
+    }
 }

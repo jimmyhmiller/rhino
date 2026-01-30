@@ -6106,6 +6106,11 @@ public class ScriptRuntime {
             if (constructorObj instanceof ScriptableObject) {
                 ((ScriptableObject) constructorObj).setPrototype(superConstructor);
             }
+
+            // Store the super constructor for super() calls in derived class constructors
+            if (constructor instanceof BaseFunction) {
+                ((BaseFunction) constructor).setSuperConstructor((Callable) superClass);
+            }
         }
 
         // Get the prototype from the constructor (may have been replaced above)
@@ -6129,6 +6134,35 @@ public class ScriptRuntime {
         }
 
         return constructor;
+    }
+
+    /**
+     * Calls the super constructor in a derived class constructor. This is used by the compiled code
+     * path to implement super() calls.
+     *
+     * @param callee The current function (the derived class constructor)
+     * @param thisObj The this object for the constructor
+     * @param args The arguments to pass to the super constructor
+     * @param cx The context
+     * @param scope The scope
+     * @return The thisObj after the super constructor has initialized it
+     */
+    public static Scriptable callSuperConstructor(
+            Callable callee, Scriptable thisObj, Object[] args, Context cx, Scriptable scope) {
+        Callable superConstructor = null;
+        if (callee instanceof BaseFunction) {
+            superConstructor = ((BaseFunction) callee).getSuperConstructor();
+        }
+
+        if (superConstructor == null) {
+            throw typeErrorById("msg.super.not.in.derived.ctor");
+        }
+
+        // Call the super constructor with the current thisObj
+        // This allows the parent constructor to initialize properties on the same object
+        superConstructor.call(cx, scope, thisObj, args);
+
+        return thisObj;
     }
 
     public static boolean isArrayObject(Object obj) {

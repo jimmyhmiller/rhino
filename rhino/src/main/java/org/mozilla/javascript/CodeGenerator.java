@@ -638,9 +638,15 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
                     boolean isOptionalChainingCall =
                             node.getIntProp(Node.OPTIONAL_CHAINING, 0) == 1;
+                    boolean isSuperConstructorCall =
+                            node.getIntProp(Node.SUPER_CONSTRUCTOR_CALL, 0) == 1;
                     CompleteOptionalCallJump completeOptionalCallJump = null;
                     if (type == Token.NEW) {
                         visitExpression(child, 0);
+                    } else if (isSuperConstructorCall) {
+                        // For super() calls, don't use generateCallFunAndThis
+                        // The super constructor will be obtained at runtime
+                        // No function or thisObj on stack - just arguments
                     } else {
                         completeOptionalCallJump =
                                 generateCallFunAndThis(child, isOptionalChainingCall);
@@ -707,6 +713,9 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                             addUint8(callType);
                             addUint8(type == Token.NEW ? 1 : 0);
                             addUint16(lineNumber & 0xFFFF);
+                        } else if (node.getIntProp(Node.SUPER_CONSTRUCTOR_CALL, 0) == 1) {
+                            // super() call in derived class constructor
+                            addIndexOp(Icode_SUPER_CALL, argCount);
                         } else if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
                             addIndexOp(Icode_CALL_ON_SUPER, argCount);
                         } else {
@@ -725,6 +734,9 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                         if (type == Token.NEW) {
                             // new: f, args -> result
                             stackChange(-argCount);
+                        } else if (isSuperConstructorCall) {
+                            // super(): args -> result (no function or thisObj on stack)
+                            stackChange(1 - argCount);
                         } else {
                             // call: f, thisObj, args -> result
                             // ref_call: f, thisObj, args -> ref

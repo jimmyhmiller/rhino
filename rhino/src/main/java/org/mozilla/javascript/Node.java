@@ -77,7 +77,9 @@ public class Node implements Iterable<Node> {
             LET_FOR_LOOP_SCOPE = 38, // Marks let wrapper scope in for-loops for WITH scope creation
             CLASS_CONSTRUCTOR =
                     39, // Marks a function as a class constructor (cannot be called without 'new')
-            LAST_PROP = CLASS_CONSTRUCTOR,
+            SUPER_CONSTRUCTOR_CALL =
+                    40, // Marks a call as a super() constructor call in a derived class
+            LAST_PROP = SUPER_CONSTRUCTOR_CALL,
             FIRST_PROP = FUNCTION_PROP;
 
     // values of ISNUMBER_PROP to specify
@@ -479,6 +481,8 @@ public class Node implements Iterable<Node> {
                 return "let_for_loop_scope";
             case CLASS_CONSTRUCTOR:
                 return "class_constructor";
+            case SUPER_CONSTRUCTOR_CALL:
+                return "super_constructor_call";
 
             default:
                 Kit.codeBug();

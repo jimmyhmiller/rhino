@@ -1316,8 +1316,15 @@ public class Parser {
         }
 
         // Parse the function
-        // Constructor is NOT a method definition, other class methods are
-        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, !isConstructor);
+        // All class methods (including constructors) need isMethodDefinition=true
+        // during parsing so that `super` is allowed in the parser
+        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true);
+
+        // For constructors, clear the methodDefinition flag after parsing
+        // Constructors should be created as closures, not methods (no homeObject needed)
+        if (isConstructor) {
+            fn.setMethodDefinition(false);
+        }
 
         // The function should be anonymous since we already parsed the name
         Name fnName = fn.getFunctionName();

@@ -202,8 +202,11 @@ abstract class Icode {
             // ES6 class method storage - creates only NewLiteralStorage for class methods
             Icode_CLASS_STORAGE = Icode_CLASS_DEF - 1,
 
+            // ES6 super() constructor call in derived class
+            Icode_SUPER_CALL = Icode_CLASS_STORAGE - 1,
+
             // Last icode
-            MIN_ICODE = Icode_CLASS_STORAGE;
+            MIN_ICODE = Icode_SUPER_CALL;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -425,6 +428,8 @@ abstract class Icode {
                 return "CLASS_DEF";
             case Icode_CLASS_STORAGE:
                 return "CLASS_STORAGE";
+            case Icode_SUPER_CALL:
+                return "SUPER_CALL";
         }
 
         // icode without name

@@ -1755,6 +1755,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_CALLSPECIAL_SPREAD] = new DoCallSpecialSpread();
         instructionObjs[base + Icode_CLASS_DEF] = new DoClassDef();
         instructionObjs[base + Icode_CLASS_STORAGE] = new DoClassStorage();
+        instructionObjs[base + Icode_SUPER_CALL] = new DoSuperCall();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
@@ -4889,6 +4890,55 @@ public final class Interpreter extends Icode implements Evaluator {
             NewLiteralStorage storage =
                     NewLiteralStorage.create(cx, ids == null ? new Object[0] : ids);
             frame.stack[++state.stackTop] = storage;
+            return null;
+        }
+    }
+
+    private static class DoSuperCall extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            if (state.instructionCounting) {
+                cx.instructionCount += INVOCATION_COST;
+            }
+            // super() call in a derived class constructor
+            // Stack: args (no function or thisObj)
+            // indexReg: number of arguments
+
+            // Get the super constructor from the current function
+            ScriptOrFn<?> fnOrScript = frame.fnOrScript;
+            Callable superConstructor = null;
+            if (fnOrScript instanceof BaseFunction) {
+                superConstructor = ((BaseFunction) fnOrScript).getSuperConstructor();
+            }
+
+            if (superConstructor == null) {
+                throw ScriptRuntime.typeErrorById("msg.super.not.in.derived.ctor");
+            }
+
+            // Get the arguments from the stack
+            Object[] args =
+                    getArgsArray(
+                            frame.stack,
+                            frame.sDbl,
+                            state.stackTop - state.indexReg + 1,
+                            state.indexReg);
+            state.stackTop -= state.indexReg;
+
+            // Call the super constructor with the current 'this' object
+            // This allows the parent constructor to initialize properties on the same object
+            // that was created for the derived class instance
+            Object result = superConstructor.call(cx, frame.scope, frame.thisObj, args);
+
+            // The result of super() is 'this' (or the return value if the parent constructor
+            // explicitly returns an object)
+            if (result instanceof Scriptable) {
+                // If parent constructor returned an object, use that
+                frame.stack[++state.stackTop] = result;
+            } else {
+                // Otherwise, use the current thisObj (the normal case)
+                frame.stack[++state.stackTop] = frame.thisObj;
+            }
+
             return null;
         }
     }

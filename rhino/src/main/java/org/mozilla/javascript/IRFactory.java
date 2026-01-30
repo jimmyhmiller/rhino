@@ -102,6 +102,9 @@ public final class IRFactory {
     private Parser parser;
     private AstNodePosition astNodePos;
     private boolean outerScopeIsStrict;
+    // Track when we're inside a derived class constructor (one that extends another class)
+    // This is needed to allow super() calls
+    private boolean insideDerivedClassConstructor;
 
     public IRFactory(CompilerEnvirons env, String sourceString) {
         this(env, null, sourceString, env.getErrorReporter());
@@ -774,7 +777,15 @@ public final class IRFactory {
         }
 
         // Transform the constructor function - this returns a FUNCTION node
-        Node constructorNode = transformFunction(constructorFn);
+        // For derived classes (those with extends), we need to track this so super() is allowed
+        boolean savedInsideDerivedClassConstructor = insideDerivedClassConstructor;
+        insideDerivedClassConstructor = hasSuperClass;
+        Node constructorNode;
+        try {
+            constructorNode = transformFunction(constructorFn);
+        } finally {
+            insideDerivedClassConstructor = savedInsideDerivedClassConstructor;
+        }
 
         // Build up the class expression with methods
         // We create an object literal for methods to be added to the prototype
@@ -903,6 +914,8 @@ public final class IRFactory {
         FunctionNode fn = new FunctionNode();
         fn.setFunctionType(FunctionNode.FUNCTION_EXPRESSION);
         fn.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+        fn.setPosition(classNode.getPosition());
+        fn.setLength(classNode.getLength());
 
         // Create body
         Block body = new Block();
@@ -914,6 +927,9 @@ public final class IRFactory {
         //       constructor(...args) { super(...args); }
 
         fn.setBody(body);
+        // Override the bounds set by setBody - use the class bounds for the synthetic constructor
+        fn.setRawSourceBounds(
+                classNode.getPosition(), classNode.getPosition() + classNode.getLength());
         return fn;
     }
 
@@ -938,6 +954,10 @@ public final class IRFactory {
             }
             if (transformedTarget.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
                 call.putIntProp(Node.SUPER_PROPERTY_ACCESS, 1);
+            }
+            // Mark super() calls in derived class constructors
+            if (transformedTarget.getType() == Token.SUPER && insideDerivedClassConstructor) {
+                call.putIntProp(Node.SUPER_CONSTRUCTOR_CALL, 1);
             }
             return call;
         } finally {
@@ -1136,10 +1156,12 @@ public final class IRFactory {
 
     private Node transformLiteral(AstNode node) {
         // Trying to call super as a function. See 15.4.2 Static Semantics: HasDirectSuper
-        // Note that this will need to change when classes are implemented, because in a class
-        // constructor calling "super()" _is_ allowed.
-        if (node.getParent() instanceof FunctionCall && node.getType() == Token.SUPER)
-            parser.reportError("msg.super.shorthand.function");
+        // super() is only allowed in derived class constructors (classes with extends)
+        if (node.getParent() instanceof FunctionCall && node.getType() == Token.SUPER) {
+            if (!insideDerivedClassConstructor) {
+                parser.reportError("msg.super.shorthand.function");
+            }
+        }
         return node;
     }
 

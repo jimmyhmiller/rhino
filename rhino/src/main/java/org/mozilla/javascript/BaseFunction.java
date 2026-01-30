@@ -963,9 +963,19 @@ public class BaseFunction extends ScriptableObject implements Function {
     private Object nameValue = null;
     private boolean isGeneratorFunction = false;
     private Scriptable homeObject = null;
+    // For derived class constructors, stores the super class for super() calls
+    private Callable superConstructor = null;
 
     // For function object instances, attributes are
     //  {configurable:false, enumerable:false};
     // see ECMA 15.3.5.2
     private int prototypePropertyAttributes = PERMANENT | DONTENUM;
+
+    public void setSuperConstructor(Callable superConstructor) {
+        this.superConstructor = superConstructor;
+    }
+
+    public Callable getSuperConstructor() {
+        return superConstructor;
+    }
 }
