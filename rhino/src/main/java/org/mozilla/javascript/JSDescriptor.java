@@ -31,6 +31,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
     private static final int REQUIRES_ARGUMENT_OBJECT_FLAG = 1 << 11;
     private static final int DECLARED_AS_FUNCTION_EXPRESSION_FLAG = 1 << 12;
     private static final int SKIP_ANNEX_B_HOISTING_FLAG = 1 << 13;
+    private static final int IS_DERIVED_CLASS_CONSTRUCTOR_FLAG = 1 << 14;
 
     private final JSCode<T> code;
     private final JSCode<T> constructor;
@@ -83,6 +84,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
             boolean requiresArgumentObject,
             boolean declaredAsFunctionExpression,
             boolean skipAnnexBHoisting,
+            boolean isDerivedClassConstructor,
             SecurityController securityController,
             Object securityDomain,
             int functionType) {
@@ -108,6 +110,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         flags = flags | (requiresArgumentObject ? REQUIRES_ARGUMENT_OBJECT_FLAG : 0);
         flags = flags | (declaredAsFunctionExpression ? DECLARED_AS_FUNCTION_EXPRESSION_FLAG : 0);
         flags = flags | (skipAnnexBHoisting ? SKIP_ANNEX_B_HOISTING_FLAG : 0);
+        flags = flags | (isDerivedClassConstructor ? IS_DERIVED_CLASS_CONSTRUCTOR_FLAG : 0);
         this.flags = flags;
 
         this.sourceFile = sourceFile;
@@ -283,6 +286,14 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         return (flags & SKIP_ANNEX_B_HOISTING_FLAG) != 0;
     }
 
+    /**
+     * Returns true if this is a constructor for a derived class (class extends Something). In such
+     * constructors, accessing 'this' before super() is called should throw a ReferenceError.
+     */
+    public boolean isDerivedClassConstructor() {
+        return (flags & IS_DERIVED_CLASS_CONSTRUCTOR_FLAG) != 0;
+    }
+
     public SecurityController getSecurityController() {
         return securityController;
     }
@@ -336,6 +347,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         public boolean requiresArgumentObject;
         public boolean declaredAsFunctionExpression;
         public boolean skipAnnexBHoisting;
+        public boolean isDerivedClassConstructor;
         public SecurityController securityController;
         public Object securityDomain;
         public int functionType;
@@ -408,6 +420,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
                             requiresArgumentObject,
                             declaredAsFunctionExpression,
                             skipAnnexBHoisting,
+                            isDerivedClassConstructor,
                             securityController,
                             securityDomain,
                             functionType);

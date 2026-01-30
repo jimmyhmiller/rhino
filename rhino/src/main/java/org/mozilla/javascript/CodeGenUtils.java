@@ -47,6 +47,7 @@ public class CodeGenUtils {
         builder.requiresActivationFrame = fn.requiresActivation();
         builder.requiresArgumentObject = fn.requiresArgumentObject();
         builder.skipAnnexBHoisting = fn.getSkipAnnexBHoisting();
+        builder.isDerivedClassConstructor = fn.isDerivedClassConstructor();
         if (fn.getFunctionName() != null) {
             builder.name = fn.getName();
         }

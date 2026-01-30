@@ -217,8 +217,14 @@ class BodyCodegen {
         enterAreaStartLabel = -1;
         generatorStateLocal = -1;
         savedHomeObjectLocal = -1;
+        superCalledLocal = -1;
         generatorInitLabel = 0;
         generatorBodyStartLabel = 0;
+
+        // Check if this is a derived class constructor
+        if (scriptOrFn instanceof FunctionNode) {
+            isDerivedClassConstructor = ((FunctionNode) scriptOrFn).isDerivedClassConstructor();
+        }
     }
 
     /** Generate the prologue for a function or script. */
@@ -266,6 +272,16 @@ class BodyCodegen {
         // reserve 'args[]'
         argsLocal = firstFreeLocal++;
         localsMax = firstFreeLocal;
+
+        // For derived class constructors, allocate a local to track if super() has been called
+        // This enables TDZ checks when accessing 'this' before super()
+        if (isDerivedClassConstructor) {
+            superCalledLocal = firstFreeLocal++;
+            localsMax = firstFreeLocal;
+            // Initialize to 0 (false) - super() not yet called
+            cfw.addPush(0);
+            cfw.addIStore(superCalledLocal);
+        }
 
         // Generate Generator specific prelude
         if (isGenerator) {
@@ -1203,6 +1219,19 @@ class BodyCodegen {
 
             case Token.THIS:
                 {
+                    // In derived class constructors, 'this' is in TDZ until super() is called.
+                    // Check if super() has been called and throw ReferenceError if not.
+                    if (isDerivedClassConstructor) {
+                        cfw.addILoad(superCalledLocal);
+                        int superCalled = cfw.acquireLabel();
+                        cfw.add(ByteCode.IFNE, superCalled);
+                        // super() not called - throw ReferenceError
+                        cfw.addPush(
+                                "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+                        addScriptRuntimeInvoke(
+                                "throwReferenceErrorForThis", "(Ljava/lang/String;)V");
+                        cfw.markLabel(superCalled);
+                    }
                     // In strict mode, primitive 'this' values may be wrapped in PrimitiveThisValue.
                     // We need to unwrap to get the actual primitive for operations like instanceof.
                     cfw.addALoad(thisObjLocal);
@@ -3236,6 +3265,12 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + ")Lorg/mozilla/javascript/Scriptable;");
+
+        // Mark that super() has been called - 'this' is now accessible
+        if (isDerivedClassConstructor && superCalledLocal != -1) {
+            cfw.addPush(1);
+            cfw.addIStore(superCalledLocal);
+        }
     }
 
     private void visitSuperCall(Node node, Node child) {
@@ -3270,6 +3305,12 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + ")Lorg/mozilla/javascript/Scriptable;");
+
+        // Mark that super() has been called - 'this' is now accessible
+        if (isDerivedClassConstructor && superCalledLocal != -1) {
+            cfw.addPush(1);
+            cfw.addIStore(superCalledLocal);
+        }
     }
 
     private static int countArguments(Node firstArgChild) {
@@ -5681,8 +5722,10 @@ class BodyCodegen {
     private int generatorStateLocal;
     private int savedHomeObjectLocal;
     private int newTargetLocal;
+    private int superCalledLocal;
 
     private boolean isGenerator;
+    private boolean isDerivedClassConstructor;
     private int generatorSwitch;
     private int generatorInitLabel;
     private int generatorBodyStartLabel;

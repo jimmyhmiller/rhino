@@ -771,6 +771,11 @@ public final class IRFactory {
             constructorFn = createDefaultConstructor(classNode, hasSuperClass);
         }
 
+        // Mark derived class constructors for TDZ checking of 'this' before super()
+        if (hasSuperClass) {
+            constructorFn.setDerivedClassConstructor(true);
+        }
+
         // Set the function name to the class name
         if (classNode.getClassName() != null) {
             constructorFn.setFunctionName(classNode.getClassName());

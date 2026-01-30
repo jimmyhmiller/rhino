@@ -5776,6 +5776,14 @@ public class ScriptRuntime {
     }
 
     /**
+     * Throws a ReferenceError for accessing 'this' in a derived class constructor before super() is
+     * called. Used by compiled code to enforce TDZ semantics for 'this' in derived constructors.
+     */
+    public static void throwReferenceErrorForThis(String message) {
+        throw constructError("ReferenceError", message);
+    }
+
+    /**
      * Checks if a let/const variable is still in the Temporal Dead Zone (TDZ). If so, throws a
      * ReferenceError. Otherwise returns the value. Used by compiled code.
      */

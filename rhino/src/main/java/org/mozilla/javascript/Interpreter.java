@@ -79,6 +79,10 @@ public final class Interpreter extends Icode implements Evaluator {
         double[] originalArgsDbl;
         int originalArgCount;
 
+        // For derived class constructors: tracks whether super() has been called.
+        // Accessing 'this' before super() in a derived class constructor throws ReferenceError.
+        boolean superCalled;
+
         // The values that change during interpretation
 
         Object result;
@@ -4280,6 +4284,14 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoThis extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // In derived class constructors, 'this' is in TDZ until super() is called.
+            // Accessing 'this' before super() throws a ReferenceError.
+            JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+            if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            }
             // In strict mode, primitive 'this' values are wrapped in PrimitiveThisValue.
             // When accessing 'this', we need to return the actual primitive value
             // so that operations like 'this instanceof String' return false.
@@ -4949,6 +4961,9 @@ public final class Interpreter extends Icode implements Evaluator {
                 result = superConstructor.call(cx, frame.scope, frame.thisObj, args);
             }
 
+            // Mark that super() has been called - 'this' is now accessible
+            frame.superCalled = true;
+
             // The result of super() is 'this' (or the return value if the parent constructor
             // explicitly returns an object)
             if (result instanceof Scriptable) {
@@ -5004,6 +5019,9 @@ public final class Interpreter extends Icode implements Evaluator {
                 result = superConstructor.call(cx, frame.scope, frame.thisObj, args);
             }
 
+            // Mark that super() has been called - 'this' is now accessible
+            frame.superCalled = true;
+
             // The result of super() is 'this' (or the return value if the parent constructor
             // explicitly returns an object)
             if (result instanceof Scriptable) {
@@ -5056,6 +5074,9 @@ public final class Interpreter extends Icode implements Evaluator {
             } else {
                 result = superConstructor.call(cx, frame.scope, frame.thisObj, args);
             }
+
+            // Mark that super() has been called - 'this' is now accessible
+            frame.superCalled = true;
 
             // The result of super() is 'this' (or the return value if the parent constructor
             // explicitly returns an object)

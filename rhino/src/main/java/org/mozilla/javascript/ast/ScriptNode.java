@@ -40,6 +40,7 @@ public class ScriptNode extends Scope {
     private int tempNumber = 0;
     private boolean inStrictMode;
     private boolean isMethodDefinition;
+    private boolean isDerivedClassConstructor;
 
     {
         // during parsing, a ScriptNode or FunctionNode's top scope is itself
@@ -354,6 +355,18 @@ public class ScriptNode extends Scope {
 
     public void setMethodDefinition(boolean methodDefinition) {
         isMethodDefinition = methodDefinition;
+    }
+
+    /**
+     * Returns true if this is a constructor for a derived class (class extends Something). In such
+     * constructors, accessing 'this' before super() is called should throw a ReferenceError.
+     */
+    public boolean isDerivedClassConstructor() {
+        return isDerivedClassConstructor;
+    }
+
+    public void setDerivedClassConstructor(boolean derivedClassConstructor) {
+        isDerivedClassConstructor = derivedClassConstructor;
     }
 
     @Override
