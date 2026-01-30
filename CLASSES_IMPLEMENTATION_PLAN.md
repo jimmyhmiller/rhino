@@ -1,440 +1,273 @@
 # ES6 Classes Implementation Plan for Rhino
 
-## Overview
+This document tracks the remaining work to complete ES6 class support in Rhino.
 
-This document tracks the implementation of ES6 classes in Rhino. Classes are syntactic sugar over JavaScript's prototype-based inheritance, which Rhino already supports well.
-
-**Current State**: ES6 classes are substantially complete! Classes support constructors, methods, getters, setters, static members, inheritance via `extends`, `super()` constructor calls, computed method names, generator methods, and **proper subclassing of built-in types** (Map, Set, Array, etc.).
-
-**Test262 Progress** (as of latest commit):
-- `language/statements/class`: 691 passing (3675 still failing) - 84.17% failing
-- `language/expressions/super`: 62 passing (32 still failing) - 65.96% passing
-- `built-ins/Set`: 363 passing (18 still failing) - 95.28% passing (subclass tests now work!)
-- Total: 51 tests fixed, net +22 improvement from default constructor work
-
-**Existing Infrastructure We Can Leverage**:
-- `super` keyword works in object literal methods
-- Home objects fully implemented for `super` binding
-- Method shorthand syntax works (`{foo() {}}`)
-- Getters/setters work in object literals
-- Computed property names work
-- Generator methods work
+**Async methods are out of scope** (requires async/await feature first).
 
 ---
 
-## Phase 1: Basic Class Declarations (No Inheritance)
+## Current Status
 
-**Goal**: Parse and execute simple classes with constructors and methods.
+**test262 class tests:** 3,586 / 4,366 failing (82%)
+**Last updated:** After implementing TypeError for calling class constructors without `new`
+
+### What's Working
+
+- [x] Basic class declarations and expressions
+- [x] Named and anonymous class expressions
+- [x] Constructor methods
+- [x] Instance methods
+- [x] Static methods
+- [x] Getters and setters (instance and static)
+- [x] Computed method names (`[expr]() {}`)
+- [x] Generator methods (`*method() {}`)
+- [x] `extends` clause with prototype chain setup
+- [x] `super()` constructor calls
+- [x] Default constructor argument forwarding (`...args`)
+- [x] Subclassing built-in types (Map, Set, Array, etc.)
+- [x] `instanceof` checks
+- [x] TypeError when calling constructor without `new`
+- [x] TDZ for `this` before `super()` in derived constructors
+- [x] Derived class constructor return value handling
+- [x] Prototype property is non-writable
+
+---
+
+## Remaining Work (Priority Order)
+
+### Phase 1: Property Descriptors ⚡ HIGH IMPACT
+
+**Problem:** Class methods and accessors don't have correct property descriptors per ES6 spec.
+
+**Failing Tests:**
+- `definition/methods.js`
+- `definition/accessors.js`
+- `definition/getters-prop-desc.js`
+- `definition/setters-prop-desc.js`
+
+**Current behavior vs Expected:**
 
 ```javascript
-class Foo {
-  constructor(x) {
-    this.x = x;
+class C {
+  method() {}
+  get x() {}
+  set x(v) {}
+}
+
+// Methods - EXPECTED:
+Object.getOwnPropertyDescriptor(C.prototype, 'method')
+// { value: fn, writable: true, enumerable: false, configurable: true }
+// 'prototype' in C.prototype.method === false
+
+// Getters/Setters - EXPECTED:
+Object.getOwnPropertyDescriptor(C.prototype, 'x')
+// { get: fn, set: fn, enumerable: false, configurable: true }
+// 'prototype' in getter === false
+// 'prototype' in setter === false
+```
+
+**Issues to fix:**
+1. Methods are currently **enumerable** (should be non-enumerable)
+2. Method functions have a **prototype** property (should not have one)
+3. Accessor functions have a **prototype** property (should not have one)
+
+**Files to investigate:**
+- `ScriptRuntime.createClass()` - how methods are defined on prototype
+- `JSFunction` - property creation
+- `BaseFunction.createPrototypeProperty()` - when prototype is added
+
+---
+
+### Phase 2: Super Property Access ⚡ HIGH IMPACT
+
+**Problem:** `super.property` and `super.method()` don't work correctly in class methods.
+
+**Failing Tests:**
+- `super/in-methods.js`
+- `super/in-getter.js`
+- `super/in-setter.js`
+- `super/in-static-methods.js`
+- `super/in-static-getter.js`
+- `super/in-static-setter.js`
+
+**Expected behavior:**
+```javascript
+class B {
+  method() { return 1; }
+  get x() { return 2; }
+}
+class C extends B {
+  method() {
+    super.x;         // Should return 2
+    super.method();  // Should return 1
   }
-  getX() {
-    return this.x;
+}
+new C().method();  // Should work
+```
+
+**Implementation notes:**
+- `super()` constructor calls already work
+- `homeObject` is already set on class methods
+- Need to verify `Icode_SUPER_GETPROP` / `Token.SUPER_GETPROP` handling
+- Super property should look up from `homeObject.__proto__`
+
+**Files to investigate:**
+- `Interpreter.java` - `DoSuperGetProp`, `DoSuperGetElem`
+- `BodyCodegen.java` - compiled super property access
+- `ScriptRuntime.java` - super property resolution
+
+---
+
+### Phase 3: Static Method name/length Precedence 🔶 MEDIUM
+
+**Problem:** Static methods named `length` or `name` should override constructor's built-in properties.
+
+**Failing Tests:**
+- `definition/fn-length-static-precedence.js`
+- `definition/fn-name-static-precedence.js`
+
+**Expected behavior:**
+```javascript
+class C {
+  static length() { return 42; }
+  static get name() { return 'custom'; }
+}
+typeof C.length  // Should be 'function', not 'number'
+C.length()       // Should return 42
+C.name           // Should be 'custom', not 'C'
+```
+
+**Implementation notes:**
+- Constructor gets `length` (param count) and `name` (class name) automatically
+- Static methods/getters defined later should override these
+- Either make these properties configurable, or define statics after constructor setup
+
+---
+
+### Phase 4: Constructor Strict Mode 🔶 MEDIUM
+
+**Problem:** Class constructors should always execute in strict mode, even in non-strict scripts.
+
+**Failing Tests:**
+- `definition/constructor-strict-by-default.js` (non-strict mode)
+
+**Expected behavior:**
+```javascript
+// Even in a non-strict script:
+class C {
+  constructor() {
+    undeclaredVar = 1;  // Should throw ReferenceError
   }
 }
 ```
 
-### Tasks
+**Implementation notes:**
+- Class constructors should have `isStrict = true` regardless of enclosing scope
+- Check `IRFactory.transformClass()` and parser for strict mode handling
 
-- [x] **1.1 Token Updates** ✅ DONE
-  - Added `Token.CLASS`, `Token.EXTENDS`, `Token.STATIC` to `Token.java`
-  - Updated `TokenStream.java` to return these tokens in ES6 mode
-  - Added token names to `typeToName()` and `keywordToName()`
+---
 
-- [x] **1.2 AST Nodes** ✅ DONE
-  - Created `ClassNode` AST node (handles both declarations and expressions)
-  - Created `ClassElement` AST node (for class methods)
-  - Files: `rhino/src/main/java/org/mozilla/javascript/ast/ClassNode.java`
-  - Files: `rhino/src/main/java/org/mozilla/javascript/ast/ClassElement.java`
+### Phase 5: Inheritance Validation 🔶 MEDIUM
 
-- [x] **1.3 Parser - Class Declaration** ✅ DONE
-  - Added `classDeclaration()` method to parse class syntax
-  - Added `parseClassElement()` to parse individual class members
-  - Added `parseClassMethod()` to parse class methods
-  - Added `classPropertyName()` to parse property names
-  - Class declarations properly create TDZ bindings with `Token.LET`
+**Problem:** Invalid `extends` expressions should throw TypeError at class creation time.
 
-- [x] **1.4 Parser - Class Expression** ✅ DONE
-  - Class expressions work in expression position
-  - Named and anonymous class expressions both work
-  - Hooks added in `primaryExpr()` for class expressions
+**Failing Tests:**
+- `definition/invalid-extends.js`
 
-- [x] **1.5 IRFactory Transformation** ✅ DONE
-  - Basic transformation of class to constructor function works
-  - Constructor is properly extracted from class body
-  - Default empty constructor is created when none provided
-  - Class declarations use `SETLETINIT` for proper TDZ handling
-  - Methods added to prototype via `ScriptRuntime.createClass()`
-  - Added `Icode_CLASS_DEF` for interpreter bytecode
-  - Added `visitClassLiteral()` in BodyCodegen for JVM bytecode
+**Expected behavior:**
+```javascript
+class C extends 42 {}           // TypeError: not a constructor
+class C extends Math.abs {}     // TypeError: prototype is not an object
 
-- [x] **1.6 Basic Tests** ✅ DONE
-  - Basic class declaration with constructor works ✅
-  - Class expression works ✅
-  - Named class expression works ✅
-  - Instance methods work ✅
-  - Getters/setters work ✅
-  - Static methods work ✅
-  - Method chaining works ✅
+function F() {}
+F.prototype = 42;
+class C extends F {}            // TypeError: prototype is not an object
+```
 
-### Verification
+**Implementation notes:**
+- Validate at class creation time in `ScriptRuntime.createClass()`
+- Check: extends target is a constructor (or null)
+- Check: extends target's `.prototype` is null or an object
+
+---
+
+### Phase 6: Subclassing Edge Cases 🔷 LOWER
+
+**Failing Tests:**
+- `subclass/class-definition-null-proto.js`
+- `subclass/class-definition-null-proto-this.js`
+- `subclass/builtin-objects/ArrayBuffer/regular-subclassing.js`
+- `subclass/derived-class-return-override-*.js` (some)
+
+**Issues:**
+- `class C extends null {}` needs special handling
+- Subclassing ArrayBuffer, Proxy
+- More constructor return value edge cases
+
+---
+
+### Phase 7: Generator Methods Edge Cases 🔷 LOWER
+
+**Failing Tests:**
+- `definition/methods-gen-yield-*.js` (5 tests)
+- `gen-method-static/dflt-params-*.js`
+
+**Issues:**
+- Yield expressions in generator methods
+- Default parameters with generators
+- Yield* with newlines
+
+---
+
+### Phase 8: Destructuring in Method Parameters 🔷 LOWER
+
+**Failing Tests:**
+- `dstr/meth-*.js` (many tests)
+
+**Expected behavior:**
+```javascript
+class C {
+  method({a, b}) { return a + b; }
+}
+```
+
+**Notes:** This may be a general destructuring issue, not class-specific.
+
+---
+
+## Quick Reference
+
+### Running Specific Tests
 ```bash
+# Run specific test pattern
 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/statements/class/definition/*" -Dtest262raw --rerun-tasks
+  -Dtest262filter="language/statements/class/definition/methods*" -Dtest262raw
+
+# Regenerate test262.properties after fixes
+RHINO_TEST_JAVA_VERSION=11 ./gradlew :tests:test \
+  --tests org.mozilla.javascript.tests.Test262SuiteTest \
+  --rerun-tasks -DupdateTest262properties
 ```
 
----
-
-## Phase 2: Static Members
-
-**Goal**: Support static methods and static fields.
-
-```javascript
-class Foo {
-  static staticMethod() {
-    return 42;
-  }
-  static staticField = 'hello';
-}
-```
-
-### Tasks
-
-- [x] **2.1 Parse Static Methods** ✅ DONE
-  - `static` keyword recognized before method definitions
-  - `isStatic` flag tracked in ClassElement AST node
-  - File: `rhino/src/main/java/org/mozilla/javascript/Parser.java`
-
-- [ ] **2.2 Parse Static Fields** (deferred - newer feature)
-  - Parse `static field = value;` syntax
-  - This is a newer feature, may defer
-
-- [x] **2.3 IRFactory - Static Members** ✅ DONE
-  - Static methods go on constructor function, not prototype
-  - Handled by `ScriptRuntime.createClass()` - fills staticMethods on constructor
-
-- [x] **2.4 Tests** ✅ DONE
-  - Static methods work in test suite
-
----
-
-## Phase 3: Inheritance (extends)
-
-**Goal**: Support class inheritance with `extends`.
-
-```javascript
-class Animal {
-  constructor(name) {
-    this.name = name;
-  }
-  speak() {
-    return this.name + ' makes a sound';
-  }
-}
-
-class Dog extends Animal {
-  speak() {
-    return this.name + ' barks';
-  }
-}
-```
-
-### Tasks
-
-- [x] **3.1 Parse extends Clause** ✅ DONE
-  - Parse `class Foo extends Bar { }`
-  - Store superclass expression in ClassNode AST
-  - File: `rhino/src/main/java/org/mozilla/javascript/Parser.java`
-
-- [x] **3.2 IRFactory - Prototype Chain Setup** ✅ DONE
-  - `ScriptRuntime.createClass()` sets up prototype chain correctly
-  - `Dog.prototype = Object.create(Animal.prototype)` equivalent
-  - `Dog.prototype.constructor = Dog` set correctly
-  - Handles extends with expressions: `class Foo extends getBaseClass() { }`
-  - Class prototype property is non-writable per ES6 spec
-
-- [x] **3.3 Tests** ✅ DONE
-  - Many test262 subclass tests now passing
-
----
-
-## Phase 4: super() in Constructors
-
-**Goal**: Allow calling parent constructor with `super()`.
-
-```javascript
-class Dog extends Animal {
-  constructor(name, breed) {
-    super(name);  // Call Animal constructor
-    this.breed = breed;
-  }
-}
-```
-
-### Tasks
-
-- [x] **4.1 Enable super() Calls** ✅ DONE
-  - Parser allows `super` in class constructors by parsing with `isMethodDefinition=true`
-  - IRFactory tracks `insideDerivedClassConstructor` context
-  - Marks super() calls with `SUPER_CONSTRUCTOR_CALL` node property
-  - Files: `Parser.java`, `IRFactory.java`, `Node.java`
-
-- [x] **4.2 Runtime - super() Semantics** ✅ DONE (explicit `this` access)
-  - `super()` calls parent constructor correctly
-  - Added `isDerivedClassConstructor` flag to `JSDescriptor` and `ScriptNode`
-  - Interpreter tracks `superCalled` state in `CallFrame`
-  - `DoThis` checks TDZ before returning `thisObj`
-  - BodyCodegen generates TDZ check before `this` access in derived constructors
-  - Files: `JSDescriptor.java`, `ScriptNode.java`, `IRFactory.java`, `CodeGenUtils.java`, `Interpreter.java`, `BodyCodegen.java`, `ScriptRuntime.java`
-  - NOTE: Implicit return TDZ (constructor returning undefined without super()) not yet implemented
-
-- [x] **4.3 super() Execution** ✅ DONE
-  - Interpreter: Added `Icode_SUPER_CALL` instruction and `DoSuperCall` handler
-  - Compiler: Added `visitSuperCall()` in BodyCodegen calling `ScriptRuntime.callSuperConstructor()`
-  - `BaseFunction` stores `superConstructor` reference for runtime lookup
-  - Files: `Icode.java`, `CodeGenerator.java`, `Interpreter.java`, `BodyCodegen.java`, `ScriptRuntime.java`, `BaseFunction.java`
-
-- [x] **4.4 Default Constructor Argument Forwarding** ✅ DONE
-  - Default constructors now generate `return super(...args)` per ES6 spec
-  - Added `DEFAULT_CTOR_SUPER_CALL` node property to mark special super() calls
-  - Interpreter stores `originalArgs`/`originalArgCount` in CallFrame for forwarding
-  - Added `Icode_DEFAULT_CTOR_SUPER_CALL` instruction
-  - Files: `IRFactory.java`, `Node.java`, `Icode.java`, `CodeGenerator.java`, `Interpreter.java`
-
-- [x] **4.5 super() for Built-in Types** ✅ DONE
-  - Added `superCall()` method to `BaseFunction` for [[Construct]] semantics with existing thisObj
-  - `LambdaConstructor.superCall()` uses `targetConstructor.construct()` for proper built-in initialization
-  - Built-in types (Map, Set, Array, etc.) can now be properly subclassed
-  - `new SubMap()` where `class SubMap extends Map {}` now works correctly
-  - Files: `BaseFunction.java`, `LambdaConstructor.java`, `ScriptRuntime.java`, `Interpreter.java`
-
-- [x] **4.6 Tests** ✅ DONE
-  - 51 test262 tests now pass with default constructor + super() improvements
-  - `language/expressions/super`: 54 → 32 failures (22 tests fixed - spread tests)
-  - Set subclass tests: 17 tests now passing
-  - RegExp named-groups subclass tests: 2 tests now passing
-  - Error subclass tests: 6 tests now passing
-
----
-
-## Phase 5: super.method() in Class Methods
-
-**Goal**: Allow calling parent methods via `super.method()`.
-
-```javascript
-class Dog extends Animal {
-  speak() {
-    return super.speak() + ' (woof)';
-  }
-}
-```
-
-### Tasks
-
-- [x] **5.1 Verify Existing super Property Access** ✅ DONE
-  - `super.prop` works via existing home object infrastructure
-  - Class methods are marked as method definitions, getting homeObject set
-
-- [x] **5.2 Fix Any Issues** ✅ DONE
-  - `super` resolves to parent prototype correctly in class methods
-  - `this` binding is preserved in super method calls
-  - Existing infrastructure from object literal methods works for classes
-
-- [x] **5.3 Tests** ✅ DONE
-  - Super property access tests passing in test262
-
----
-
-## Phase 6: Getters and Setters
-
-**Goal**: Support getter/setter methods in classes.
-
-```javascript
-class Foo {
-  get value() {
-    return this._value;
-  }
-  set value(v) {
-    this._value = v;
-  }
-}
-```
-
-### Tasks
-
-- [x] **6.1 Parse get/set in Class Body** ✅ DONE
-  - Reuses existing getter/setter parsing from object literals
-  - Properly marked with GET_ENTRY and SET_ENTRY in parser
-  - File: `rhino/src/main/java/org/mozilla/javascript/Parser.java`
-
-- [x] **6.2 IRFactory - Define Accessors** ✅ DONE
-  - `ScriptRuntime.createClass()` uses `fillObjectLiteral` which handles
-    getters/setters via `setGetterOrSetter()` on ScriptableObject
-
-- [x] **6.3 Tests** ✅ DONE
-  - Getters and setters work in test suite
-
----
-
-## Phase 7: Computed Method Names
-
-**Goal**: Support computed property names for methods.
-
-```javascript
-const methodName = 'dynamicMethod';
-class Foo {
-  [methodName]() {
-    return 42;
-  }
-  [Symbol.iterator]() {
-    // ...
-  }
-}
-```
-
-### Tasks
-
-- [x] **7.1 Parse Computed Method Names** ✅ DONE
-  - Reuses computed property name parsing from object literals
-  - `classPropertyName()` already handles `Token.LB` to create `ComputedPropertyKey`
-  - `parseClassElement()` sets `isComputed` flag on `ClassElement`
-  - `IRFactory.buildClassExpression()` handles computed keys via `propKey == null` path
-  - All computed method variations work: methods, getters, setters, static methods
-
-- [x] **7.2 Tests** ✅ DONE
-  - 228/240 cpn-class-decl tests passing (95%)
-  - Failures are unrelated: async (not supported), yield expressions (bytecode issue), class fields (not implemented)
-  - Symbol as method name works
-  - Computed expressions (`['foo' + 'bar']`) work
-  - Static computed methods work
-  - Computed getters/setters work
-
----
-
-## Phase 8: Generator and Async Methods
-
-**Goal**: Support generator methods in classes.
-
-```javascript
-class Foo {
-  *generator() {
-    yield 1;
-    yield 2;
-  }
-}
-```
-
-### Tasks
-
-- [x] **8.1 Generator Methods** ✅ DONE
-  - Parser handles `*methodName()` via `matchToken(Token.MUL)` in `parseClassElement()`
-  - Sets `isGenerator = true` and calls `fn.setIsES6Generator()`
-  - 48/68 generator method tests passing (70%)
-  - Known failures are edge cases with `yield*` after/before newlines, not core generator functionality
-  - Static generator methods also work
-
-- [ ] **8.2 Async Methods** (requires async/await support)
-  - Deferred until async/await is implemented in Rhino
-
----
-
-## Phase 9: Private Fields and Methods (Future/Optional)
-
-**Goal**: Support private class members (newer ES feature).
-
-```javascript
-class Foo {
-  #privateField = 42;
-  #privateMethod() {
-    return this.#privateField;
-  }
-}
-```
-
-This is a more recent addition to JavaScript and may be deferred.
-
----
-
-## Phase 10: Class Fields (Future/Optional)
-
-**Goal**: Support public instance fields.
-
-```javascript
-class Foo {
-  instanceField = 42;
-  anotherField;
-}
-```
-
-### Tasks
-
-- [ ] **10.1 Parse Field Declarations**
-  - Parse `fieldName = value;` in class body
-  - Parse `fieldName;` (no initializer)
-
-- [ ] **10.2 IRFactory - Field Initialization**
-  - Fields initialize in constructor, before constructor body runs
-
----
-
-## Test Progress Tracking
-
-| Category | Initial | After Phase 1-2 | After Phase 3-5 | After Phase 4 Complete | % Passing |
-|----------|---------|-----------------|-----------------|------------------------|-----------|
-| language/statements/class | 0/4366 | 168/4366 | 706/4366 | 691/4366 | 15.83% |
-| language/expressions/class | 0/4059 | 124/4059 | 617/4059 | 615/4059 | 15.15% |
-| language/expressions/super | ~21/94 | ~21/94 | 40/94 | 62/94 | 65.96% |
-| built-ins/Set | - | - | 348/381 | 363/381 | 95.28% |
-| built-ins/RegExp | - | - | 943/1868 | 945/1868 | 50.59% |
-
-**Key Improvements from Default Constructor + super() Implementation**:
-- `language/expressions/super`: 54 → 32 failures (22 super spread tests fixed)
-- `built-ins/Set`: 33 → 18 failures (15 subclass tests fixed)
-- `built-ins/RegExp`: 925 → 923 failures (2 named-groups subclass tests fixed)
-- `language/statements/class`: 3660 → 3675 failures (some new failures for "super-must-be-called" TDZ)
-- Error subclass tests: 6 tests now passing
-- default-constructor-spread-override: now passing
-- **Total: 51 tests now passing, net +22 improvement**
-
----
-
-## Key Files Reference
-
+### Key Files
 | File | Purpose |
 |------|---------|
-| `Token.java` | Token type definitions |
-| `TokenStream.java` | Lexer - keyword recognition |
-| `Parser.java` | Parser - syntax analysis |
-| `ast/*.java` | AST node definitions |
-| `IRFactory.java` | AST to IR transformation |
-| `CodeGenerator.java` | IR to bytecode (interpreter) |
-| `Interpreter.java` | Bytecode execution |
-| `BodyCodegen.java` | IR to JVM bytecode (compiled) |
-| `ScriptRuntime.java` | Runtime helpers |
+| `ScriptRuntime.java` | `createClass()` method, super property resolution |
+| `IRFactory.java` | Class AST transformation |
+| `JSFunction.java` | Function property handling |
+| `BaseFunction.java` | Prototype property, `length`/`name` |
+| `Interpreter.java` | Super property opcodes |
+| `BodyCodegen.java` | Compiled super property handling |
+| `CodeGenUtils.java` | Descriptor flags |
 
 ---
 
-## Notes
+## Test Progress
 
-- Classes must throw TypeError when called without `new` (unlike regular functions)
-- Class bodies are implicitly in strict mode
-- Class declarations are not hoisted like function declarations
-- The `constructor` method name is special and becomes the class's [[Call]] behavior
-
-## Next Steps
-
-1. **Complete implicit return TDZ**: Handle derived constructor returning without super()
-   - When a derived class constructor returns undefined (or falls through) without calling super(), it should throw ReferenceError
-   - This requires checking superCalled state at function return time
-   - Would fix tests like `constructor-return-undefined-throws.js`
-
-2. **Class constructors must throw TypeError when called without `new`**
-   - Currently classes can be called as functions (incorrectly)
-   - Would fix several test262 failures
-
-3. **Phase 8.2**: Async methods (requires async/await support in Rhino first)
-
-4. **Phase 9-10**: Private fields and class fields (newer features, lower priority)
+| Phase | Tests Fixed | Status |
+|-------|-------------|--------|
+| Property descriptors | ~10 tests | Not started |
+| Super property access | ~7 tests | Not started |
+| name/length precedence | ~4 tests | Not started |
+| Strict mode | ~2 tests | Not started |
+| Invalid extends | ~3 tests | Not started |

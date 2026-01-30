@@ -1,5 +1,9 @@
 @AGENTS.md
 
+## ES6 Classes Implementation
+
+See [CLASSES_IMPLEMENTATION_PLAN.md](CLASSES_IMPLEMENTATION_PLAN.md) for the remaining work to complete ES6 class support.
+
 ## Fixing test262 tests
 
 ### Understanding test262.properties format

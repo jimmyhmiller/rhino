@@ -234,61 +234,69 @@ public class Test262JsonRunner {
         String relativePath =
                 testDir.toPath().relativize(testFile.toPath()).toString().replace("\\", "/");
 
-        Test262Case testCase;
         try {
-            testCase = Test262Case.fromSource(testFile, testHarnessDir);
-        } catch (YAMLException | IOException ex) {
-            System.err.printf("Error parsing %s: %s%n", relativePath, ex.getMessage());
+            Test262Case testCase;
+            try {
+                testCase = Test262Case.fromSource(testFile, testHarnessDir);
+            } catch (YAMLException | IOException ex) {
+                System.err.printf("Error parsing %s: %s%n", relativePath, ex.getMessage());
+                failCount.incrementAndGet();
+                testResults.put(relativePath, false);
+                return;
+            }
+
+            // Check for unsupported features
+            for (String feature : testCase.features) {
+                if (UNSUPPORTED_FEATURES.contains(feature)) {
+                    skipCount.incrementAndGet();
+                    return; // Don't add to results - skipped tests not counted
+                }
+            }
+
+            // Check for unsupported flags
+            if (testCase.hasFlag("module") || testCase.hasFlag("async")) {
+                skipCount.incrementAndGet();
+                return;
+            }
+
+            // Try all 4 modes - pass if ANY succeeds
+            boolean passed = false;
+
+            for (boolean interpreted : new boolean[] {true, false}) {
+                if (passed) break;
+
+                boolean canRunStrict =
+                        !testCase.hasFlag(FLAG_NO_STRICT) && !testCase.hasFlag(FLAG_RAW);
+                boolean canRunNonStrict =
+                        !testCase.hasFlag(FLAG_ONLY_STRICT) || testCase.hasFlag(FLAG_RAW);
+
+                if (canRunNonStrict) {
+                    if (runSingleTest(testCase, relativePath, interpreted, false)) {
+                        passed = true;
+                        break;
+                    }
+                }
+
+                if (canRunStrict) {
+                    if (runSingleTest(testCase, relativePath, interpreted, true)) {
+                        passed = true;
+                        break;
+                    }
+                }
+            }
+
+            if (passed) {
+                passCount.incrementAndGet();
+            } else {
+                failCount.incrementAndGet();
+            }
+            testResults.put(relativePath, passed);
+        } catch (Exception e) {
+            // Catch-all for any unexpected errors - count as failure
+            System.err.printf("Unexpected error in %s: %s%n", relativePath, e.getMessage());
             failCount.incrementAndGet();
             testResults.put(relativePath, false);
-            return;
         }
-
-        // Check for unsupported features
-        for (String feature : testCase.features) {
-            if (UNSUPPORTED_FEATURES.contains(feature)) {
-                skipCount.incrementAndGet();
-                return; // Don't add to results - skipped tests not counted
-            }
-        }
-
-        // Check for unsupported flags
-        if (testCase.hasFlag("module") || testCase.hasFlag("async")) {
-            skipCount.incrementAndGet();
-            return;
-        }
-
-        // Try all 4 modes - pass if ANY succeeds
-        boolean passed = false;
-
-        for (boolean interpreted : new boolean[] {true, false}) {
-            if (passed) break;
-
-            boolean canRunStrict = !testCase.hasFlag(FLAG_NO_STRICT) && !testCase.hasFlag(FLAG_RAW);
-            boolean canRunNonStrict =
-                    !testCase.hasFlag(FLAG_ONLY_STRICT) || testCase.hasFlag(FLAG_RAW);
-
-            if (canRunNonStrict) {
-                if (runSingleTest(testCase, relativePath, interpreted, false)) {
-                    passed = true;
-                    break;
-                }
-            }
-
-            if (canRunStrict) {
-                if (runSingleTest(testCase, relativePath, interpreted, true)) {
-                    passed = true;
-                    break;
-                }
-            }
-        }
-
-        if (passed) {
-            passCount.incrementAndGet();
-        } else {
-            failCount.incrementAndGet();
-        }
-        testResults.put(relativePath, passed);
     }
 
     private boolean runSingleTest(
@@ -343,20 +351,25 @@ public class Test262JsonRunner {
 
         for (String harnessFile : testCase.harnessFiles) {
             String harnessKey = harnessFile + '-' + interpretedMode;
-            Script harnessScript =
-                    HARNESS_SCRIPT_CACHE.computeIfAbsent(
-                            harnessKey,
-                            k -> {
-                                String harnessPath = testHarnessDir + harnessFile;
-                                try (Reader reader = new FileReader(harnessPath)) {
-                                    String script = Kit.readReader(reader);
-                                    return cx.compileString(script, harnessPath, 1, null);
-                                } catch (IOException ioe) {
-                                    throw new RuntimeException(
-                                            "Error reading harness file " + harnessPath, ioe);
-                                }
-                            });
-            harnessScript.exec(cx, scope, scope);
+            Script harnessScript;
+            try {
+                harnessScript =
+                        HARNESS_SCRIPT_CACHE.computeIfAbsent(
+                                harnessKey,
+                                k -> {
+                                    String harnessPath = testHarnessDir + harnessFile;
+                                    try (Reader reader = new FileReader(harnessPath)) {
+                                        String script = Kit.readReader(reader);
+                                        return cx.compileString(script, harnessPath, 1, null);
+                                    } catch (IOException ioe) {
+                                        throw new RuntimeException(
+                                                "Error reading harness file " + harnessPath, ioe);
+                                    }
+                                });
+                harnessScript.exec(cx, scope, scope);
+            } catch (Exception e) {
+                throw new RuntimeException("Error loading harness " + harnessFile, e);
+            }
         }
 
         $262 proto = $262.init(cx, scope);
@@ -731,6 +744,9 @@ public class Test262JsonRunner {
                         testSource.substring(
                                 testSource.indexOf("/*---") + 5, testSource.indexOf("---*/"));
                 metadata = (Map<String, Object>) YAML.load(metadataStr);
+                if (metadata == null) {
+                    metadata = new HashMap<>();
+                }
             } else {
                 metadata = new HashMap<>();
             }
