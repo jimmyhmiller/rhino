@@ -2026,7 +2026,17 @@ public abstract class ScriptableObject extends SlotMapOwner
             }
             fslot.value = Undefined.instance;
         } else if (slot instanceof BuiltInSlot) {
-            if (info.value != NOT_FOUND) {
+            // When defining a data descriptor on a BuiltInSlot, we need to replace the slot
+            // with a regular data slot. This is necessary for cases like:
+            // - static length() method overriding Function.length
+            // - static name() method overriding Function.name
+            if (info.isDataDescriptor()) {
+                slot = new Slot(slot);
+                if (info.value != NOT_FOUND) {
+                    slot.value = info.value;
+                }
+            } else if (info.value != NOT_FOUND) {
+                // For partial descriptors without value, use the setter
                 ((BuiltInSlot<?>) slot).setValueFromDescriptor(info.value, owner, owner, true);
             }
         } else {

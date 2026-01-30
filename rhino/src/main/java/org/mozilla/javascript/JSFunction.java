@@ -60,7 +60,8 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         return descriptor.isES6Generator()
                 || descriptor.isStrict()
                 || descriptor.hasLexicalThis() // arrow functions
-                || descriptor.isShorthand(); // method definitions
+                || descriptor.isShorthand() // method definitions
+                || descriptor.isClassConstructor(); // ES6 class constructors (always strict)
     }
 
     @Override

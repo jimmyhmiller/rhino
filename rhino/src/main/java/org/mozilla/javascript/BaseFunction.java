@@ -254,16 +254,18 @@ public class BaseFunction extends ScriptableObject implements Function {
     }
 
     /**
-     * Removes the "arguments" and "caller" properties for ES6 restricted functions (generators,
-     * strict functions, arrow functions, methods). These functions should not have own "arguments"
-     * or "caller" properties - they should inherit the throwing accessor from Function.prototype.
-     * This is needed because the properties are added during construction before we know if the
-     * function is restricted.
+     * Removes the "arguments", "caller", and "arity" properties for ES6 restricted functions
+     * (generators, strict functions, arrow functions, methods, class constructors). These functions
+     * should not have own "arguments" or "caller" properties - they should inherit the throwing
+     * accessor from Function.prototype. "arity" is a non-standard legacy property that also should
+     * not appear on these functions. This is needed because the properties are added during
+     * construction before we know if the function is restricted.
      */
     protected void removeRestrictedPropertiesForGenerator() {
         // Force remove the slots by returning null from compute, bypassing PERMANENT check
         getMap().compute(this, "arguments", 0, (k, i, s, m, o) -> null);
         getMap().compute(this, "caller", 0, (k, i, s, m, o) -> null);
+        getMap().compute(this, "arity", 0, (k, i, s, m, o) -> null);
     }
 
     private static Object lengthGetter(BaseFunction function, Scriptable start) {

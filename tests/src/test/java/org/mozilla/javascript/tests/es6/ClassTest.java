@@ -239,4 +239,47 @@ public class ClassTest {
             assertEquals("Rex", result);
         }
     }
+
+    @Test
+    public void testStaticNameMethodOverridesClassName() {
+        // static name() method should override the default class name property
+        Object result =
+                eval(
+                        "class A {\n"
+                                + "  static name() { return 'custom'; }\n"
+                                + "}\n"
+                                + "typeof A.name;");
+        assertEquals("function", result);
+    }
+
+    @Test
+    public void testStaticNameMethodPropertyOrder() {
+        // static name() method should maintain property order
+        Object result =
+                eval(
+                        "class A {\n"
+                                + "  static method() {}\n"
+                                + "  static name() {}\n"
+                                + "}\n"
+                                + "Object.getOwnPropertyNames(A).join(',');");
+        assertEquals("length,name,prototype,method", result);
+    }
+
+    @Test
+    public void testStaticLengthMethodOverridesLength() {
+        // static length() method should override the default constructor length property
+        Object result =
+                eval(
+                        "class A {\n"
+                                + "  static length() { return 42; }\n"
+                                + "}\n"
+                                + "typeof A.length;");
+        assertEquals("function", result);
+    }
+
+    @Test
+    public void testDefaultParameters() {
+        Object result = eval("function f(x = 10) { return x; } f();");
+        assertEquals(10, ((Number) result).intValue());
+    }
 }

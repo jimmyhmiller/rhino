@@ -6149,50 +6149,32 @@ public class ScriptRuntime {
 
             if (getterSetter == 0) {
                 // Regular method: writable, non-enumerable, configurable
-                int attributes =
-                        ScriptableObject.DONTENUM; // writable and configurable are default (0)
-                if (id instanceof Symbol) {
-                    so.put((Symbol) id, so, value);
-                    so.setAttributes((Symbol) id, attributes);
-                } else if (id instanceof Integer && ((Integer) id) >= 0) {
-                    int index = (Integer) id;
-                    so.put(index, so, value);
-                    so.setAttributes(index, attributes);
-                } else {
-                    StringIdOrIndex s = toStringIdOrIndex(id);
-                    if (s.stringId == null) {
-                        so.put(s.index, so, value);
-                        so.setAttributes(s.index, attributes);
-                    } else {
-                        so.put(s.stringId, so, value);
-                        so.setAttributes(s.stringId, attributes);
-                    }
-                }
+                // Use defineOwnProperty to properly override existing properties like 'name' and
+                // 'length'
+                ScriptableObject.DescriptorInfo desc =
+                        new ScriptableObject.DescriptorInfo(
+                                false, // enumerable
+                                true, // writable
+                                true, // configurable
+                                value);
+                so.defineOwnProperty(cx, id, desc, false);
             } else {
                 // Getter or setter: non-enumerable, configurable
-                Callable getterOrSetter = (Callable) value;
+                // Use defineOwnProperty to properly override existing properties like 'name' and
+                // 'length'
                 boolean isSetter = getterSetter == 1;
-                int attributes = ScriptableObject.DONTENUM;
-                if (isSymbol(id)) {
-                    so.setGetterOrSetter(id, 0, getterOrSetter, isSetter);
-                    so.setAttributes((Symbol) id, attributes);
-                } else if (id instanceof Integer && ((Integer) id) >= 0) {
-                    int index = (Integer) id;
-                    so.setGetterOrSetter(null, index, getterOrSetter, isSetter);
-                    so.setAttributes(index, attributes);
-                } else {
-                    StringIdOrIndex s = toStringIdOrIndex(id);
-                    so.setGetterOrSetter(
-                            s.getStringId(),
-                            s.getIndex() == -1 ? 0 : s.getIndex(),
-                            getterOrSetter,
-                            isSetter);
-                    if (s.stringId != null) {
-                        so.setAttributes(s.stringId, attributes);
-                    } else {
-                        so.setAttributes(s.index, attributes);
-                    }
-                }
+                Object getter = isSetter ? ScriptableObject.NOT_FOUND : value;
+                Object setter = isSetter ? value : ScriptableObject.NOT_FOUND;
+                ScriptableObject.DescriptorInfo desc =
+                        new ScriptableObject.DescriptorInfo(
+                                false, // enumerable
+                                ScriptableObject
+                                        .NOT_FOUND, // writable (not applicable for accessor)
+                                true, // configurable
+                                getter,
+                                setter,
+                                ScriptableObject.NOT_FOUND); // value (not applicable for accessor)
+                so.defineOwnProperty(cx, id, desc, false);
             }
         }
     }

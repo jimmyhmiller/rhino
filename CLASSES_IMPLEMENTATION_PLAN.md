@@ -8,8 +8,8 @@ This document tracks the remaining work to complete ES6 class support in Rhino.
 
 ## Current Status
 
-**test262 class tests:** 3,586 / 4,366 failing (82%)
-**Last updated:** After implementing TypeError for calling class constructors without `new`
+**test262 class tests:** 3,569 / 4,366 failing (81.75%)
+**Last updated:** After implementing static method name/length precedence
 
 ### What's Working
 
@@ -30,6 +30,8 @@ This document tracks the remaining work to complete ES6 class support in Rhino.
 - [x] TDZ for `this` before `super()` in derived constructors
 - [x] Derived class constructor return value handling
 - [x] Prototype property is non-writable
+- [x] Static name/length methods override constructor properties
+- [x] Class constructor restricted properties (no arguments/caller/arity)
 
 ---
 
@@ -118,29 +120,15 @@ new C().method();  // Should work
 
 ---
 
-### Phase 3: Static Method name/length Precedence 🔶 MEDIUM
+### Phase 3: Static Method name/length Precedence ✅ COMPLETE
 
 **Problem:** Static methods named `length` or `name` should override constructor's built-in properties.
 
-**Failing Tests:**
-- `definition/fn-length-static-precedence.js`
-- `definition/fn-name-static-precedence.js`
-
-**Expected behavior:**
-```javascript
-class C {
-  static length() { return 42; }
-  static get name() { return 'custom'; }
-}
-typeof C.length  // Should be 'function', not 'number'
-C.length()       // Should return 42
-C.name           // Should be 'custom', not 'C'
-```
-
-**Implementation notes:**
-- Constructor gets `length` (param count) and `name` (class name) automatically
-- Static methods/getters defined later should override these
-- Either make these properties configurable, or define statics after constructor setup
+**Solution implemented:**
+- Modified `fillClassMembers()` to use `defineOwnProperty()` instead of `put()` for class static methods
+- Modified `setSlotValue()` to replace `BuiltInSlot` with regular `Slot` when defining data descriptors
+- Added `isClassConstructor()` to `shouldRemoveRestrictedProperties()` to remove `arguments`/`caller`/`arity`
+- All 4 precedence tests now pass
 
 ---
 
@@ -268,6 +256,6 @@ RHINO_TEST_JAVA_VERSION=11 ./gradlew :tests:test \
 |-------|-------------|--------|
 | Property descriptors | ~10 tests | Not started |
 | Super property access | ~7 tests | Not started |
-| name/length precedence | ~4 tests | Not started |
+| name/length precedence | 9 tests | ✅ Complete |
 | Strict mode | ~2 tests | Not started |
 | Invalid extends | ~3 tests | Not started |
