@@ -38,6 +38,7 @@ public class ClassElement extends AstNode {
     private boolean isStatic;
     private boolean isComputed; // true if property name is computed [expr]
     private boolean isField; // true for field definitions, false for methods
+    private boolean isPrivate; // true for private members (#name)
 
     {
         type = Token.METHOD;
@@ -169,6 +170,24 @@ public class ClassElement extends AstNode {
     }
 
     /**
+     * Returns true if this is a private member (#name).
+     *
+     * @return true for private members
+     */
+    public boolean isPrivate() {
+        return isPrivate;
+    }
+
+    /**
+     * Sets whether this is a private member.
+     *
+     * @param isPrivate true for private members
+     */
+    public void setIsPrivate(boolean isPrivate) {
+        this.isPrivate = isPrivate;
+    }
+
+    /**
      * Returns the initializer expression for field definitions.
      *
      * @return the initializer expression, or null if none
@@ -247,6 +266,9 @@ public class ClassElement extends AstNode {
             sb.append(propertyName.toSource(0));
             sb.append("]");
         } else if (propertyName != null) {
+            if (isPrivate) {
+                sb.append("#");
+            }
             sb.append(propertyName.toSource(0));
         }
         if (isField) {

@@ -188,6 +188,8 @@ public final class IRFactory {
                 return transformElementGet((ElementGet) node);
             case Token.GETPROP:
                 return transformPropertyGet((PropertyGet) node);
+            case Token.GETPROP_PRIVATE:
+                return transformPrivatePropertyGet((PropertyGet) node);
             case Token.QUESTION_DOT:
                 if (node instanceof ElementGet) {
                     return transformElementGet((ElementGet) node);
@@ -826,22 +828,42 @@ public final class IRFactory {
             ClassNode classNode, Node constructorNode, Node superClassNode) {
         List<ClassElement> elements = classNode.getElements();
 
-        // Separate methods and fields
+        // Separate methods and fields (public vs private)
         List<ClassElement> methods = new ArrayList<>();
         List<ClassElement> instanceFields = new ArrayList<>();
         List<ClassElement> staticFields = new ArrayList<>();
+        List<ClassElement> privateInstanceFields = new ArrayList<>();
+        List<ClassElement> privateStaticFields = new ArrayList<>();
+        List<ClassElement> privateMethods = new ArrayList<>();
+        List<ClassElement> privateStaticMethods = new ArrayList<>();
         for (ClassElement element : elements) {
             if (element.isConstructor()) {
                 continue;
             }
             if (element.isField()) {
-                if (element.isStatic()) {
-                    staticFields.add(element);
+                if (element.isPrivate()) {
+                    if (element.isStatic()) {
+                        privateStaticFields.add(element);
+                    } else {
+                        privateInstanceFields.add(element);
+                    }
                 } else {
-                    instanceFields.add(element);
+                    if (element.isStatic()) {
+                        staticFields.add(element);
+                    } else {
+                        instanceFields.add(element);
+                    }
                 }
             } else {
-                methods.add(element);
+                if (element.isPrivate()) {
+                    if (element.isStatic()) {
+                        privateStaticMethods.add(element);
+                    } else {
+                        privateMethods.add(element);
+                    }
+                } else {
+                    methods.add(element);
+                }
             }
         }
 
@@ -862,10 +884,24 @@ public final class IRFactory {
         Node staticFieldsNode = new Node(Token.OBJECTLIT);
         staticFieldsNode.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
 
+        // Build object literals for private members
+        Node privateInstanceFieldsNode = new Node(Token.OBJECTLIT);
+        privateInstanceFieldsNode.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+        Node privateStaticFieldsNode = new Node(Token.OBJECTLIT);
+        privateStaticFieldsNode.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+        Node privateMethodsNode = new Node(Token.OBJECTLIT);
+        privateMethodsNode.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+        Node privateStaticMethodsNode = new Node(Token.OBJECTLIT);
+        privateStaticMethodsNode.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+
         List<Object> protoProps = new ArrayList<>();
         List<Object> staticProps = new ArrayList<>();
         List<Object> instanceFieldProps = new ArrayList<>();
         List<Object> staticFieldProps = new ArrayList<>();
+        List<Object> privateInstanceFieldNames = new ArrayList<>();
+        List<Object> privateStaticFieldNames = new ArrayList<>();
+        List<Object> privateMethodNames = new ArrayList<>();
+        List<Object> privateStaticMethodNames = new ArrayList<>();
 
         // Process instance fields - wrap initializers in functions for deferred evaluation
         for (ClassElement field : instanceFields) {
@@ -914,6 +950,90 @@ public final class IRFactory {
 
         instanceFieldsNode.putProp(Node.OBJECT_IDS_PROP, instanceFieldProps.toArray());
         staticFieldsNode.putProp(Node.OBJECT_IDS_PROP, staticFieldProps.toArray());
+
+        // Process private instance fields
+        for (ClassElement field : privateInstanceFields) {
+            AstNode propNameAst = field.getPropertyName();
+            String privateName = getPrivateName(propNameAst);
+
+            Node initFuncNode;
+            if (field.getInitializer() != null) {
+                initFuncNode = createFieldInitializerFunction(field.getInitializer());
+            } else {
+                initFuncNode = createFieldInitializerFunction(null);
+            }
+
+            privateInstanceFieldNames.add(privateName);
+            privateInstanceFieldsNode.addChildToBack(initFuncNode);
+        }
+
+        // Process private static fields
+        for (ClassElement field : privateStaticFields) {
+            AstNode propNameAst = field.getPropertyName();
+            String privateName = getPrivateName(propNameAst);
+
+            Node initNode;
+            if (field.getInitializer() != null) {
+                initNode = transform(field.getInitializer());
+            } else {
+                initNode = new Node(Token.VOID, Node.newNumber(0));
+            }
+
+            privateStaticFieldNames.add(privateName);
+            privateStaticFieldsNode.addChildToBack(initNode);
+        }
+
+        // Process private methods (instance)
+        for (ClassElement element : privateMethods) {
+            FunctionNode methodFn = element.getMethod();
+            if (methodFn == null) {
+                continue;
+            }
+            methodFn.setMethodDefinition(false);
+            Node methodNode = transformFunction(methodFn);
+
+            if (element.isGetter()) {
+                methodNode = createUnary(Token.GET, methodNode);
+            } else if (element.isSetter()) {
+                methodNode = createUnary(Token.SET, methodNode);
+            } else {
+                methodNode = createUnary(Token.METHOD, methodNode);
+            }
+
+            AstNode propNameAst = element.getPropertyName();
+            String privateName = getPrivateName(propNameAst);
+            privateMethodNames.add(privateName);
+            privateMethodsNode.addChildToBack(methodNode);
+        }
+
+        // Process private static methods
+        for (ClassElement element : privateStaticMethods) {
+            FunctionNode methodFn = element.getMethod();
+            if (methodFn == null) {
+                continue;
+            }
+            methodFn.setMethodDefinition(false);
+            Node methodNode = transformFunction(methodFn);
+
+            if (element.isGetter()) {
+                methodNode = createUnary(Token.GET, methodNode);
+            } else if (element.isSetter()) {
+                methodNode = createUnary(Token.SET, methodNode);
+            } else {
+                methodNode = createUnary(Token.METHOD, methodNode);
+            }
+
+            AstNode propNameAst = element.getPropertyName();
+            String privateName = getPrivateName(propNameAst);
+            privateStaticMethodNames.add(privateName);
+            privateStaticMethodsNode.addChildToBack(methodNode);
+        }
+
+        privateInstanceFieldsNode.putProp(
+                Node.OBJECT_IDS_PROP, privateInstanceFieldNames.toArray());
+        privateStaticFieldsNode.putProp(Node.OBJECT_IDS_PROP, privateStaticFieldNames.toArray());
+        privateMethodsNode.putProp(Node.OBJECT_IDS_PROP, privateMethodNames.toArray());
+        privateStaticMethodsNode.putProp(Node.OBJECT_IDS_PROP, privateStaticMethodNames.toArray());
 
         for (ClassElement element : methods) {
             FunctionNode methodFn = element.getMethod();
@@ -966,15 +1086,19 @@ public final class IRFactory {
         protoMethods.putProp(Node.OBJECT_IDS_PROP, protoProps.toArray());
         staticMethods.putProp(Node.OBJECT_IDS_PROP, staticProps.toArray());
 
-        // Create a CLASS node that holds constructor + proto methods + static methods +
-        // instance fields + static fields + superClass
+        // Create a CLASS node that holds constructor + methods + fields + private members +
+        // superClass
         // Structure: CLASS node with children:
         //   1. constructor (FUNCTION node)
         //   2. protoMethods (OBJECTLIT node)
         //   3. staticMethods (OBJECTLIT node)
         //   4. instanceFields (OBJECTLIT node) - field initializers for instance fields
         //   5. staticFields (OBJECTLIT node) - field initializers for static fields
-        //   6. superClass (optional - expression node for the parent class)
+        //   6. privateInstanceFields (OBJECTLIT node) - private field initializers
+        //   7. privateStaticFields (OBJECTLIT node) - private static field initializers
+        //   8. privateMethods (OBJECTLIT node) - private instance methods
+        //   9. privateStaticMethods (OBJECTLIT node) - private static methods
+        //  10. superClass (optional - expression node for the parent class)
         Node classNode2 = new Node(Token.CLASS);
         classNode2.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
         classNode2.addChildToBack(constructorNode);
@@ -982,11 +1106,23 @@ public final class IRFactory {
         classNode2.addChildToBack(staticMethods);
         classNode2.addChildToBack(instanceFieldsNode);
         classNode2.addChildToBack(staticFieldsNode);
+        classNode2.addChildToBack(privateInstanceFieldsNode);
+        classNode2.addChildToBack(privateStaticFieldsNode);
+        classNode2.addChildToBack(privateMethodsNode);
+        classNode2.addChildToBack(privateStaticMethodsNode);
         if (superClassNode != null) {
             classNode2.addChildToBack(superClassNode);
         }
 
         return classNode2;
+    }
+
+    /** Helper method to extract the private name string from a property name AST node. */
+    private String getPrivateName(AstNode propNameAst) {
+        if (propNameAst instanceof Name) {
+            return ((Name) propNameAst).getIdentifier();
+        }
+        throw Kit.codeBug("Private names must be identifiers");
     }
 
     /** Creates a default constructor for a class. */
@@ -1413,6 +1549,15 @@ public final class IRFactory {
         Node target = transform(node.getTarget());
         String name = node.getProperty().getIdentifier();
         return createPropertyGet(target, null, name, 0, node.type);
+    }
+
+    private Node transformPrivatePropertyGet(PropertyGet node) {
+        Node target = transform(node.getTarget());
+        String name = node.getProperty().getIdentifier();
+        // Create a GETPROP_PRIVATE node with the target and private name
+        Node result = new Node(Token.GETPROP_PRIVATE, target, Node.newString(name));
+        result.setLineColumnNumber(node.getLineno(), node.getColumn());
+        return result;
     }
 
     private Node transformTemplateLiteral(TemplateLiteral node) {
@@ -2863,6 +3008,14 @@ public final class IRFactory {
                     Node op = new Node(assignOp, opLeft, right);
                     return propagateSuperFromLhs(new Node(type, obj, id, op), left);
                 }
+            case Token.GETPROP_PRIVATE:
+                {
+                    // Private property compound assignment (e.g., this.#x += 1)
+                    // For now, we don't support compound assignment on private properties
+                    // Simple assignment is handled in simpleAssignment
+                    parser.reportError("msg.bad.assign.left");
+                    return right;
+                }
             case Token.GET_REF:
                 {
                     ref = left.getFirstChild();
@@ -2948,6 +3101,7 @@ public final class IRFactory {
             case Token.GETPROP:
             case Token.GETELEM:
             case Token.GET_REF:
+            case Token.GETPROP_PRIVATE:
                 return node;
             case Token.CALL:
                 node.setType(Token.REF_CALL);

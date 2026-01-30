@@ -2877,7 +2877,12 @@ class BodyCodegen {
         Node staticMethods = protoMethods.getNext();
         Node instanceFields = staticMethods.getNext();
         Node staticFields = instanceFields.getNext();
-        Node superClass = staticFields.getNext(); // May be null
+        // Skip over private member nodes (not yet supported in optimizer)
+        Node privateInstanceFields = staticFields.getNext();
+        Node privateStaticFields = privateInstanceFields.getNext();
+        Node privateMethods = privateStaticFields.getNext();
+        Node privateStaticMethods = privateMethods.getNext();
+        Node superClass = privateStaticMethods.getNext(); // May be null
 
         Object[] protoProperties = (Object[]) protoMethods.getProp(Node.OBJECT_IDS_PROP);
         Object[] staticProperties = (Object[]) staticMethods.getProp(Node.OBJECT_IDS_PROP);
@@ -3082,6 +3087,18 @@ class BodyCodegen {
         cfw.addALoad(staticFieldKeysLocal);
         cfw.addALoad(staticFieldValuesLocal);
 
+        // Private member parameters (not yet supported in optimizer, push nulls)
+        cfw.add(ByteCode.ACONST_NULL); // privateInstanceFieldIds
+        cfw.add(ByteCode.ACONST_NULL); // privateInstanceFieldValues
+        cfw.add(ByteCode.ACONST_NULL); // privateStaticFieldIds
+        cfw.add(ByteCode.ACONST_NULL); // privateStaticFieldValues
+        cfw.add(ByteCode.ACONST_NULL); // privateMethodIds
+        cfw.add(ByteCode.ACONST_NULL); // privateMethodValues
+        cfw.add(ByteCode.ACONST_NULL); // privateMethodGetterSetters
+        cfw.add(ByteCode.ACONST_NULL); // privateStaticMethodIds
+        cfw.add(ByteCode.ACONST_NULL); // privateStaticMethodValues
+        cfw.add(ByteCode.ACONST_NULL); // privateStaticMethodGetterSetters
+
         // Push superClass (or null)
         if (superClassLocal != -1) {
             cfw.addALoad(superClassLocal);
@@ -3105,6 +3122,16 @@ class BodyCodegen {
                         + "[Ljava/lang/Object;"
                         + "[Ljava/lang/Object;"
                         + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[I"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[I"
                         + "Ljava/lang/Object;"
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"

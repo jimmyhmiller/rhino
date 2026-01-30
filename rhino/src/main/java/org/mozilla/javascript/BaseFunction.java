@@ -1012,6 +1012,18 @@ public class BaseFunction extends ScriptableObject implements Function {
     private Object[] instanceFieldIds = null;
     private Object[] instanceFieldValues = null;
 
+    // For ES2022 private class members
+    private Object[] privateInstanceFieldIds = null;
+    private Object[] privateInstanceFieldValues = null;
+    private Object[] privateMethodIds = null;
+    private Object[] privateMethodValues = null;
+    private int[] privateMethodGetterSetters = null;
+    private Object[] privateStaticFieldIds = null;
+    private Object[] privateStaticFieldValues = null;
+    private Object[] privateStaticMethodIds = null;
+    private Object[] privateStaticMethodValues = null;
+    private int[] privateStaticMethodGetterSetters = null;
+
     // For function object instances, attributes are
     //  {configurable:false, enumerable:false};
     // see ECMA 15.3.5.2
@@ -1058,40 +1070,189 @@ public class BaseFunction extends ScriptableObject implements Function {
     /**
      * Initializes instance fields on the given object. Called during instance construction. Each
      * field initializer is stored as a function that is called with `this` bound to the instance.
+     * Also initializes private instance fields and sets the private brand.
      *
      * @param instance the object to initialize fields on
      */
     public void initializeInstanceFields(Scriptable instance) {
-        if (instanceFieldIds == null || instanceFieldIds.length == 0) {
-            return;
-        }
         Context cx = Context.getCurrentContext();
         Scriptable scope = getParentScope();
 
-        for (int i = 0; i < instanceFieldIds.length; i++) {
-            Object id = instanceFieldIds[i];
-            Object initializerOrValue =
-                    (instanceFieldValues != null && i < instanceFieldValues.length)
-                            ? instanceFieldValues[i]
-                            : Undefined.instance;
+        // Initialize public instance fields
+        if (instanceFieldIds != null && instanceFieldIds.length > 0) {
+            for (int i = 0; i < instanceFieldIds.length; i++) {
+                Object id = instanceFieldIds[i];
+                Object initializerOrValue =
+                        (instanceFieldValues != null && i < instanceFieldValues.length)
+                                ? instanceFieldValues[i]
+                                : Undefined.instance;
 
-            // The initializer is stored as a function - call it to get the value
-            Object value;
-            if (initializerOrValue instanceof Callable) {
-                Callable initializer = (Callable) initializerOrValue;
-                value = initializer.call(cx, scope, instance, ScriptRuntime.emptyArgs);
-            } else {
-                // Fallback for direct values (e.g., from optimized paths)
-                value = initializerOrValue;
-            }
+                // The initializer is stored as a function - call it to get the value
+                Object value;
+                if (initializerOrValue instanceof Callable) {
+                    Callable initializer = (Callable) initializerOrValue;
+                    value = initializer.call(cx, scope, instance, ScriptRuntime.emptyArgs);
+                } else {
+                    // Fallback for direct values (e.g., from optimized paths)
+                    value = initializerOrValue;
+                }
 
-            if (id instanceof String) {
-                instance.put((String) id, instance, value);
-            } else if (id instanceof Number) {
-                instance.put(((Number) id).intValue(), instance, value);
-            } else if (id instanceof Symbol) {
-                ((SymbolScriptable) instance).put((Symbol) id, instance, value);
+                if (id instanceof String) {
+                    instance.put((String) id, instance, value);
+                } else if (id instanceof Number) {
+                    instance.put(((Number) id).intValue(), instance, value);
+                } else if (id instanceof Symbol) {
+                    ((SymbolScriptable) instance).put((Symbol) id, instance, value);
+                }
             }
         }
+
+        // Initialize private instance fields and set the private brand
+        if (privateInstanceFieldIds != null
+                || privateMethodIds != null
+                || privateStaticFieldIds != null
+                || privateStaticMethodIds != null) {
+            ScriptRuntime.initializePrivateFields(instance, this, cx, scope);
+        }
+    }
+
+    /**
+     * Sets the private instance field definitions for this class constructor.
+     *
+     * @param fieldIds array of private field names (without # prefix)
+     * @param fieldValues array of initializer functions or values
+     */
+    public void setPrivateInstanceFieldDefinitions(Object[] fieldIds, Object[] fieldValues) {
+        this.privateInstanceFieldIds = fieldIds;
+        this.privateInstanceFieldValues = fieldValues;
+    }
+
+    /**
+     * Returns the private instance field IDs for this class constructor.
+     *
+     * @return array of field IDs, or null if no private instance fields
+     */
+    public Object[] getPrivateInstanceFieldIds() {
+        return privateInstanceFieldIds;
+    }
+
+    /**
+     * Returns the private instance field values for this class constructor.
+     *
+     * @return array of field values, or null if no private instance fields
+     */
+    public Object[] getPrivateInstanceFieldValues() {
+        return privateInstanceFieldValues;
+    }
+
+    /**
+     * Sets the private method definitions for this class constructor.
+     *
+     * @param methodIds array of private method names (without # prefix)
+     * @param methodValues array of method functions
+     * @param getterSetters array indicating getter/setter status (0=method, 1=getter, 2=setter)
+     */
+    public void setPrivateMethodDefinitions(
+            Object[] methodIds, Object[] methodValues, int[] getterSetters) {
+        this.privateMethodIds = methodIds;
+        this.privateMethodValues = methodValues;
+        this.privateMethodGetterSetters = getterSetters;
+    }
+
+    /**
+     * Returns the private method IDs for this class constructor.
+     *
+     * @return array of method IDs, or null if no private methods
+     */
+    public Object[] getPrivateMethodIds() {
+        return privateMethodIds;
+    }
+
+    /**
+     * Returns the private method values for this class constructor.
+     *
+     * @return array of method values, or null if no private methods
+     */
+    public Object[] getPrivateMethodValues() {
+        return privateMethodValues;
+    }
+
+    /**
+     * Returns the private method getter/setter flags for this class constructor.
+     *
+     * @return array of getter/setter flags, or null if no private methods
+     */
+    public int[] getPrivateMethodGetterSetters() {
+        return privateMethodGetterSetters;
+    }
+
+    /**
+     * Sets the private static field definitions for this class constructor.
+     *
+     * @param fieldIds array of private static field names (without # prefix)
+     * @param fieldValues array of initializer functions or values
+     */
+    public void setPrivateStaticFieldDefinitions(Object[] fieldIds, Object[] fieldValues) {
+        this.privateStaticFieldIds = fieldIds;
+        this.privateStaticFieldValues = fieldValues;
+    }
+
+    /**
+     * Returns the private static field IDs for this class constructor.
+     *
+     * @return array of field IDs, or null if no private static fields
+     */
+    public Object[] getPrivateStaticFieldIds() {
+        return privateStaticFieldIds;
+    }
+
+    /**
+     * Returns the private static field values for this class constructor.
+     *
+     * @return array of field values, or null if no private static fields
+     */
+    public Object[] getPrivateStaticFieldValues() {
+        return privateStaticFieldValues;
+    }
+
+    /**
+     * Sets the private static method definitions for this class constructor.
+     *
+     * @param methodIds array of private static method names (without # prefix)
+     * @param methodValues array of method functions
+     * @param getterSetters array indicating getter/setter status (0=method, 1=getter, 2=setter)
+     */
+    public void setPrivateStaticMethodDefinitions(
+            Object[] methodIds, Object[] methodValues, int[] getterSetters) {
+        this.privateStaticMethodIds = methodIds;
+        this.privateStaticMethodValues = methodValues;
+        this.privateStaticMethodGetterSetters = getterSetters;
+    }
+
+    /**
+     * Returns the private static method IDs for this class constructor.
+     *
+     * @return array of method IDs, or null if no private static methods
+     */
+    public Object[] getPrivateStaticMethodIds() {
+        return privateStaticMethodIds;
+    }
+
+    /**
+     * Returns the private static method values for this class constructor.
+     *
+     * @return array of method values, or null if no private static methods
+     */
+    public Object[] getPrivateStaticMethodValues() {
+        return privateStaticMethodValues;
+    }
+
+    /**
+     * Returns the private static method getter/setter flags for this class constructor.
+     *
+     * @return array of getter/setter flags, or null if no private static methods
+     */
+    public int[] getPrivateStaticMethodGetterSetters() {
+        return privateStaticMethodGetterSetters;
     }
 }

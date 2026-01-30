@@ -1708,6 +1708,8 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.GETPROPNOWARN_SUPER] = new DoGetPropSuper();
         instructionObjs[base + Token.SETPROP] = new DoSetProp();
         instructionObjs[base + Token.SETPROP_SUPER] = new DoSetPropSuper();
+        instructionObjs[base + Token.GETPROP_PRIVATE] = new DoGetPropPrivate();
+        instructionObjs[base + Token.SETPROP_PRIVATE] = new DoSetPropPrivate();
         instructionObjs[base + Icode_PROP_INC_DEC] = new DoPropIncDec();
         instructionObjs[base + Token.GETELEM] = new DoGetElem();
         instructionObjs[base + Token.GETELEM_SUPER] = new DoGetElemSuper();
@@ -3276,6 +3278,34 @@ public final class Interpreter extends Icode implements Evaluator {
             stack[--state.stackTop] =
                     ScriptRuntime.setSuperProp(
                             superObject, state.stringReg, rhs, cx, frame.scope, frame.thisObj);
+            return null;
+        }
+    }
+
+    private static class DoGetPropPrivate extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            final Object[] stack = frame.stack;
+            final double[] sDbl = frame.sDbl;
+            Object lhs = stack[state.stackTop];
+            if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
+            stack[state.stackTop] =
+                    ScriptRuntime.getPrivateProp(lhs, state.stringReg, cx, frame.fnOrScript);
+            return null;
+        }
+    }
+
+    private static class DoSetPropPrivate extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            final Object[] stack = frame.stack;
+            final double[] sDbl = frame.sDbl;
+            Object rhs = stack[state.stackTop];
+            if (rhs == DOUBLE_MARK) rhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
+            Object lhs = stack[state.stackTop - 1];
+            if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop - 1]);
+            stack[--state.stackTop] =
+                    ScriptRuntime.setPrivateProp(lhs, state.stringReg, rhs, cx, frame.fnOrScript);
             return null;
         }
     }
@@ -4988,7 +5018,20 @@ public final class Interpreter extends Icode implements Evaluator {
             ++frame.pc;
 
             // Stack: [constructor, (superClass?), protoStorage, staticStorage,
-            //         instanceFieldStorage, staticFieldStorage]
+            //         instanceFieldStorage, staticFieldStorage, privateInstanceFieldStorage,
+            //         privateStaticFieldStorage, privateMethodStorage, privateStaticMethodStorage]
+            var privateStaticMethodStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
+            var privateMethodStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
+            var privateStaticFieldStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
+            var privateInstanceFieldStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
             var staticFieldStore = (NewLiteralStorage) frame.stack[state.stackTop];
             --state.stackTop;
 
@@ -5024,6 +5067,16 @@ public final class Interpreter extends Icode implements Evaluator {
                             instanceFieldStore.getValues(),
                             staticFieldStore.getKeys(),
                             staticFieldStore.getValues(),
+                            privateInstanceFieldStore.getKeys(),
+                            privateInstanceFieldStore.getValues(),
+                            privateStaticFieldStore.getKeys(),
+                            privateStaticFieldStore.getValues(),
+                            privateMethodStore.getKeys(),
+                            privateMethodStore.getValues(),
+                            privateMethodStore.getGetterSetters(),
+                            privateStaticMethodStore.getKeys(),
+                            privateStaticMethodStore.getValues(),
+                            privateStaticMethodStore.getGetterSetters(),
                             superClass,
                             cx,
                             frame.scope);

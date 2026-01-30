@@ -819,10 +819,13 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     int afterLabel = iCodeTop;
                     addGotoOp(Token.GOTO);
 
-                    // Put undefined
+                    // If it was null or undefined, just put undefined
                     resolveForwardGoto(putUndefinedLabel);
                     addIcode(Icode_POP);
+                    stackChange(-1);
                     addIcode(Icode_UNDEF);
+                    stackChange(1);
+
                     resolveForwardGoto(afterLabel);
                 } else if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
                     addStringOp(
@@ -831,6 +834,13 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 } else {
                     addStringOp(type, child.getString());
                 }
+                break;
+
+            case Token.GETPROP_PRIVATE:
+                // Private property get: obj.#field
+                visitExpression(child, 0);
+                child = child.getNext();
+                addStringOp(Token.GETPROP_PRIVATE, child.getString());
                 break;
 
             case Token.DELPROP:
@@ -1034,6 +1044,17 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                             property);
                     stackChange(-1);
                 }
+                break;
+
+            case Token.SETPROP_PRIVATE:
+                // Private property set: obj.#field = value
+                visitExpression(child, 0); // target object
+                child = child.getNext();
+                String privateName = child.getString();
+                child = child.getNext();
+                visitExpression(child, 0); // value
+                addStringOp(Token.SETPROP_PRIVATE, privateName);
+                stackChange(-1);
                 break;
 
             case Token.SETELEM:
@@ -1702,7 +1723,11 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         Node staticMethods = protoMethods.getNext();
         Node instanceFields = staticMethods.getNext();
         Node staticFields = instanceFields.getNext();
-        Node superClass = staticFields.getNext(); // May be null
+        Node privateInstanceFields = staticFields.getNext();
+        Node privateStaticFields = privateInstanceFields.getNext();
+        Node privateMethods = privateStaticFields.getNext();
+        Node privateStaticMethods = privateMethods.getNext();
+        Node superClass = privateStaticMethods.getNext(); // May be null
 
         // First, emit the constructor function
         visitExpression(constructor, 0);
@@ -1824,11 +1849,84 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         // Stack: [constructor, (superClass?), protoStorage, staticStorage, instanceFieldStorage,
         // staticFieldStorage]
 
+        // Emit private instance field storage
+        Object[] privateInstanceFieldIds =
+                (Object[]) privateInstanceFields.getProp(Node.OBJECT_IDS_PROP);
+        int privateInstanceFieldIdsIndex = literalIds.size();
+        literalIds.add(privateInstanceFieldIds);
+
+        addIndexOp(Icode_CLASS_STORAGE, privateInstanceFieldIdsIndex);
+        stackChange(1);
+
+        int privateInstanceFieldIndex = 0;
+        for (Node fieldChild = privateInstanceFields.getFirstChild();
+                fieldChild != null;
+                fieldChild = fieldChild.getNext()) {
+            // For private fields, we push the initializer function
+            visitExpression(fieldChild, 0);
+            addIcode(Icode_LITERAL_SET);
+            stackChange(-1);
+            privateInstanceFieldIndex++;
+        }
+
+        // Emit private static field storage
+        Object[] privateStaticFieldIds =
+                (Object[]) privateStaticFields.getProp(Node.OBJECT_IDS_PROP);
+        int privateStaticFieldIdsIndex = literalIds.size();
+        literalIds.add(privateStaticFieldIds);
+
+        addIndexOp(Icode_CLASS_STORAGE, privateStaticFieldIdsIndex);
+        stackChange(1);
+
+        int privateStaticFieldIndex = 0;
+        for (Node fieldChild = privateStaticFields.getFirstChild();
+                fieldChild != null;
+                fieldChild = fieldChild.getNext()) {
+            visitExpression(fieldChild, 0);
+            addIcode(Icode_LITERAL_SET);
+            stackChange(-1);
+            privateStaticFieldIndex++;
+        }
+
+        // Emit private method storage
+        Object[] privateMethodIds = (Object[]) privateMethods.getProp(Node.OBJECT_IDS_PROP);
+        int privateMethodIdsIndex = literalIds.size();
+        literalIds.add(privateMethodIds);
+
+        addIndexOp(Icode_CLASS_STORAGE, privateMethodIdsIndex);
+        stackChange(1);
+
+        int privateMethodIndex = 0;
+        for (Node methodChild = privateMethods.getFirstChild();
+                methodChild != null;
+                methodChild = methodChild.getNext()) {
+            visitLiteralValue(methodChild);
+            privateMethodIndex++;
+        }
+
+        // Emit private static method storage
+        Object[] privateStaticMethodIds =
+                (Object[]) privateStaticMethods.getProp(Node.OBJECT_IDS_PROP);
+        int privateStaticMethodIdsIndex = literalIds.size();
+        literalIds.add(privateStaticMethodIds);
+
+        addIndexOp(Icode_CLASS_STORAGE, privateStaticMethodIdsIndex);
+        stackChange(1);
+
+        int privateStaticMethodIndex = 0;
+        for (Node methodChild = privateStaticMethods.getFirstChild();
+                methodChild != null;
+                methodChild = methodChild.getNext()) {
+            visitLiteralValue(methodChild);
+            privateStaticMethodIndex++;
+        }
+
+        // Stack: [constructor, (superClass?), protoStorage, staticStorage, instanceFieldStorage,
+        //         staticFieldStorage, privateInstanceFieldStorage, privateStaticFieldStorage,
+        //         privateMethodStorage, privateStaticMethodStorage]
+
         // Emit Icode_CLASS_DEF which will:
-        // - Pop staticFieldStorage
-        // - Pop instanceFieldStorage
-        // - Pop staticStorage
-        // - Pop protoStorage
+        // - Pop all storages
         // - Pop superClass (if present)
         // - Pop constructor
         // - Call ScriptRuntime.createClass
@@ -1836,9 +1934,9 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         addIcode(Icode_CLASS_DEF);
         addUint8(hasSuperClass ? 1 : 0); // Flag: 1 = has superclass, 0 = no superclass
         if (hasSuperClass) {
-            stackChange(-5); // Pops 4 storages + superClass; constructor stays
+            stackChange(-9); // Pops 8 storages + superClass; constructor stays
         } else {
-            stackChange(-4); // Pops 4 storages; constructor stays
+            stackChange(-8); // Pops 8 storages; constructor stays
         }
         // Stack: [constructor (with methods and fields configured)]
     }

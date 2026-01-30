@@ -3084,6 +3084,28 @@ public abstract class ScriptableObject extends SlotMapOwner
     }
 
     /**
+     * Sets an associated value for a key, unconditionally overwriting any existing value. Unlike
+     * {@link #associateValue} which only sets the value if not present, this method always updates
+     * the value.
+     *
+     * @param key the key to associate
+     * @param value the value to set (may be null to remove)
+     */
+    public final synchronized void setAssociatedValue(Object key, Object value) {
+        Map<Object, Object> h = associatedValues;
+        if (h == null) {
+            if (value == null) return;
+            h = new HashMap<>();
+            associatedValues = h;
+        }
+        if (value == null) {
+            h.remove(key);
+        } else {
+            h.put(key, value);
+        }
+    }
+
+    /**
      * @param key
      * @param index
      * @param start

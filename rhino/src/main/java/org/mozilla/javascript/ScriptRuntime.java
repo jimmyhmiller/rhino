@@ -6207,6 +6207,16 @@ public class ScriptRuntime {
             Object[] instanceFieldValues,
             Object[] staticFieldIds,
             Object[] staticFieldValues,
+            Object[] privateInstanceFieldIds,
+            Object[] privateInstanceFieldValues,
+            Object[] privateStaticFieldIds,
+            Object[] privateStaticFieldValues,
+            Object[] privateMethodIds,
+            Object[] privateMethodValues,
+            int[] privateMethodGetterSetters,
+            Object[] privateStaticMethodIds,
+            Object[] privateStaticMethodValues,
+            int[] privateStaticMethodGetterSetters,
             Object superClass,
             Context cx,
             Scriptable scope) {
@@ -6279,6 +6289,44 @@ public class ScriptRuntime {
             }
         }
 
+        // Store private instance field definitions
+        if (privateInstanceFieldIds != null && privateInstanceFieldIds.length > 0) {
+            if (constructor instanceof BaseFunction) {
+                ((BaseFunction) constructor)
+                        .setPrivateInstanceFieldDefinitions(
+                                privateInstanceFieldIds, privateInstanceFieldValues);
+            }
+        }
+
+        // Store private method definitions
+        if (privateMethodIds != null && privateMethodIds.length > 0) {
+            if (constructor instanceof BaseFunction) {
+                ((BaseFunction) constructor)
+                        .setPrivateMethodDefinitions(
+                                privateMethodIds, privateMethodValues, privateMethodGetterSetters);
+            }
+        }
+
+        // Store private static field values
+        if (privateStaticFieldIds != null && privateStaticFieldIds.length > 0) {
+            if (constructor instanceof BaseFunction) {
+                ((BaseFunction) constructor)
+                        .setPrivateStaticFieldDefinitions(
+                                privateStaticFieldIds, privateStaticFieldValues);
+            }
+        }
+
+        // Store private static method definitions
+        if (privateStaticMethodIds != null && privateStaticMethodIds.length > 0) {
+            if (constructor instanceof BaseFunction) {
+                ((BaseFunction) constructor)
+                        .setPrivateStaticMethodDefinitions(
+                                privateStaticMethodIds,
+                                privateStaticMethodValues,
+                                privateStaticMethodGetterSetters);
+            }
+        }
+
         // Initialize static fields on the constructor
         if (staticFieldIds != null && staticFieldValues != null) {
             for (int i = 0; i < staticFieldIds.length; i++) {
@@ -6296,6 +6344,11 @@ public class ScriptRuntime {
             }
         }
 
+        // Initialize private static fields on the constructor
+        if (constructor instanceof BaseFunction) {
+            initializePrivateStaticFields((BaseFunction) constructor, cx, scope);
+        }
+
         // ES6 14.5.14: Class prototype property is non-writable, non-enumerable, non-configurable
         if (constructor instanceof BaseFunction) {
             ((BaseFunction) constructor)
@@ -6306,6 +6359,419 @@ public class ScriptRuntime {
         }
 
         return constructor;
+    }
+
+    /**
+     * A key for storing private member values on instances. Each instance can have private values
+     * from multiple classes (when using inheritance), so we key by both the constructor and the
+     * private field/method name.
+     */
+    private static class PrivateKey {
+        final Object constructor;
+        final String name;
+
+        PrivateKey(Object constructor, String name) {
+            this.constructor = constructor;
+            this.name = name;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof PrivateKey)) return false;
+            PrivateKey that = (PrivateKey) o;
+            return constructor == that.constructor && name.equals(that.name);
+        }
+
+        @Override
+        public int hashCode() {
+            return System.identityHashCode(constructor) * 31 + name.hashCode();
+        }
+    }
+
+    /**
+     * Gets a private property value from an object. Used by the interpreter and compiled code to
+     * implement private field and method access (obj.#name).
+     *
+     * @param obj The object to get the private property from
+     * @param name The private property name (without the # prefix)
+     * @param cx The context
+     * @param fnOrScript The current function or script (used to find the class constructor)
+     * @return The value of the private property
+     */
+    public static Object getPrivateProp(Object obj, String name, Context cx, Object fnOrScript) {
+        // Find the class constructor from the current function
+        BaseFunction constructor = getPrivateConstructor(fnOrScript);
+        if (constructor == null) {
+            throw typeError("msg.private.not.in.class");
+        }
+
+        // First check if it's a private method (instance methods are on the class, not the
+        // instance)
+        Object[] methodIds = constructor.getPrivateMethodIds();
+        if (methodIds != null) {
+            for (int i = 0; i < methodIds.length; i++) {
+                if (name.equals(methodIds[i])) {
+                    int[] getterSetters = constructor.getPrivateMethodGetterSetters();
+                    int getterSetter = getterSetters != null ? getterSetters[i] : 0;
+
+                    // Brand check: ensure obj is an instance of this class
+                    if (!hasPrivateBrand(obj, constructor)) {
+                        throw typeError("msg.private.brand.check.failed");
+                    }
+
+                    Object[] methodValues = constructor.getPrivateMethodValues();
+                    if (getterSetter == 1) {
+                        // This is a getter - call it to get the value
+                        Callable getter = (Callable) methodValues[i];
+                        return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
+                    } else if (getterSetter == 2) {
+                        // This is a setter - reading it is an error
+                        throw typeError("msg.private.setter.only");
+                    } else {
+                        // Regular method - return the function
+                        return methodValues != null ? methodValues[i] : Undefined.instance;
+                    }
+                }
+            }
+        }
+
+        // Check for private static method
+        Object[] staticMethodIds = constructor.getPrivateStaticMethodIds();
+        if (staticMethodIds != null) {
+            for (int i = 0; i < staticMethodIds.length; i++) {
+                if (name.equals(staticMethodIds[i])) {
+                    int[] getterSetters = constructor.getPrivateStaticMethodGetterSetters();
+                    int getterSetter = getterSetters != null ? getterSetters[i] : 0;
+
+                    // For static private, obj should be the constructor
+                    if (obj != constructor) {
+                        throw typeError("msg.private.brand.check.failed");
+                    }
+
+                    Object[] methodValues = constructor.getPrivateStaticMethodValues();
+                    if (getterSetter == 1) {
+                        // This is a getter - call it
+                        Callable getter = (Callable) methodValues[i];
+                        return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
+                    } else if (getterSetter == 2) {
+                        // This is a setter - reading it is an error
+                        throw typeError("msg.private.setter.only");
+                    } else {
+                        // Regular method - return the function
+                        return methodValues != null ? methodValues[i] : Undefined.instance;
+                    }
+                }
+            }
+        }
+
+        // Check for private static field
+        Object[] staticFieldIds = constructor.getPrivateStaticFieldIds();
+        if (staticFieldIds != null) {
+            for (int i = 0; i < staticFieldIds.length; i++) {
+                if (name.equals(staticFieldIds[i])) {
+                    // For static private, obj should be the constructor
+                    if (obj != constructor) {
+                        throw typeError("msg.private.brand.check.failed");
+                    }
+                    // Get from constructor's associated values
+                    PrivateKey key = new PrivateKey(constructor, name);
+                    Object value = ((ScriptableObject) constructor).getAssociatedValue(key);
+                    return value != null ? value : Undefined.instance;
+                }
+            }
+        }
+
+        // Check for private instance field
+        Object[] fieldIds = constructor.getPrivateInstanceFieldIds();
+        if (fieldIds != null) {
+            for (int i = 0; i < fieldIds.length; i++) {
+                if (name.equals(fieldIds[i])) {
+                    // Brand check: ensure obj has this class's private fields
+                    if (!hasPrivateBrand(obj, constructor)) {
+                        throw typeError("msg.private.brand.check.failed");
+                    }
+                    // Get from instance's associated values
+                    PrivateKey key = new PrivateKey(constructor, name);
+                    if (obj instanceof ScriptableObject) {
+                        Object value = ((ScriptableObject) obj).getAssociatedValue(key);
+                        return value != null ? value : Undefined.instance;
+                    }
+                    return Undefined.instance;
+                }
+            }
+        }
+
+        throw typeError("msg.private.member.not.found");
+    }
+
+    /**
+     * Sets a private property value on an object. Used by the interpreter and compiled code to
+     * implement private field assignment (obj.#name = value).
+     *
+     * @param obj The object to set the private property on
+     * @param name The private property name (without the # prefix)
+     * @param value The value to set
+     * @param cx The context
+     * @param fnOrScript The current function or script (used to find the class constructor)
+     * @return The value that was set
+     */
+    public static Object setPrivateProp(
+            Object obj, String name, Object value, Context cx, Object fnOrScript) {
+        // Find the class constructor from the current function
+        BaseFunction constructor = getPrivateConstructor(fnOrScript);
+        if (constructor == null) {
+            throw typeError("msg.private.not.in.class");
+        }
+
+        // Check for private method setter (accessor)
+        Object[] methodIds = constructor.getPrivateMethodIds();
+        if (methodIds != null) {
+            for (int i = 0; i < methodIds.length; i++) {
+                if (name.equals(methodIds[i])) {
+                    int[] getterSetters = constructor.getPrivateMethodGetterSetters();
+                    int getterSetter = getterSetters != null ? getterSetters[i] : 0;
+
+                    // Brand check
+                    if (!hasPrivateBrand(obj, constructor)) {
+                        throw typeError("msg.private.brand.check.failed");
+                    }
+
+                    if (getterSetter == 2) {
+                        // This is a setter - call it
+                        Object[] methodValues = constructor.getPrivateMethodValues();
+                        Callable setter = (Callable) methodValues[i];
+                        setter.call(
+                                cx, getTopCallScope(cx), (Scriptable) obj, new Object[] {value});
+                        return value;
+                    } else if (getterSetter == 1) {
+                        // This is a getter - writing is an error
+                        throw typeError("msg.private.getter.only");
+                    } else {
+                        // Regular method - cannot assign to methods
+                        throw typeError("msg.private.method.assign");
+                    }
+                }
+            }
+        }
+
+        // Check for private static method setter
+        Object[] staticMethodIds = constructor.getPrivateStaticMethodIds();
+        if (staticMethodIds != null) {
+            for (int i = 0; i < staticMethodIds.length; i++) {
+                if (name.equals(staticMethodIds[i])) {
+                    int[] getterSetters = constructor.getPrivateStaticMethodGetterSetters();
+                    int getterSetter = getterSetters != null ? getterSetters[i] : 0;
+
+                    // For static private, obj should be the constructor
+                    if (obj != constructor) {
+                        throw typeError("msg.private.brand.check.failed");
+                    }
+
+                    if (getterSetter == 2) {
+                        // This is a setter - call it
+                        Object[] methodValues = constructor.getPrivateStaticMethodValues();
+                        Callable setter = (Callable) methodValues[i];
+                        setter.call(
+                                cx, getTopCallScope(cx), (Scriptable) obj, new Object[] {value});
+                        return value;
+                    } else if (getterSetter == 1) {
+                        // This is a getter - writing is an error
+                        throw typeError("msg.private.getter.only");
+                    } else {
+                        // Regular method - cannot assign to methods
+                        throw typeError("msg.private.method.assign");
+                    }
+                }
+            }
+        }
+
+        // Check for private static field
+        Object[] staticFieldIds = constructor.getPrivateStaticFieldIds();
+        if (staticFieldIds != null) {
+            for (int i = 0; i < staticFieldIds.length; i++) {
+                if (name.equals(staticFieldIds[i])) {
+                    // For static private, obj should be the constructor
+                    if (obj != constructor) {
+                        throw typeError("msg.private.brand.check.failed");
+                    }
+                    // Set in constructor's associated values
+                    PrivateKey key = new PrivateKey(constructor, name);
+                    ((ScriptableObject) constructor).setAssociatedValue(key, value);
+                    return value;
+                }
+            }
+        }
+
+        // Check for private instance field
+        Object[] fieldIds = constructor.getPrivateInstanceFieldIds();
+        if (fieldIds != null) {
+            for (int i = 0; i < fieldIds.length; i++) {
+                if (name.equals(fieldIds[i])) {
+                    // Brand check
+                    if (!hasPrivateBrand(obj, constructor)) {
+                        throw typeError("msg.private.brand.check.failed");
+                    }
+                    // Set in instance's associated values
+                    PrivateKey key = new PrivateKey(constructor, name);
+                    if (obj instanceof ScriptableObject) {
+                        ((ScriptableObject) obj).setAssociatedValue(key, value);
+                    }
+                    return value;
+                }
+            }
+        }
+
+        throw typeError("msg.private.member.not.found");
+    }
+
+    /**
+     * Gets the class constructor from the current function. Used for private member access to
+     * determine which class's private members we're accessing.
+     */
+    private static BaseFunction getPrivateConstructor(Object fnOrScript) {
+        if (!(fnOrScript instanceof BaseFunction)) {
+            return null;
+        }
+        BaseFunction fn = (BaseFunction) fnOrScript;
+
+        // Get the home object from the function
+        Scriptable homeObject = fn.getHomeObject();
+        if (homeObject == null) {
+            // Check if fn itself is a constructor with private members
+            if (fn.getPrivateInstanceFieldIds() != null
+                    || fn.getPrivateMethodIds() != null
+                    || fn.getPrivateStaticFieldIds() != null
+                    || fn.getPrivateStaticMethodIds() != null) {
+                return fn;
+            }
+            return null;
+        }
+
+        // If homeObject is a function (constructor), use it directly (for static methods)
+        if (homeObject instanceof BaseFunction) {
+            BaseFunction homeFn = (BaseFunction) homeObject;
+            // Check if it has private member definitions
+            if (homeFn.getPrivateInstanceFieldIds() != null
+                    || homeFn.getPrivateMethodIds() != null
+                    || homeFn.getPrivateStaticFieldIds() != null
+                    || homeFn.getPrivateStaticMethodIds() != null) {
+                return homeFn;
+            }
+        }
+
+        // For instance methods, homeObject is the prototype, so get constructor from it
+        Object ctorObj = homeObject.get("constructor", homeObject);
+        if (ctorObj instanceof BaseFunction) {
+            return (BaseFunction) ctorObj;
+        }
+
+        return null;
+    }
+
+    /**
+     * Checks if an object has the private brand for a given class. An object has a class's brand if
+     * it was created by that class's constructor (i.e., private fields were initialized on it).
+     */
+    private static boolean hasPrivateBrand(Object obj, BaseFunction constructor) {
+        if (!(obj instanceof ScriptableObject)) {
+            return false;
+        }
+        ScriptableObject so = (ScriptableObject) obj;
+
+        // An object has the brand if it has the private brand key set
+        PrivateKey brandKey = new PrivateKey(constructor, "[[PrivateBrand]]");
+        Object brand = so.getAssociatedValue(brandKey);
+        return brand != null;
+    }
+
+    /**
+     * Sets the private brand on an object for a given class. Called during instance construction
+     * after private fields are initialized.
+     */
+    public static void setPrivateBrand(Scriptable obj, BaseFunction constructor) {
+        if (obj instanceof ScriptableObject) {
+            PrivateKey brandKey = new PrivateKey(constructor, "[[PrivateBrand]]");
+            ((ScriptableObject) obj).associateValue(brandKey, Boolean.TRUE);
+        }
+    }
+
+    /**
+     * Initializes private instance fields on an object. Called during instance construction.
+     *
+     * @param instance The object to initialize private fields on
+     * @param constructor The class constructor containing the private field definitions
+     * @param cx The context
+     * @param scope The scope
+     */
+    public static void initializePrivateFields(
+            Scriptable instance, BaseFunction constructor, Context cx, Scriptable scope) {
+        Object[] fieldIds = constructor.getPrivateInstanceFieldIds();
+        Object[] fieldValues = constructor.getPrivateInstanceFieldValues();
+
+        if (fieldIds != null && fieldIds.length > 0) {
+            for (int i = 0; i < fieldIds.length; i++) {
+                String name = (String) fieldIds[i];
+                Object initializerOrValue =
+                        (fieldValues != null && i < fieldValues.length)
+                                ? fieldValues[i]
+                                : Undefined.instance;
+
+                // The initializer is stored as a function - call it to get the value
+                Object value;
+                if (initializerOrValue instanceof Callable) {
+                    Callable initializer = (Callable) initializerOrValue;
+                    value = initializer.call(cx, scope, instance, emptyArgs);
+                } else {
+                    value = initializerOrValue;
+                }
+
+                // Store in instance's associated values
+                PrivateKey key = new PrivateKey(constructor, name);
+                if (instance instanceof ScriptableObject) {
+                    ((ScriptableObject) instance).associateValue(key, value);
+                }
+            }
+        }
+
+        // Set the private brand on the instance
+        setPrivateBrand(instance, constructor);
+    }
+
+    /**
+     * Initializes private static fields on a class constructor. Called during class definition.
+     *
+     * @param constructor The class constructor
+     * @param cx The context
+     * @param scope The scope
+     */
+    public static void initializePrivateStaticFields(
+            BaseFunction constructor, Context cx, Scriptable scope) {
+        Object[] fieldIds = constructor.getPrivateStaticFieldIds();
+        Object[] fieldValues = constructor.getPrivateStaticFieldValues();
+
+        if (fieldIds != null && fieldIds.length > 0) {
+            for (int i = 0; i < fieldIds.length; i++) {
+                String name = (String) fieldIds[i];
+                Object initializerOrValue =
+                        (fieldValues != null && i < fieldValues.length)
+                                ? fieldValues[i]
+                                : Undefined.instance;
+
+                // The initializer is stored as a function - call it to get the value
+                Object value;
+                if (initializerOrValue instanceof Callable) {
+                    Callable initializer = (Callable) initializerOrValue;
+                    value = initializer.call(cx, scope, constructor, emptyArgs);
+                } else {
+                    value = initializerOrValue;
+                }
+
+                // Store in constructor's associated values
+                PrivateKey key = new PrivateKey(constructor, name);
+                ((ScriptableObject) constructor).associateValue(key, value);
+            }
+        }
     }
 
     /**

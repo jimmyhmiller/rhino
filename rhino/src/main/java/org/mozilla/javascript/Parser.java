@@ -1272,6 +1272,7 @@ public class Parser {
         // Check for getter/setter
         int entryKind = METHOD_ENTRY;
         int tt = peekToken();
+        boolean isPrivate = false;
 
         if (tt == Token.NAME || tt == Token.STRING || tt == Token.NUMBER) {
             String tokenStr = ts.getString();
@@ -1281,12 +1282,22 @@ public class Parser {
                 if (nextTt != Token.LP) {
                     // It's a getter or setter
                     entryKind = "get".equals(tokenStr) ? GET_ENTRY : SET_ENTRY;
+                    // Check if the getter/setter target is private
+                    if (nextTt == Token.PRIVATE_NAME) {
+                        isPrivate = true;
+                    }
                 } else {
                     // It's a method named 'get' or 'set'
                     return parseClassMethod(
                             pos, createNameNode(false, Token.NAME, tokenStr), isStatic, false);
                 }
             }
+        }
+
+        // Check if this is a private member
+        tt = peekToken();
+        if (tt == Token.PRIVATE_NAME) {
+            isPrivate = true;
         }
 
         // Parse property name
@@ -1303,11 +1314,11 @@ public class Parser {
         int nextToken = peekToken();
         if (!isGenerator && entryKind == METHOD_ENTRY && nextToken != Token.LP) {
             // This is a field definition, not a method
-            return parseClassField(pos, propName, isStatic);
+            return parseClassField(pos, propName, isStatic, isPrivate);
         }
 
         // Parse method
-        return parseClassMethod(pos, propName, isStatic, isGenerator, entryKind);
+        return parseClassMethod(pos, propName, isStatic, isGenerator, entryKind, isPrivate);
     }
 
     /**
@@ -1318,13 +1329,14 @@ public class Parser {
      *     ClassElementName Initializer_opt
      * </pre>
      */
-    private ClassElement parseClassField(int pos, AstNode propName, boolean isStatic)
-            throws IOException {
+    private ClassElement parseClassField(
+            int pos, AstNode propName, boolean isStatic, boolean isPrivate) throws IOException {
         ClassElement element = new ClassElement(pos);
         element.setPropertyName(propName);
         element.setIsStatic(isStatic);
         element.setIsField(true);
         element.setIsComputed(propName instanceof ComputedPropertyKey);
+        element.setIsPrivate(isPrivate);
 
         // Check for initializer
         if (matchToken(Token.ASSIGN, true)) {
@@ -1342,11 +1354,22 @@ public class Parser {
 
     private ClassElement parseClassMethod(
             int pos, AstNode propName, boolean isStatic, boolean isGenerator) throws IOException {
-        return parseClassMethod(pos, propName, isStatic, isGenerator, METHOD_ENTRY);
+        return parseClassMethod(pos, propName, isStatic, isGenerator, METHOD_ENTRY, false);
     }
 
     private ClassElement parseClassMethod(
             int pos, AstNode propName, boolean isStatic, boolean isGenerator, int entryKind)
+            throws IOException {
+        return parseClassMethod(pos, propName, isStatic, isGenerator, entryKind, false);
+    }
+
+    private ClassElement parseClassMethod(
+            int pos,
+            AstNode propName,
+            boolean isStatic,
+            boolean isGenerator,
+            int entryKind,
+            boolean isPrivate)
             throws IOException {
         // Check if this is a constructor (name is "constructor" and not static)
         boolean isConstructor = false;
@@ -1377,6 +1400,7 @@ public class Parser {
         element.setMethod(fn);
         element.setIsStatic(isStatic);
         element.setIsComputed(propName instanceof ComputedPropertyKey);
+        element.setIsPrivate(isPrivate);
         element.setLength(getNodeEnd(fn) - pos);
 
         // Set up the method form - but NOT for constructors
@@ -1407,6 +1431,10 @@ public class Parser {
         int tt = peekToken();
         switch (tt) {
             case Token.NAME:
+                return createNameNode();
+            case Token.PRIVATE_NAME:
+                // Private name - create a Name node with the identifier (without #)
+                // The # prefix is tracked by the isPrivate flag on ClassElement
                 return createNameNode();
             case Token.STRING:
                 return createStringLiteral();
@@ -3830,6 +3858,7 @@ public class Parser {
         }
 
         AstNode ref = null; // right side of . or .. operator
+        boolean isPrivateAccess = false; // ES2022 private property access
         int token = nextToken();
         switch (token) {
             case Token.THROW:
@@ -3842,6 +3871,21 @@ public class Parser {
                 // handles: name, ns::name, ns::*, ns::[expr]
                 ref = propertyName(-1, memberTypeFlags);
                 break;
+
+            case Token.PRIVATE_NAME:
+                // handles: obj.#privateName
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                    // Create a Name node for the private property (without the # prefix)
+                    String privateName = ts.getString();
+                    Name name = new Name(ts.tokenBeg, privateName);
+                    name.setLineColumnNumber(lineNumber(), columnNumber());
+                    ref = name;
+                    isPrivateAccess = true;
+                    break;
+                } else {
+                    reportError("msg.no.name.after.dot");
+                    return makeErrorNode();
+                }
 
             case Token.MUL:
                 if (compilerEnv.isXmlAvailable()) {
@@ -3913,6 +3957,9 @@ public class Parser {
         if (xml && tt == Token.DOT) result.setType(Token.DOT);
         if (isOptionalChain) {
             result.setType(Token.QUESTION_DOT);
+        }
+        if (isPrivateAccess) {
+            result.setType(Token.GETPROP_PRIVATE);
         }
         int pos = pn.getPosition();
         result.setPosition(pos);
@@ -5881,6 +5928,21 @@ public class Parser {
                         type = Token.SETELEM;
                     }
                     return new Node(type, obj, id, right);
+                }
+            case Token.GETPROP_PRIVATE:
+                {
+                    // Private property assignment: this.#x = value
+                    Node obj, id;
+                    if (left instanceof PropertyGet) {
+                        AstNode target = ((PropertyGet) left).getTarget();
+                        obj = transformer != null ? transformer.transform(target) : target;
+                        id = ((PropertyGet) left).getProperty();
+                    } else {
+                        obj = left.getFirstChild();
+                        id = left.getLastChild();
+                    }
+                    id.setType(Token.STRING);
+                    return new Node(Token.SETPROP_PRIVATE, obj, id, right);
                 }
             case Token.GET_REF:
                 {

@@ -77,7 +77,9 @@ public class Token {
             GETPROPNOWARN_SUPER = GETPROP_SUPER + 1,
             SETPROP = GETPROPNOWARN_SUPER + 1,
             SETPROP_SUPER = SETPROP + 1,
-            GETELEM = SETPROP_SUPER + 1,
+            GETPROP_PRIVATE = SETPROP_SUPER + 1, // ES2022 get private property (obj.#field)
+            SETPROP_PRIVATE = GETPROP_PRIVATE + 1, // ES2022 set private property (obj.#field = val)
+            GETELEM = SETPROP_PRIVATE + 1,
             GETELEM_SUPER = GETELEM + 1,
             SETELEM = GETELEM_SUPER + 1,
             SETELEM_SUPER = SETELEM + 1,
@@ -258,7 +260,8 @@ public class Token {
             EXTENDS = CLASS + 1, // ES6 extends keyword
             STATIC = EXTENDS + 1, // ES6 static keyword
             FIELD = STATIC + 1, // ES2022 class field definition
-            LAST_TOKEN = FIELD + 1;
+            PRIVATE_NAME = FIELD + 1, // ES2022 private name (#identifier)
+            LAST_TOKEN = PRIVATE_NAME + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -627,6 +630,12 @@ public class Token {
                 return "STATIC";
             case FIELD:
                 return "FIELD";
+            case PRIVATE_NAME:
+                return "PRIVATE_NAME";
+            case GETPROP_PRIVATE:
+                return "GETPROP_PRIVATE";
+            case SETPROP_PRIVATE:
+                return "SETPROP_PRIVATE";
             case EXP:
                 return "EXP";
             case CONST:

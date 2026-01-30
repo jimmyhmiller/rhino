@@ -1183,13 +1183,114 @@ class TokenStream implements Parser.CurrentPositionReporter {
                 return Token.STRING;
             }
 
-            if (c == '#'
-                    && cursor == 1
-                    && peekChar() == '!'
-                    && !this.parser.calledByCompileFunction) {
-                // #! hashbang: only on the first line of a Script, no leading whitespace
-                skipLine();
-                return Token.COMMENT;
+            if (c == '#') {
+                // Check for hashbang first
+                if (cursor == 1 && peekChar() == '!' && !this.parser.calledByCompileFunction) {
+                    // #! hashbang: only on the first line of a Script, no leading whitespace
+                    skipLine();
+                    return Token.COMMENT;
+                }
+                // ES2022 private name: #identifier
+                int nextChar = peekChar();
+                if (parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && (Character.isUnicodeIdentifierStart(nextChar)
+                                || nextChar == '$'
+                                || nextChar == '_'
+                                || nextChar == '\\')) {
+                    // Scan the identifier part (without the #)
+                    stringBufferTop = 0;
+                    c = getChar();
+                    if (c == '\\') {
+                        c = getChar();
+                        if (c != 'u') {
+                            parser.addError("msg.illegal.character", c);
+                            return Token.ERROR;
+                        }
+                        // Handle unicode escape
+                        int escapeVal = 0;
+                        if (matchTemplateLiteralChar('{')) {
+                            for (; ; ) {
+                                c = getTemplateLiteralChar();
+                                if (c == '}') {
+                                    break;
+                                }
+                                escapeVal = Kit.xDigitToInt(c, escapeVal);
+                                if (escapeVal < 0) {
+                                    break;
+                                }
+                            }
+                            if (escapeVal < 0 || escapeVal > 0x10FFFF) {
+                                parser.reportError("msg.invalid.escape");
+                                return Token.ERROR;
+                            }
+                        } else {
+                            for (int i = 0; i != 4; ++i) {
+                                c = getChar();
+                                escapeVal = Kit.xDigitToInt(c, escapeVal);
+                                if (escapeVal < 0) {
+                                    parser.reportError("msg.invalid.escape");
+                                    return Token.ERROR;
+                                }
+                            }
+                        }
+                        addToString(escapeVal);
+                    } else {
+                        addToString(c);
+                    }
+                    // Continue scanning identifier
+                    for (; ; ) {
+                        c = getChar();
+                        if (c == '\\') {
+                            c = getChar();
+                            if (c == 'u') {
+                                int escapeVal = 0;
+                                if (matchTemplateLiteralChar('{')) {
+                                    for (; ; ) {
+                                        c = getTemplateLiteralChar();
+                                        if (c == '}') {
+                                            break;
+                                        }
+                                        escapeVal = Kit.xDigitToInt(c, escapeVal);
+                                        if (escapeVal < 0) {
+                                            break;
+                                        }
+                                    }
+                                    if (escapeVal < 0 || escapeVal > 0x10FFFF) {
+                                        parser.reportError("msg.invalid.escape");
+                                        return Token.ERROR;
+                                    }
+                                } else {
+                                    for (int i = 0; i != 4; ++i) {
+                                        c = getChar();
+                                        escapeVal = Kit.xDigitToInt(c, escapeVal);
+                                        if (escapeVal < 0) {
+                                            parser.reportError("msg.invalid.escape");
+                                            return Token.ERROR;
+                                        }
+                                    }
+                                }
+                                addToString(escapeVal);
+                            } else {
+                                parser.addError("msg.illegal.character", c);
+                                return Token.ERROR;
+                            }
+                        } else if (c == EOF_CHAR
+                                || c == BYTE_ORDER_MARK
+                                || c == 0x180E
+                                || !(Character.isUnicodeIdentifierPart(c) || c == '$')) {
+                            break;
+                        } else {
+                            addToString(c);
+                        }
+                    }
+                    ungetChar(c);
+                    String str = getStringFromBuffer();
+                    this.string = internString(str);
+                    return Token.PRIVATE_NAME;
+                }
+                // Not a valid private name, report error
+                parser.addError("msg.illegal.character", c);
+                return Token.ERROR;
             }
 
             switch (c) {
