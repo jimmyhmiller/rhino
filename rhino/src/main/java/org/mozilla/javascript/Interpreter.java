@@ -2148,7 +2148,16 @@ public final class Interpreter extends Icode implements Evaluator {
                 }
             }
 
+            // Check TDZ for derived class constructors BEFORE exiting the frame.
+            // If returning a non-object and super() wasn't called, throw ReferenceError.
+            // We check this before exitFrame so the exception goes through proper handling.
+            RuntimeException tdzError = getDerivedConstructorReturnError(frame);
+            if (tdzError != null) {
+                throw tdzError;
+            }
+
             exitFrame(cx, frame, null);
+
             if (frame.parentFrame != null) {
                 CallFrame newFrame = frame.parentFrame;
                 if (newFrame.frozen) {
@@ -2727,6 +2736,41 @@ public final class Interpreter extends Icode implements Evaluator {
             frame.result = undefined;
             return BREAK_LOOP;
         }
+    }
+
+    /**
+     * Check derived class constructor return value per ES6 spec 9.2.2 [[Construct]] step 13.
+     * Returns the exception to throw, or null if no error.
+     *
+     * <p>Step 13a: If returning an Object → OK Step 13c: If returning non-undefined primitive →
+     * TypeError Step 13d.f: If returning undefined AND super() not called → ReferenceError
+     */
+    private static RuntimeException getDerivedConstructorReturnError(CallFrame frame) {
+        JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+        if (desc == null || !desc.isDerivedClassConstructor()) {
+            return null;
+        }
+
+        // Step 13a: Returning an object is always OK
+        if (frame.result instanceof Scriptable) {
+            return null;
+        }
+
+        // Check for undefined return (including implicit return)
+        if (frame.result == Undefined.instance) {
+            // Step 13d.f: Returning undefined - check if super() was called
+            if (!frame.superCalled) {
+                return ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before returning from derived constructor");
+            }
+            return null; // undefined return with super() called is OK
+        }
+
+        // Step 13c: Any other value (non-object, non-undefined) is a TypeError
+        // This includes: numbers (DOUBLE_MARK), strings, booleans, null, symbols
+        return ScriptRuntime.constructError(
+                "TypeError", "Derived constructors may only return object or undefined");
     }
 
     private static class DoBitNot extends InstructionClass {

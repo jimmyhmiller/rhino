@@ -53,8 +53,8 @@ jobs:
 
       - name: Build upstream mozilla/rhino master
         run: |
-          git clone --depth 1 https://github.com/mozilla/rhino.git upstream-rhino
-          cd upstream-rhino
+          git clone --depth 1 https://github.com/mozilla/rhino.git build/upstream-rhino
+          cd build/upstream-rhino
 
           # Apply flush fix to upstream - JLine's dumb terminal buffers output without flushing
           # Without this fix, print() output is lost in non-interactive mode with shadowJar
@@ -153,35 +153,210 @@ jobs:
           # Build the HTML
           node buildrhino.js
 
-      - name: Prepare site
+      - name: Prepare compat site
         run: |
-          mkdir -p _site/compat
-          cp node-compat-table/index.html _site/compat/engines.html
-          cp node-compat-table/style.css _site/compat/style.css
-          cp node-compat-table/favico.ico _site/compat/favico.ico 2>/dev/null || true
-          cat > _site/index.html << 'EOF'
+          mkdir -p build/_site/compat
+          cp node-compat-table/index.html build/_site/compat/engines.html
+          cp node-compat-table/style.css build/_site/compat/style.css
+          cp node-compat-table/favico.ico build/_site/compat/favico.ico 2>/dev/null || true
+
+      - name: Upload compat artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: compat-site
+          path: build/_site/
+
+  build-test262:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fork with test262 submodule
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'adopt'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build fork
+        run: ./gradlew build -x test
+
+      - name: Get fork version
+        id: fork-version
+        run: |
+          VERSION=$(./gradlew properties -q | grep "^version:" | awk '{print $2}')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Fork version: $VERSION"
+
+      - name: Clone and build upstream mozilla/rhino
+        run: |
+          git clone --depth 1 https://github.com/mozilla/rhino.git build/upstream-rhino
+          cd build/upstream-rhino
+          git submodule update --init tests/test262
+          ./gradlew build -x test
+          VERSION=$(./gradlew properties -q | grep "^version:" | awk '{print $2}')
+          echo "UPSTREAM_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Built upstream version: $VERSION"
+
+          # Copy the Test262JsonRunner and gradle task from fork to upstream
+          # so we can run the same runner against both codebases
+          cp ../../tests/src/test/java/org/mozilla/javascript/tests/Test262JsonRunner.java \
+             tests/src/test/java/org/mozilla/javascript/tests/
+
+          # Check if snakeyaml dependency exists, add it if not
+          if ! grep -q "snakeyaml" tests/build.gradle; then
+            # Add snakeyaml dependency after existing testImplementation lines
+            sed -i '/testImplementation.*junit/a\    testImplementation "org.yaml:snakeyaml:2.5"' tests/build.gradle
+          fi
+
+          # Append the test262Json task to upstream's build.gradle
+          cat >> tests/build.gradle << 'GRADLE_EOF'
+
+// Task to run test262 tests and output JSON in test262.fyi format
+tasks.register('test262Json', JavaExec) {
+    mainClass = 'org.mozilla.javascript.tests.Test262JsonRunner'
+    classpath = sourceSets.test.runtimeClasspath
+    def engineName = project.hasProperty('engine') ? project.property('engine') : 'rhino'
+    def outputDir = project.hasProperty('output') ? project.property('output') : "${buildDir}/test262-json"
+    def test262Path = project.hasProperty('test262path') ? project.property('test262path') : 'test262'
+    def threadCount = project.hasProperty('threads') ? project.property('threads') : String.valueOf(Runtime.getRuntime().availableProcessors())
+    args = ['--engine', engineName, '--output', outputDir, '--test262-path', test262Path, '--threads', threadCount]
+}
+GRADLE_EOF
+
+          # Rebuild with the new file
+          ./gradlew :tests:compileTestJava
+
+      - name: Run test262 for upstream
+        run: |
+          cd build/upstream-rhino
+          echo "Running test262 for upstream..."
+          ./gradlew :tests:test262Json \
+            -Pengine=rhino-upstream \
+            -Poutput=../test262-upstream \
+            -Ptest262path=tests/test262 \
+            -Pthreads=4 || true
+          echo "Upstream test262 complete"
+
+      - name: Run test262 for fork
+        run: |
+          echo "Running test262 for fork..."
+          ./gradlew :tests:test262Json \
+            -Pengine=rhino-fork \
+            -Poutput=build/test262-fork \
+            -Ptest262path=tests/test262 \
+            -Pthreads=4 || true
+          echo "Fork test262 complete"
+
+      - name: Generate features and editions data
+        run: |
+          # Generate features.json and editions.json for upstream
+          node .github/scripts/generate-features-editions.js \
+            build/test262-upstream \
+            tests/test262 \
+            --engine rhino-upstream \
+            --output build/test262-upstream
+
+          # Generate features.json and editions.json for fork
+          node .github/scripts/generate-features-editions.js \
+            build/test262-fork \
+            tests/test262 \
+            --engine rhino-fork \
+            --output build/test262-fork
+
+      - name: Merge test262 results
+        run: |
+          node .github/scripts/merge-test262-results.js \
+            rhino-upstream:build/test262-upstream \
+            rhino-fork:build/test262-fork \
+            --output build/test262-merged
+
+      - name: Prepare test262 frontend
+        run: |
+          chmod +x .github/scripts/prepare-test262-frontend.sh
+          .github/scripts/prepare-test262-frontend.sh build/_site/test262 build/test262-merged
+
+          # Copy merged data to the site
+          cp -r build/test262-merged/* build/_site/test262/data/
+
+      - name: Upload test262 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: test262-site
+          path: build/_site/
+
+  combine-and-deploy:
+    runs-on: ubuntu-latest
+    needs: [build-compat, build-test262]
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Download compat artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: compat-site
+          path: build/_site/
+
+      - name: Download test262 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: test262-site
+          path: build/_site-test262/
+
+      - name: Merge sites
+        run: |
+          # Copy test262 directory from test262 artifact
+          cp -r build/_site-test262/test262 build/_site/ || true
+
+          # Create main index page
+          cat > build/_site/index.html << 'EOF'
           <!DOCTYPE html>
           <html>
           <head>
             <title>Rhino Fork</title>
-            <meta http-equiv="refresh" content="0; url=compat/engines.html">
+            <style>
+              body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+              h1 { color: #333; }
+              ul { list-style: none; padding: 0; }
+              li { margin: 10px 0; }
+              a { color: #0366d6; text-decoration: none; font-size: 18px; }
+              a:hover { text-decoration: underline; }
+              .description { color: #666; font-size: 14px; margin-left: 10px; }
+            </style>
           </head>
           <body>
-            <p>Redirecting to <a href="compat/engines.html">compatibility table</a>...</p>
+            <h1>Rhino Fork</h1>
+            <p>Compatibility and conformance testing for the Rhino JavaScript engine fork.</p>
+            <ul>
+              <li>
+                <a href="compat/engines.html">ECMAScript Compatibility Table</a>
+                <span class="description">- kangax/compat-table based feature comparison</span>
+              </li>
+              <li>
+                <a href="test262/">Test262 Conformance</a>
+                <span class="description">- ECMA-262 specification conformance tests</span>
+              </li>
+            </ul>
           </body>
           </html>
           EOF
 
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+          echo "=== Site structure ==="
+          find build/_site -type f | head -50
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build-compat
-    steps:
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/_site
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

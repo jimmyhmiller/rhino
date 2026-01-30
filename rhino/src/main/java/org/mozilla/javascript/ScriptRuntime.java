@@ -5784,6 +5784,40 @@ public class ScriptRuntime {
     }
 
     /**
+     * Throws a TypeError for returning a non-object, non-undefined value from a derived class
+     * constructor. Per ES6 spec 9.2.2 step 13c.
+     */
+    public static void throwTypeErrorForDerivedReturn(String message) {
+        throw constructError("TypeError", message);
+    }
+
+    /**
+     * Checks derived class constructor return value per ES6 spec 9.2.2 [[Construct]] step 13.
+     * Throws TypeError or ReferenceError if the return is invalid.
+     *
+     * @param result the return value from the constructor
+     * @param superCalled true if super() was called (1), false otherwise (0)
+     */
+    public static void checkDerivedConstructorReturn(Object result, int superCalled) {
+        // Step 13a: Returning an object is always OK
+        if (result instanceof Scriptable) {
+            return;
+        }
+        // Step 13c: Returning a non-undefined primitive throws TypeError
+        if (result != Undefined.instance) {
+            throw constructError(
+                    "TypeError", "Derived constructors may only return object or undefined");
+        }
+        // Step 13d.f: Returning undefined - check if super() was called
+        if (superCalled == 0) {
+            throw constructError(
+                    "ReferenceError",
+                    "Must call super constructor in derived class before returning from derived constructor");
+        }
+        // OK - returning undefined with super() called
+    }
+
+    /**
      * Checks if a let/const variable is still in the Temporal Dead Zone (TDZ). If so, throws a
      * ReferenceError. Otherwise returns the value. Used by compiled code.
      */

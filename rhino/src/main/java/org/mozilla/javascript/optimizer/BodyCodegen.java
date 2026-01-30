@@ -660,6 +660,18 @@ class BodyCodegen {
             cfw.add(ByteCode.ARETURN);
 
         } else if (hasVarsInRegs) {
+            // In derived class constructors, check return value per ES6 spec 9.2.2 step 13.
+            // - Returning an object is always OK
+            // - Returning non-undefined primitive throws TypeError
+            // - Returning undefined without super() throws ReferenceError
+            if (isDerivedClassConstructor && superCalledLocal != -1) {
+                // Stack: returnValue
+                cfw.add(ByteCode.DUP); // Stack: returnValue, returnValue
+                cfw.addILoad(superCalledLocal); // Stack: returnValue, returnValue, superCalled
+                addScriptRuntimeInvoke(
+                        "checkDerivedConstructorReturn",
+                        "(Ljava/lang/Object;I)V"); // Stack: returnValue
+            }
             cfw.add(ByteCode.ARETURN);
 
         } else if (fnCurrent == null) {
@@ -667,13 +679,31 @@ class BodyCodegen {
             cfw.add(ByteCode.ARETURN);
 
         } else {
-            generateActivationExit();
-            cfw.add(ByteCode.ARETURN);
+            // For functions with activation frames, we need to ensure activation exit
+            // happens even if an exception is thrown. We use a try-finally pattern.
 
             // Generate catch block to catch all and rethrow to call exit code
             // under exception propagation as well.
-
             int finallyHandler = cfw.acquireLabel();
+
+            // In derived class constructors, check return value per ES6 spec 9.2.2 step 13.
+            // This check is inside the exception handler range so activation cleanup happens.
+            if (isDerivedClassConstructor && superCalledLocal != -1) {
+                // Stack: returnValue
+                cfw.add(ByteCode.DUP); // Stack: returnValue, returnValue
+                cfw.addILoad(superCalledLocal); // Stack: returnValue, returnValue, superCalled
+                addScriptRuntimeInvoke(
+                        "checkDerivedConstructorReturn",
+                        "(Ljava/lang/Object;I)V"); // Stack: returnValue
+            }
+
+            // Mark end of try block (before activation exit)
+            int epilogueEnd = cfw.acquireLabel();
+            cfw.markLabel(epilogueEnd);
+
+            generateActivationExit();
+            cfw.add(ByteCode.ARETURN);
+
             cfw.markHandler(finallyHandler);
             short exceptionObject = getNewWordLocal();
             cfw.addAStore(exceptionObject);
@@ -687,9 +717,9 @@ class BodyCodegen {
             // rethrow
             cfw.add(ByteCode.ATHROW);
 
-            // mark the handler
+            // mark the handler - now covers the epilogue TDZ check as well
             cfw.addExceptionHandler(
-                    enterAreaStartLabel, epilogueLabel, finallyHandler, null); // catch any
+                    enterAreaStartLabel, epilogueEnd, finallyHandler, null); // catch any
         }
     }
 
@@ -831,6 +861,7 @@ class BodyCodegen {
                     if (popvLocal < 0) throw Codegen.badTree();
                     cfw.addALoad(popvLocal);
                 }
+
                 if (isGenerator) {
                     // Stash away the return value for use in the epilogue.
                     generateSetGeneratorReturnValue();
