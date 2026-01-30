@@ -1,0 +1,11 @@
+
+// Task to run test262 tests and output JSON in test262.fyi format
+tasks.register('test262Json', JavaExec) {
+    mainClass = 'org.mozilla.javascript.tests.Test262JsonRunner'
+    classpath = sourceSets.test.runtimeClasspath
+    def engineName = project.hasProperty('engine') ? project.property('engine') : 'rhino'
+    def outputDir = project.hasProperty('output') ? project.property('output') : "${buildDir}/test262-json"
+    def test262Path = project.hasProperty('test262path') ? project.property('test262path') : 'test262'
+    def threadCount = project.hasProperty('threads') ? project.property('threads') : String.valueOf(Runtime.getRuntime().availableProcessors())
+    args = ['--engine', engineName, '--output', outputDir, '--test262-path', test262Path, '--threads', threadCount]
+}
