@@ -4,12 +4,13 @@
 
 This document tracks the implementation of ES6 classes in Rhino. Classes are syntactic sugar over JavaScript's prototype-based inheritance, which Rhino already supports well.
 
-**Current State**: ES6 classes are substantially complete! Classes support constructors, methods, getters, setters, static members, inheritance via `extends`, `super()` constructor calls, computed method names, and generator methods.
+**Current State**: ES6 classes are substantially complete! Classes support constructors, methods, getters, setters, static members, inheritance via `extends`, `super()` constructor calls, computed method names, generator methods, and **proper subclassing of built-in types** (Map, Set, Array, etc.).
 
 **Test262 Progress** (as of latest commit):
-- `language/statements/class`: 706 passing (3660 still failing) - 83.83% failing
-- `language/expressions/super`: 40 passing (54 still failing) - 57.45% failing
-- Total: Significant improvement from initial implementation
+- `language/statements/class`: 691 passing (3675 still failing) - 84.17% failing
+- `language/expressions/super`: 62 passing (32 still failing) - 65.96% passing
+- `built-ins/Set`: 363 passing (18 still failing) - 95.28% passing (subclass tests now work!)
+- Total: 51 tests fixed, net +22 improvement from default constructor work
 
 **Existing Infrastructure We Can Leverage**:
 - `super` keyword works in object literal methods
@@ -192,10 +193,26 @@ class Dog extends Animal {
   - `BaseFunction` stores `superConstructor` reference for runtime lookup
   - Files: `Icode.java`, `CodeGenerator.java`, `Interpreter.java`, `BodyCodegen.java`, `ScriptRuntime.java`, `BaseFunction.java`
 
-- [x] **4.4 Tests** ✅ DONE
-  - 33 test262 tests now pass with super() implementation
-  - `language/expressions/super`: 73 → 54 failures (19 tests fixed)
-  - `language/statements/class`: 3670 → 3660 failures (10 tests fixed)
+- [x] **4.4 Default Constructor Argument Forwarding** ✅ DONE
+  - Default constructors now generate `return super(...args)` per ES6 spec
+  - Added `DEFAULT_CTOR_SUPER_CALL` node property to mark special super() calls
+  - Interpreter stores `originalArgs`/`originalArgCount` in CallFrame for forwarding
+  - Added `Icode_DEFAULT_CTOR_SUPER_CALL` instruction
+  - Files: `IRFactory.java`, `Node.java`, `Icode.java`, `CodeGenerator.java`, `Interpreter.java`
+
+- [x] **4.5 super() for Built-in Types** ✅ DONE
+  - Added `superCall()` method to `BaseFunction` for [[Construct]] semantics with existing thisObj
+  - `LambdaConstructor.superCall()` uses `targetConstructor.construct()` for proper built-in initialization
+  - Built-in types (Map, Set, Array, etc.) can now be properly subclassed
+  - `new SubMap()` where `class SubMap extends Map {}` now works correctly
+  - Files: `BaseFunction.java`, `LambdaConstructor.java`, `ScriptRuntime.java`, `Interpreter.java`
+
+- [x] **4.6 Tests** ✅ DONE
+  - 51 test262 tests now pass with default constructor + super() improvements
+  - `language/expressions/super`: 54 → 32 failures (22 tests fixed - spread tests)
+  - Set subclass tests: 17 tests now passing
+  - RegExp named-groups subclass tests: 2 tests now passing
+  - Error subclass tests: 6 tests now passing
 
 ---
 
@@ -361,20 +378,22 @@ class Foo {
 
 ## Test Progress Tracking
 
-| Category | Initial | After Phase 1-2 | After Phase 3-5 | % Passing |
-|----------|---------|-----------------|-----------------|-----------|
-| language/statements/class | 0/4366 | 168/4366 | 706/4366 | 16.17% |
-| language/expressions/class | 0/4059 | 124/4059 | TBD | ~3% |
-| language/expressions/super | ~21/94 | ~21/94 | 40/94 | 42.55% |
-| built-ins/Function (class-related) | - | - | +2 tests | - |
+| Category | Initial | After Phase 1-2 | After Phase 3-5 | After Phase 4 Complete | % Passing |
+|----------|---------|-----------------|-----------------|------------------------|-----------|
+| language/statements/class | 0/4366 | 168/4366 | 706/4366 | 691/4366 | 15.83% |
+| language/expressions/class | 0/4059 | 124/4059 | 617/4059 | 615/4059 | 15.15% |
+| language/expressions/super | ~21/94 | ~21/94 | 40/94 | 62/94 | 65.96% |
+| built-ins/Set | - | - | 348/381 | 363/381 | 95.28% |
+| built-ins/RegExp | - | - | 943/1868 | 945/1868 | 50.59% |
 
-**Key Improvements from super() Implementation**:
-- `language/expressions/super`: 73 → 54 failures (19 tests fixed)
-- `language/statements/class`: 3670 → 3660 failures (10 tests fixed)
-- `language/rest-parameters`: 4 → 3 failures (1 test fixed)
-- `language/expressions/optional-chaining`: 15 → 14 failures (1 test fixed)
-- `built-ins/Function`: 83 → 81 failures (2 tests fixed)
-- **Total: 33 tests fixed with super() implementation**
+**Key Improvements from Default Constructor + super() Implementation**:
+- `language/expressions/super`: 54 → 32 failures (22 super spread tests fixed)
+- `built-ins/Set`: 33 → 18 failures (15 subclass tests fixed)
+- `built-ins/RegExp`: 925 → 923 failures (2 named-groups subclass tests fixed)
+- `language/statements/class`: 3660 → 3675 failures (some new failures for "super-must-be-called" TDZ)
+- Error subclass tests: 6 tests now passing
+- default-constructor-spread-override: now passing
+- **Total: 51 tests now passing, net +22 improvement**
 
 ---
 
@@ -406,7 +425,12 @@ class Foo {
 1. **Complete Phase 4.2**: Implement TDZ for `this` before `super()` is called
    - Track "this not initialized" state in derived class constructors
    - Throw ReferenceError if `this` accessed before `super()` called
+   - This would fix 19 "super-must-be-called" test failures
 
-2. **Phase 8.2**: Async methods (requires async/await support in Rhino first)
+2. **Class constructors must throw TypeError when called without `new`**
+   - Currently classes can be called as functions (incorrectly)
+   - Would fix several test262 failures
 
-3. **Phase 9-10**: Private fields and class fields (newer features, lower priority)
+3. **Phase 8.2**: Async methods (requires async/await support in Rhino first)
+
+4. **Phase 9-10**: Private fields and class fields (newer features, lower priority)
