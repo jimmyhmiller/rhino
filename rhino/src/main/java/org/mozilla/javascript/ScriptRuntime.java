@@ -6153,6 +6153,12 @@ public class ScriptRuntime {
             if (constructor instanceof BaseFunction) {
                 ((BaseFunction) constructor).setSuperConstructor((Callable) superClass);
             }
+
+            // Set the home object on the constructor to be the class's prototype.
+            // This enables super.property access in the constructor.
+            if (constructor instanceof BaseFunction) {
+                ((BaseFunction) constructor).setHomeObject(newProto);
+            }
         }
 
         // Get the prototype from the constructor (may have been replaced above)

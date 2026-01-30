@@ -677,8 +677,13 @@ public class BaseFunction extends ScriptableObject implements Function {
 
     @Override
     public Scriptable construct(Context cx, Scriptable scope, Object[] args) {
-        if (cx.getLanguageVersion() >= Context.VERSION_ES6 && this.getHomeObject() != null) {
-            // Only methods have home objects associated with them
+        // In ES6, methods have homeObject set and cannot be used as constructors.
+        // However, derived class constructors also have homeObject set (for super property access)
+        // but ARE constructors. We distinguish them by checking superConstructor.
+        if (cx.getLanguageVersion() >= Context.VERSION_ES6
+                && this.getHomeObject() != null
+                && this.superConstructor == null) {
+            // This is a method (homeObject set, no superConstructor), not a constructor
             throw ScriptRuntime.typeErrorById("msg.not.ctor", getFunctionName());
         }
 
@@ -962,8 +967,16 @@ public class BaseFunction extends ScriptableObject implements Function {
 
     @Override
     public boolean isConstructor() {
-        return !(Context.getCurrentContext().getLanguageVersion() >= Context.VERSION_ES6
-                && this.getHomeObject() != null);
+        // In ES6, methods have homeObject set and are not constructors.
+        // However, derived class constructors also have homeObject set (for super property access)
+        // but ARE constructors. We distinguish them by checking superConstructor.
+        if (Context.getCurrentContext().getLanguageVersion() >= Context.VERSION_ES6
+                && this.getHomeObject() != null) {
+            // If superConstructor is set, this is a derived class constructor, which IS a
+            // constructor
+            return this.superConstructor != null;
+        }
+        return true;
     }
 
     private static final int Id_constructor = 1,

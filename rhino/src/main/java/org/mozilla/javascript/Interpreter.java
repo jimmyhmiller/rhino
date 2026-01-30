@@ -3194,6 +3194,15 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoGetPropSuper extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // In derived class constructors, super property access requires 'this' to be
+            // initialized (super() must have been called) because the method will use 'this'
+            // as the receiver. Check TDZ for 'this' before allowing super property access.
+            JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+            if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            }
             final Object[] stack = frame.stack;
             Object superObject = stack[state.stackTop];
             if (superObject == DOUBLE_MARK) Kit.codeBug();
@@ -3227,6 +3236,14 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoSetPropSuper extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // In derived class constructors, super property access requires 'this' to be
+            // initialized (super() must have been called). Check TDZ for 'this'.
+            JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+            if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            }
             final Object[] stack = frame.stack;
             final double[] sDbl = frame.sDbl;
             Object rhs = stack[state.stackTop];
@@ -3281,6 +3298,14 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoGetElemSuper extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // In derived class constructors, super property access requires 'this' to be
+            // initialized (super() must have been called). Check TDZ for 'this'.
+            JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+            if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            }
             final Object[] stack = frame.stack;
             final double[] sDbl = frame.sDbl;
             Object superObject = stack[--state.stackTop];
@@ -3328,6 +3353,14 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoSetElemSuper extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // In derived class constructors, super property access requires 'this' to be
+            // initialized (super() must have been called). Check TDZ for 'this'.
+            JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+            if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            }
             final Object[] stack = frame.stack;
             final double[] sDbl = frame.sDbl;
             Object rhs = stack[state.stackTop];
@@ -3885,15 +3918,23 @@ public final class Interpreter extends Icode implements Evaluator {
                 InterpreterData idata = (InterpreterData) desc.getConstructor();
                 if (frame.fnOrScript.getDescriptor().getSecurityDomain()
                         == desc.getSecurityDomain()) {
+                    // In ES6, methods have homeObject set and cannot be used as constructors.
+                    // However, derived class constructors also have homeObject set
+                    // (for super property access) but ARE constructors.
                     if (cx.getLanguageVersion() >= Context.VERSION_ES6
-                            && f.getHomeObject() != null) {
-                        // Only methods have home objects associated with
-                        // them
+                            && f.getHomeObject() != null
+                            && f.getSuperConstructor() == null) {
+                        // This is a method (homeObject set, no superConstructor), not a constructor
                         throw ScriptRuntime.typeErrorById("msg.not.ctor", f.getFunctionName());
                     }
 
+                    // For regular constructors, create a new instance.
+                    // For derived class constructors (superConstructor != null), newInstance
+                    // is null because 'this' is created by the super() call.
                     Scriptable newInstance =
-                            f.getHomeObject() == null ? f.createObject(cx, frame.scope) : null;
+                            f.getSuperConstructor() == null
+                                    ? f.createObject(cx, frame.scope)
+                                    : null;
                     CallFrame calleeFrame =
                             initFrame(
                                     cx,
@@ -4351,18 +4392,11 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoSuper extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
-            // If we are referring to "super", then we always have an
-            // activation
-            // (this is done in IrFactory). The home object is stored as
-            // part of the
-            // activation frame to propagate it correctly for nested
-            // functions.
+            // If we are referring to "super", then we always have an activation
+            // (this is done in IrFactory). The home object is stored as part of the
+            // activation frame to propagate it correctly for nested functions.
             Scriptable homeObject = frame.fnOrScript.getHomeObject();
             if (homeObject == null) {
-                // This if is specified in the spec, but I cannot imagine
-                // how the home object will ever be null since `super` is
-                // legal _only_ in method definitions, where we do have a
-                // home object!
                 frame.stack[++state.stackTop] = Undefined.instance;
             } else {
                 frame.stack[++state.stackTop] = homeObject.getPrototype();
@@ -4974,6 +5008,13 @@ public final class Interpreter extends Icode implements Evaluator {
             // Stack: args (no function or thisObj)
             // indexReg: number of arguments
 
+            // Check if super() has already been called - calling super() twice is a ReferenceError
+            // per ES6 spec 12.3.5.1 (super already bound means 'this' is already initialized)
+            if (frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError", "Super constructor may only be called once");
+            }
+
             // Get the super constructor from the current function
             ScriptOrFn<?> fnOrScript = frame.fnOrScript;
             Callable superConstructor = null;
@@ -5030,6 +5071,12 @@ public final class Interpreter extends Icode implements Evaluator {
             }
             // super(...args) call with spread in a derived class constructor
             // Stack: NewLiteralStorage -> result
+
+            // Check if super() has already been called - calling super() twice is a ReferenceError
+            if (frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError", "Super constructor may only be called once");
+            }
 
             // Get the storage from the stack
             NewLiteralStorage storage = (NewLiteralStorage) frame.stack[state.stackTop];

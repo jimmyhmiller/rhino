@@ -168,6 +168,18 @@ public class Test262JsonRunner {
     public void run() throws Exception {
         Files.createDirectories(outputDir);
 
+        // Check if test directory exists
+        if (!testDir.exists()) {
+            throw new IllegalStateException(
+                    "Test directory does not exist: "
+                            + testDir.getAbsolutePath()
+                            + "\nMake sure test262 submodule is initialized: git submodule update --init tests/test262");
+        }
+        if (!testDir.isDirectory()) {
+            throw new IllegalStateException(
+                    "Test path is not a directory: " + testDir.getAbsolutePath());
+        }
+
         // Collect all test files
         List<File> testFiles = new LinkedList<>();
         recursiveListFilesHelper(testDir, JS_FILE_FILTER, testFiles);

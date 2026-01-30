@@ -11,7 +11,9 @@ import org.mozilla.javascript.debug.DebuggableScript;
 public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
     private final JSDescriptor<JSFunction> descriptor;
     private final Scriptable lexicalThis;
-    private final Scriptable homeObject;
+    // Non-final: for derived class constructors, homeObject is set after construction
+    // by ScriptRuntime.createClass() once the class prototype is created.
+    private Scriptable homeObject;
 
     public JSFunction(
             Context cx,
@@ -233,7 +235,7 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
 
     @Override
     public void setHomeObject(Scriptable homeObject) {
-        throw new UnsupportedOperationException("Cannot set home object on JS function.");
+        this.homeObject = homeObject;
     }
 
     public Scriptable getFunctionThis(Scriptable functionThis) {

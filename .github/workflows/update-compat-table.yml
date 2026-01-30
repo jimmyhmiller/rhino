@@ -197,9 +197,18 @@ jobs:
 
       - name: Clone and build upstream mozilla/rhino
         run: |
-          git clone --depth 1 https://github.com/mozilla/rhino.git build/upstream-rhino
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/mozilla/rhino.git build/upstream-rhino
           cd build/upstream-rhino
-          git submodule update --init tests/test262
+
+          # Verify test262 submodule was cloned
+          if [ ! -d "tests/test262/test" ]; then
+            echo "Warning: test262 submodule not found, trying manual init..."
+            git submodule update --init --depth 1 tests/test262
+          fi
+
+          echo "test262 directory contents:"
+          ls -la tests/test262/ || echo "test262 directory missing!"
+
           ./gradlew build -x test
           VERSION=$(./gradlew properties -q | grep "^version:" | awk '{print $2}')
           echo "UPSTREAM_VERSION=$VERSION" >> $GITHUB_ENV

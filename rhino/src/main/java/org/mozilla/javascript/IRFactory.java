@@ -2764,25 +2764,44 @@ public final class IRFactory {
         throw Kit.codeBug();
     }
 
-    /** Infer function name is missing on rhs. In the future, should also handle class names. */
+    /** Infer function or class name if missing on rhs. */
     private void inferNameIfMissing(Object left, Node right, String prefix) {
         if (parser.compilerEnv.getLanguageVersion() < Context.VERSION_ES6) {
             return;
         }
 
-        if (left instanceof Name && right != null && right.type == Token.FUNCTION) {
-            Name name = (Name) left;
-            if (name.getIdentifier().equals(NativeObject.PROTO_PROPERTY)) {
-                // Ignore weird edge case
-                return;
-            }
+        if (!(left instanceof Name) || right == null) {
+            return;
+        }
 
+        Name name = (Name) left;
+        if (name.getIdentifier().equals(NativeObject.PROTO_PROPERTY)) {
+            // Ignore weird edge case
+            return;
+        }
+
+        // Handle anonymous function expressions
+        if (right.type == Token.FUNCTION) {
             var fnIndex = right.getExistingIntProp(Node.FUNCTION_PROP);
             FunctionNode functionNode = parser.currentScriptOrFn.getFunctionNode(fnIndex);
             if (functionNode.getType() != 0 && functionNode.getFunctionName() == null) {
                 if (prefix != null) {
                     functionNode.setFunctionName(name.withPrefix(prefix));
                 } else {
+                    functionNode.setFunctionName(name);
+                }
+            }
+        }
+
+        // Handle anonymous class expressions
+        // The CLASS node has the constructor FUNCTION node as its first child
+        if (right.type == Token.CLASS) {
+            Node constructorNode = right.getFirstChild();
+            if (constructorNode != null && constructorNode.type == Token.FUNCTION) {
+                var fnIndex = constructorNode.getExistingIntProp(Node.FUNCTION_PROP);
+                FunctionNode functionNode = parser.currentScriptOrFn.getFunctionNode(fnIndex);
+                // Only set name if not already set (anonymous class expression)
+                if (functionNode.getFunctionName() == null) {
                     functionNode.setFunctionName(name);
                 }
             }

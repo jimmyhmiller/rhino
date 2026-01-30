@@ -1997,6 +1997,7 @@ class BodyCodegen {
         cfw.addALoad(variableObjectLocal);
 
         if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
+            emitTdzCheckIfNeeded();
             cfw.addALoad(thisObjLocal);
             addDynamicInvoke("PROP:GETELEMENTSUPER", Signatures.PROP_GET_ELEMENT_SUPER);
         } else {
@@ -3238,6 +3239,9 @@ class BodyCodegen {
         if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
             // Extract the function but ignore the "this" that comes back
             // in favor of the one that we've been saving up for.
+            // In derived class constructors, super property access requires 'this' to be
+            // initialized.
+            emitTdzCheckIfNeeded();
             cfw.addInvoke(
                     ByteCode.INVOKEVIRTUAL,
                     "org/mozilla/javascript/ScriptRuntime$LookupResult",
@@ -3274,6 +3278,18 @@ class BodyCodegen {
 
     private void visitDefaultCtorSuperCall(Node node) {
         // Default constructor super() call - forwards all function arguments
+
+        // Check if super() has already been called - calling super() twice is a ReferenceError
+        if (isDerivedClassConstructor && superCalledLocal != -1) {
+            cfw.addILoad(superCalledLocal);
+            int notCalledYet = cfw.acquireLabel();
+            cfw.add(ByteCode.IFEQ, notCalledYet);
+            // super() already called - throw ReferenceError
+            cfw.addPush("Super constructor may only be called once");
+            addScriptRuntimeInvoke("throwReferenceErrorForThis", "(Ljava/lang/String;)V");
+            cfw.markLabel(notCalledYet);
+        }
+
         // Push fnCurrent (the current function that has superConstructor set)
         cfw.addALoad(funObjLocal);
 
@@ -3308,6 +3324,17 @@ class BodyCodegen {
         // super() call in a derived class constructor
         // child is the SUPER token, skip it to get to arguments
         Node firstArgChild = child.getNext();
+
+        // Check if super() has already been called - calling super() twice is a ReferenceError
+        if (isDerivedClassConstructor && superCalledLocal != -1) {
+            cfw.addILoad(superCalledLocal);
+            int notCalledYet = cfw.acquireLabel();
+            cfw.add(ByteCode.IFEQ, notCalledYet);
+            // super() already called - throw ReferenceError
+            cfw.addPush("Super constructor may only be called once");
+            addScriptRuntimeInvoke("throwReferenceErrorForThis", "(Ljava/lang/String;)V");
+            cfw.markLabel(notCalledYet);
+        }
 
         // Push fnCurrent (the current function that has superConstructor set)
         cfw.addALoad(funObjLocal);
@@ -4587,6 +4614,10 @@ class BodyCodegen {
     // Handles super.x++ and variants thereof. We don't want to create new icode in the interpreter
     // for this edge case, so we will transform this into something like super.x = super.x + 1
     private void visitSuperIncDec(Node node, Node child, int incrDecrMask) {
+        // In derived class constructors, super property access requires 'this' to be initialized.
+        // Check TDZ for 'this' before allowing super property access.
+        emitTdzCheckIfNeeded();
+
         Node object = child.getFirstChild();
 
         // Push the old value on the stack
@@ -5279,6 +5310,9 @@ class BodyCodegen {
         cfw.addALoad(variableObjectLocal);
 
         if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
+            // In derived class constructors, super property access requires 'this' to be
+            // initialized. Check TDZ for 'this' before allowing super property access.
+            emitTdzCheckIfNeeded();
             cfw.addALoad(thisObjLocal);
             cfw.addLoadConstant(node.getType() == Token.GETPROPNOWARN ? 1 : 0);
             addDynamicInvoke("PROP:GETSUPER:" + nameChild.getString(), Signatures.PROP_GET_SUPER);
@@ -5341,6 +5375,7 @@ class BodyCodegen {
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
                 if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
+                    emitTdzCheckIfNeeded();
                     cfw.addALoad(thisObjLocal);
                     addDynamicInvoke(
                             "PROP:SETSUPER:" + nameChild.getString(), Signatures.PROP_SET_SUPER);
@@ -5360,6 +5395,7 @@ class BodyCodegen {
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
         if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
+            emitTdzCheckIfNeeded();
             cfw.addALoad(thisObjLocal);
             addDynamicInvoke("PROP:SETSUPER:" + nameChild.getString(), Signatures.PROP_SET_SUPER);
         } else {
@@ -5389,6 +5425,7 @@ class BodyCodegen {
                 // After GETELEMENT: [obj, key, value]
 
                 if (isSuper) {
+                    emitTdzCheckIfNeeded();
                     cfw.add(ByteCode.DUP_X1);
                     cfw.addALoad(contextLocal);
                     cfw.addALoad(variableObjectLocal);
@@ -5442,6 +5479,7 @@ class BodyCodegen {
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
                 if (isSuper) {
+                    emitTdzCheckIfNeeded();
                     cfw.addALoad(thisObjLocal);
                     addDynamicInvoke("PROP:SETELEMENTSUPER", Signatures.PROP_SET_ELEMENT_SUPER);
                 } else if (indexIsNumber) {
@@ -5456,6 +5494,7 @@ class BodyCodegen {
 
             // Non-logical compound assignment
             if (isSuper) {
+                emitTdzCheckIfNeeded();
                 cfw.add(ByteCode.DUP_X1);
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
@@ -5477,6 +5516,7 @@ class BodyCodegen {
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
         if (isSuper) {
+            emitTdzCheckIfNeeded();
             cfw.addALoad(thisObjLocal);
             addDynamicInvoke("PROP:SETELEMENTSUPER", Signatures.PROP_SET_ELEMENT_SUPER);
         } else if (indexIsNumber) {
@@ -5584,6 +5624,23 @@ class BodyCodegen {
         } else {
             cfw.addPush(size);
             cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        }
+    }
+
+    /**
+     * Emit TDZ check for 'this' in derived class constructors. This should be called before
+     * accessing super properties, which require 'this' to be initialized (super() called).
+     */
+    private void emitTdzCheckIfNeeded() {
+        if (isDerivedClassConstructor && superCalledLocal != -1) {
+            cfw.addILoad(superCalledLocal);
+            int superCalled = cfw.acquireLabel();
+            cfw.add(ByteCode.IFNE, superCalled);
+            // super() not called - throw ReferenceError
+            cfw.addPush(
+                    "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            addScriptRuntimeInvoke("throwReferenceErrorForThis", "(Ljava/lang/String;)V");
+            cfw.markLabel(superCalled);
         }
     }
 
