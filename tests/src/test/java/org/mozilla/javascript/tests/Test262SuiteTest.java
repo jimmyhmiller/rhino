@@ -104,7 +104,6 @@ public class Test262SuiteTest {
                             "IsHTMLDDA",
                             "async-functions",
                             "async-iteration",
-                            "class-fields-public",
                             "new.target",
                             "object-rest",
                             "regexp-dotall",
