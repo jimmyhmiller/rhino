@@ -2865,20 +2865,29 @@ class BodyCodegen {
     /**
      * Visits a CLASS node and generates code to create a class.
      *
-     * <p>The CLASS node has three or four children: 1. constructor (FUNCTION node) 2. protoMethods
-     * (OBJECTLIT node) - methods for the prototype 3. staticMethods (OBJECTLIT node) - static
-     * methods for the constructor 4. superClass (optional) - the parent class expression
+     * <p>The CLASS node has children: 1. constructor (FUNCTION node) 2. protoMethods (OBJECTLIT
+     * node) - methods for the prototype 3. staticMethods (OBJECTLIT node) - static methods for the
+     * constructor 4. instanceFields (OBJECTLIT node) - instance field definitions 5. staticFields
+     * (OBJECTLIT node) - static field definitions 6. superClass (optional) - the parent class
+     * expression
      */
     private void visitClassLiteral(Node node) {
         Node constructor = node.getFirstChild();
         Node protoMethods = constructor.getNext();
         Node staticMethods = protoMethods.getNext();
-        Node superClass = staticMethods.getNext(); // May be null
+        Node instanceFields = staticMethods.getNext();
+        Node staticFields = instanceFields.getNext();
+        Node superClass = staticFields.getNext(); // May be null
 
         Object[] protoProperties = (Object[]) protoMethods.getProp(Node.OBJECT_IDS_PROP);
         Object[] staticProperties = (Object[]) staticMethods.getProp(Node.OBJECT_IDS_PROP);
+        Object[] instanceFieldProperties = (Object[]) instanceFields.getProp(Node.OBJECT_IDS_PROP);
+        Object[] staticFieldProperties = (Object[]) staticFields.getProp(Node.OBJECT_IDS_PROP);
         int protoCount = protoProperties == null ? 0 : protoProperties.length;
         int staticCount = staticProperties == null ? 0 : staticProperties.length;
+        int instanceFieldCount =
+                instanceFieldProperties == null ? 0 : instanceFieldProperties.length;
+        int staticFieldCount = staticFieldProperties == null ? 0 : staticFieldProperties.length;
 
         // Generate the constructor function
         generateExpression(constructor, node);
@@ -3036,6 +3045,28 @@ class BodyCodegen {
         cfw.addAStore(protoGetterSettersLocal);
         // Stack: [constructor]
 
+        // Generate instance field keys and values arrays
+        short instanceFieldKeysLocal = getNewWordLocal();
+        short instanceFieldValuesLocal = getNewWordLocal();
+        generateFieldArrays(
+                node,
+                instanceFields,
+                instanceFieldProperties,
+                instanceFieldCount,
+                instanceFieldKeysLocal,
+                instanceFieldValuesLocal);
+
+        // Generate static field keys and values arrays
+        short staticFieldKeysLocal = getNewWordLocal();
+        short staticFieldValuesLocal = getNewWordLocal();
+        generateFieldArrays(
+                node,
+                staticFields,
+                staticFieldProperties,
+                staticFieldCount,
+                staticFieldKeysLocal,
+                staticFieldValuesLocal);
+
         // Cast constructor to Callable
         cfw.add(ByteCode.CHECKCAST, "org/mozilla/javascript/Callable");
 
@@ -3046,6 +3077,10 @@ class BodyCodegen {
         cfw.addALoad(staticKeysLocal);
         cfw.addALoad(staticValuesLocal);
         cfw.addALoad(staticGetterSettersLocal);
+        cfw.addALoad(instanceFieldKeysLocal);
+        cfw.addALoad(instanceFieldValuesLocal);
+        cfw.addALoad(staticFieldKeysLocal);
+        cfw.addALoad(staticFieldValuesLocal);
 
         // Push superClass (or null)
         if (superClassLocal != -1) {
@@ -3066,6 +3101,10 @@ class BodyCodegen {
                         + "[Ljava/lang/Object;"
                         + "[Ljava/lang/Object;"
                         + "[I"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
+                        + "[Ljava/lang/Object;"
                         + "Ljava/lang/Object;"
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
@@ -3078,9 +3117,61 @@ class BodyCodegen {
         releaseWordLocal(protoKeysLocal);
         releaseWordLocal(protoValuesLocal);
         releaseWordLocal(protoGetterSettersLocal);
+        releaseWordLocal(instanceFieldKeysLocal);
+        releaseWordLocal(instanceFieldValuesLocal);
+        releaseWordLocal(staticFieldKeysLocal);
+        releaseWordLocal(staticFieldValuesLocal);
         if (superClassLocal != -1) {
             releaseWordLocal(superClassLocal);
         }
+    }
+
+    /** Generates code to create arrays for field keys and values. */
+    private void generateFieldArrays(
+            Node parent,
+            Node fieldsNode,
+            Object[] fieldProperties,
+            int fieldCount,
+            short keysLocal,
+            short valuesLocal) {
+        // Create keys array
+        cfw.addPush(fieldCount);
+        cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        // Stack: [constructor, keysArray]
+
+        // Fill keys array
+        int fieldIdx = 0;
+        for (Node fieldChild = fieldsNode.getFirstChild();
+                fieldChild != null;
+                fieldChild = fieldChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            cfw.addPush(fieldIdx);
+            addLoadPropertyId(parent, fieldProperties, fieldIdx);
+            cfw.add(ByteCode.AASTORE);
+            fieldIdx++;
+        }
+        cfw.addAStore(keysLocal);
+        // Stack: [constructor]
+
+        // Create values array
+        cfw.addPush(fieldCount);
+        cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        // Stack: [constructor, valuesArray]
+
+        // Fill values array
+        fieldIdx = 0;
+        for (Node fieldChild = fieldsNode.getFirstChild();
+                fieldChild != null;
+                fieldChild = fieldChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            cfw.addPush(fieldIdx);
+            // Generate the initializer expression
+            generateExpression(fieldChild, parent);
+            cfw.add(ByteCode.AASTORE);
+            fieldIdx++;
+        }
+        cfw.addAStore(valuesLocal);
+        // Stack: [constructor]
     }
 
     private void visitSpecialCall(Node node, int type, int specialType, Node child) {

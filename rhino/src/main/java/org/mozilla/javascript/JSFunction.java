@@ -35,6 +35,10 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         if (shouldRemoveRestrictedProperties()) {
             removeRestrictedPropertiesForGenerator();
         }
+        // ES6 class constructors should not have the non-standard "arity" property
+        if (descriptor.isClassConstructor()) {
+            removeArityProperty();
+        }
     }
 
     JSFunction(
@@ -51,6 +55,10 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         // should not have own "arguments" or "caller" properties
         if (shouldRemoveRestrictedProperties()) {
             removeRestrictedPropertiesForGenerator();
+        }
+        // ES6 class constructors should not have the non-standard "arity" property
+        if (descriptor.isClassConstructor()) {
+            removeArityProperty();
         }
     }
 
@@ -204,6 +212,13 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         // by super(), not here. Note: homeObject may be set on class constructors for
         // super.property access, but that doesn't affect instance creation.
         var thisObj = (getSuperConstructor() == null) ? createObject(cx, scope) : null;
+
+        // ES2022: Initialize instance fields for base class constructors
+        // For derived classes, field initialization happens in super() (see callSuperConstructor)
+        if (thisObj != null) {
+            initializeInstanceFields(thisObj);
+        }
+
         // Pass `this` in as new.target for now. This can change when
         // the public `construct` signature changes.
         var res = descriptor.getConstructor().execute(cx, this, this, scope, thisObj, args);

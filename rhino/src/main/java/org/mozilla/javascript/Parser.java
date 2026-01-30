@@ -1297,8 +1297,47 @@ public class Parser {
         }
         consumeToken();
 
+        // Check if this is a field or a method
+        // Fields: propName = value; or propName; or propName } (no parenthesis)
+        // Methods: propName(params) { body }
+        int nextToken = peekToken();
+        if (!isGenerator && entryKind == METHOD_ENTRY && nextToken != Token.LP) {
+            // This is a field definition, not a method
+            return parseClassField(pos, propName, isStatic);
+        }
+
         // Parse method
         return parseClassMethod(pos, propName, isStatic, isGenerator, entryKind);
+    }
+
+    /**
+     * Parses a class field definition.
+     *
+     * <pre>
+     * FieldDefinition :
+     *     ClassElementName Initializer_opt
+     * </pre>
+     */
+    private ClassElement parseClassField(int pos, AstNode propName, boolean isStatic)
+            throws IOException {
+        ClassElement element = new ClassElement(pos);
+        element.setPropertyName(propName);
+        element.setIsStatic(isStatic);
+        element.setIsField(true);
+        element.setIsComputed(propName instanceof ComputedPropertyKey);
+
+        // Check for initializer
+        if (matchToken(Token.ASSIGN, true)) {
+            // Parse the initializer expression
+            AstNode init = assignExpr();
+            element.setInitializer(init);
+        }
+
+        // Consume the semicolon if present (ASI may handle it)
+        matchToken(Token.SEMI, true);
+
+        element.setLength(ts.tokenEnd - pos);
+        return element;
     }
 
     private ClassElement parseClassMethod(

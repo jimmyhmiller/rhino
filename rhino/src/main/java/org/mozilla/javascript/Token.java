@@ -257,7 +257,8 @@ public class Token {
             CLASS = REQ_OBJ_COERCIBLE + 1, // ES6 class keyword
             EXTENDS = CLASS + 1, // ES6 extends keyword
             STATIC = EXTENDS + 1, // ES6 static keyword
-            LAST_TOKEN = STATIC + 1;
+            FIELD = STATIC + 1, // ES2022 class field definition
+            LAST_TOKEN = FIELD + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -624,6 +625,8 @@ public class Token {
                 return "EXTENDS";
             case STATIC:
                 return "STATIC";
+            case FIELD:
+                return "FIELD";
             case EXP:
                 return "EXP";
             case CONST:

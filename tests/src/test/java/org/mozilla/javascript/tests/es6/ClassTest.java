@@ -10,6 +10,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.Undefined;
 import org.mozilla.javascript.tools.shell.Global;
 
 /** Tests for ES6 class declarations and expressions. */
@@ -281,5 +282,100 @@ public class ClassTest {
     public void testDefaultParameters() {
         Object result = eval("function f(x = 10) { return x; } f();");
         assertEquals(10, ((Number) result).intValue());
+    }
+
+    @Test
+    public void testPublicInstanceField() {
+        Object result =
+                eval("class Foo {\n" + "  x = 42;\n" + "}\n" + "var f = new Foo();\n" + "f.x;");
+        assertEquals(42, ((Number) result).intValue());
+    }
+
+    @Test
+    public void testPublicInstanceFieldWithExpression() {
+        Object result =
+                eval(
+                        "class Foo {\n"
+                                + "  x = 10 + 20;\n"
+                                + "}\n"
+                                + "var f = new Foo();\n"
+                                + "f.x;");
+        assertEquals(30, ((Number) result).intValue());
+    }
+
+    @Test
+    public void testPublicInstanceFieldNoInitializer() {
+        Object result = eval("class Foo {\n" + "  x;\n" + "}\n" + "var f = new Foo();\n" + "f.x;");
+        assertEquals(Undefined.instance, result);
+    }
+
+    @Test
+    public void testMultiplePublicInstanceFields() {
+        Object result =
+                eval(
+                        "class Foo {\n"
+                                + "  x = 1;\n"
+                                + "  y = 2;\n"
+                                + "  z = 3;\n"
+                                + "}\n"
+                                + "var f = new Foo();\n"
+                                + "f.x + f.y + f.z;");
+        assertEquals(6, ((Number) result).intValue());
+    }
+
+    @Test
+    public void testStaticField() {
+        Object result = eval("class Foo {\n" + "  static x = 99;\n" + "}\n" + "Foo.x;");
+        assertEquals(99, ((Number) result).intValue());
+    }
+
+    @Test
+    public void testStaticFieldNoInitializer() {
+        Object result = eval("class Foo {\n" + "  static x;\n" + "}\n" + "Foo.x;");
+        assertEquals(Undefined.instance, result);
+    }
+
+    @Test
+    public void testInstanceFieldsWithConstructor() {
+        Object result =
+                eval(
+                        "class Foo {\n"
+                                + "  x = 10;\n"
+                                + "  constructor() { this.y = this.x * 2; }\n"
+                                + "}\n"
+                                + "var f = new Foo();\n"
+                                + "f.y;");
+        assertEquals(20, ((Number) result).intValue());
+    }
+
+    @Test
+    public void testInstanceFieldsWithInheritance() {
+        Object result =
+                eval(
+                        "class Animal {\n"
+                                + "  type = 'animal';\n"
+                                + "}\n"
+                                + "class Dog extends Animal {\n"
+                                + "  breed = 'labrador';\n"
+                                + "  constructor() { super(); }\n"
+                                + "}\n"
+                                + "var d = new Dog();\n"
+                                + "d.type + '-' + d.breed;");
+        assertEquals("animal-labrador", result);
+    }
+
+    @Test
+    public void testMixedFieldsAndMethods() {
+        Object result =
+                eval(
+                        "class Foo {\n"
+                                + "  x = 5;\n"
+                                + "  getX() { return this.x; }\n"
+                                + "  static y = 10;\n"
+                                + "  static getY() { return this.y; }\n"
+                                + "}\n"
+                                + "var f = new Foo();\n"
+                                + "f.getX() + Foo.getY();");
+        assertEquals(15, ((Number) result).intValue());
     }
 }

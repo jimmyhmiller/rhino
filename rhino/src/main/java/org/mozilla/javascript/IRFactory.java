@@ -826,10 +826,21 @@ public final class IRFactory {
             ClassNode classNode, Node constructorNode, Node superClassNode) {
         List<ClassElement> elements = classNode.getElements();
 
-        // Check if there are any non-constructor methods
+        // Separate methods and fields
         List<ClassElement> methods = new ArrayList<>();
+        List<ClassElement> instanceFields = new ArrayList<>();
+        List<ClassElement> staticFields = new ArrayList<>();
         for (ClassElement element : elements) {
-            if (!element.isConstructor()) {
+            if (element.isConstructor()) {
+                continue;
+            }
+            if (element.isField()) {
+                if (element.isStatic()) {
+                    staticFields.add(element);
+                } else {
+                    instanceFields.add(element);
+                }
+            } else {
                 methods.add(element);
             }
         }
@@ -845,8 +856,64 @@ public final class IRFactory {
         Node staticMethods = new Node(Token.OBJECTLIT);
         staticMethods.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
 
+        // Build object literals for instance and static fields
+        Node instanceFieldsNode = new Node(Token.OBJECTLIT);
+        instanceFieldsNode.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+        Node staticFieldsNode = new Node(Token.OBJECTLIT);
+        staticFieldsNode.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+
         List<Object> protoProps = new ArrayList<>();
         List<Object> staticProps = new ArrayList<>();
+        List<Object> instanceFieldProps = new ArrayList<>();
+        List<Object> staticFieldProps = new ArrayList<>();
+
+        // Process instance fields - wrap initializers in functions for deferred evaluation
+        for (ClassElement field : instanceFields) {
+            AstNode propNameAst = field.getPropertyName();
+            Object propKey = Parser.getPropKey(propNameAst);
+
+            // Wrap the initializer in a function that returns the value
+            // This allows the initializer to be evaluated for each instance with proper `this`
+            Node initFuncNode;
+            if (field.getInitializer() != null) {
+                initFuncNode = createFieldInitializerFunction(field.getInitializer());
+            } else {
+                // No initializer means undefined - still wrap in function for consistency
+                initFuncNode = createFieldInitializerFunction(null);
+            }
+
+            if (propKey == null) {
+                // Computed property
+                instanceFieldProps.add(transform(propNameAst));
+            } else {
+                instanceFieldProps.add(propKey);
+            }
+            instanceFieldsNode.addChildToBack(initFuncNode);
+        }
+
+        for (ClassElement field : staticFields) {
+            AstNode propNameAst = field.getPropertyName();
+            Object propKey = Parser.getPropKey(propNameAst);
+
+            // Transform the initializer, or use undefined
+            Node initNode;
+            if (field.getInitializer() != null) {
+                initNode = transform(field.getInitializer());
+            } else {
+                initNode = new Node(Token.VOID, Node.newNumber(0)); // undefined
+            }
+
+            if (propKey == null) {
+                // Computed property
+                staticFieldProps.add(transform(propNameAst));
+            } else {
+                staticFieldProps.add(propKey);
+            }
+            staticFieldsNode.addChildToBack(initNode);
+        }
+
+        instanceFieldsNode.putProp(Node.OBJECT_IDS_PROP, instanceFieldProps.toArray());
+        staticFieldsNode.putProp(Node.OBJECT_IDS_PROP, staticFieldProps.toArray());
 
         for (ClassElement element : methods) {
             FunctionNode methodFn = element.getMethod();
@@ -899,17 +966,22 @@ public final class IRFactory {
         protoMethods.putProp(Node.OBJECT_IDS_PROP, protoProps.toArray());
         staticMethods.putProp(Node.OBJECT_IDS_PROP, staticProps.toArray());
 
-        // Create a CLASS node that holds constructor + proto methods + static methods + superClass
-        // Structure: CLASS node with three or four children:
+        // Create a CLASS node that holds constructor + proto methods + static methods +
+        // instance fields + static fields + superClass
+        // Structure: CLASS node with children:
         //   1. constructor (FUNCTION node)
         //   2. protoMethods (OBJECTLIT node)
         //   3. staticMethods (OBJECTLIT node)
-        //   4. superClass (optional - expression node for the parent class)
+        //   4. instanceFields (OBJECTLIT node) - field initializers for instance fields
+        //   5. staticFields (OBJECTLIT node) - field initializers for static fields
+        //   6. superClass (optional - expression node for the parent class)
         Node classNode2 = new Node(Token.CLASS);
         classNode2.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
         classNode2.addChildToBack(constructorNode);
         classNode2.addChildToBack(protoMethods);
         classNode2.addChildToBack(staticMethods);
+        classNode2.addChildToBack(instanceFieldsNode);
+        classNode2.addChildToBack(staticFieldsNode);
         if (superClassNode != null) {
             classNode2.addChildToBack(superClassNode);
         }
@@ -957,6 +1029,43 @@ public final class IRFactory {
         fn.setRawSourceBounds(
                 classNode.getPosition(), classNode.getPosition() + classNode.getLength());
         return fn;
+    }
+
+    /**
+     * Creates a function node that returns the field initializer value. This wraps the initializer
+     * expression in a function so it can be evaluated for each instance with proper `this` binding.
+     */
+    private Node createFieldInitializerFunction(AstNode initializerExpr) {
+        // Create a synthetic FunctionNode for the initializer
+        FunctionNode fn = new FunctionNode();
+        fn.setFunctionType(FunctionNode.FUNCTION_EXPRESSION);
+
+        if (initializerExpr != null) {
+            fn.setLineColumnNumber(initializerExpr.getLineno(), initializerExpr.getColumn());
+            fn.setPosition(initializerExpr.getPosition());
+            fn.setLength(initializerExpr.getLength());
+        }
+
+        // Create body with a return statement
+        Block body = new Block();
+
+        ReturnStatement returnStmt = new ReturnStatement();
+        if (initializerExpr != null) {
+            returnStmt.setReturnValue(initializerExpr);
+            returnStmt.setLineColumnNumber(
+                    initializerExpr.getLineno(), initializerExpr.getColumn());
+        }
+        body.addChild(returnStmt);
+
+        fn.setBody(body);
+        if (initializerExpr != null) {
+            fn.setRawSourceBounds(
+                    initializerExpr.getPosition(),
+                    initializerExpr.getPosition() + initializerExpr.getLength());
+        }
+
+        // Transform the function to IR
+        return transformFunction(fn);
     }
 
     private Node transformFunctionCall(FunctionCall node) {

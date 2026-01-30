@@ -254,17 +254,23 @@ public class BaseFunction extends ScriptableObject implements Function {
     }
 
     /**
-     * Removes the "arguments", "caller", and "arity" properties for ES6 restricted functions
-     * (generators, strict functions, arrow functions, methods, class constructors). These functions
-     * should not have own "arguments" or "caller" properties - they should inherit the throwing
-     * accessor from Function.prototype. "arity" is a non-standard legacy property that also should
-     * not appear on these functions. This is needed because the properties are added during
-     * construction before we know if the function is restricted.
+     * Removes the "arguments" and "caller" properties for ES6 restricted functions (generators,
+     * strict functions, arrow functions, methods, class constructors). These functions should not
+     * have own "arguments" or "caller" properties - they should inherit the throwing accessor from
+     * Function.prototype. This is needed because the properties are added during construction
+     * before we know if the function is restricted.
      */
     protected void removeRestrictedPropertiesForGenerator() {
         // Force remove the slots by returning null from compute, bypassing PERMANENT check
         getMap().compute(this, "arguments", 0, (k, i, s, m, o) -> null);
         getMap().compute(this, "caller", 0, (k, i, s, m, o) -> null);
+    }
+
+    /**
+     * Removes the non-standard "arity" property. Called for class constructors which should not
+     * have this legacy property.
+     */
+    protected void removeArityProperty() {
         getMap().compute(this, "arity", 0, (k, i, s, m, o) -> null);
     }
 
@@ -691,6 +697,7 @@ public class BaseFunction extends ScriptableObject implements Function {
 
         Scriptable result = createObject(cx, scope);
         if (result == null) {
+            // For derived classes, the call method handles super() and field initialization
             Object val = call(cx, scope, null, args);
             if (!(val instanceof Scriptable)) {
                 // It is program error not to return Scriptable from
@@ -715,6 +722,10 @@ public class BaseFunction extends ScriptableObject implements Function {
                 }
             }
         } else {
+            // For base classes, initialize instance fields before running constructor body
+            // ES2022: instance fields are initialized after the object is created but before
+            // the constructor body runs
+            initializeInstanceFields(result);
             Object val = call(cx, scope, result, args);
             if (val instanceof Scriptable) {
                 result = (Scriptable) val;
@@ -997,6 +1008,9 @@ public class BaseFunction extends ScriptableObject implements Function {
     private Scriptable homeObject = null;
     // For derived class constructors, stores the super class for super() calls
     private Callable superConstructor = null;
+    // For ES2022 class fields: stores instance field names and their initial values
+    private Object[] instanceFieldIds = null;
+    private Object[] instanceFieldValues = null;
 
     // For function object instances, attributes are
     //  {configurable:false, enumerable:false};
@@ -1009,5 +1023,75 @@ public class BaseFunction extends ScriptableObject implements Function {
 
     public Callable getSuperConstructor() {
         return superConstructor;
+    }
+
+    /**
+     * Sets the instance field definitions for this class constructor. Instance fields are
+     * initialized on each new instance when the class is instantiated.
+     *
+     * @param fieldIds the field names (String, Integer, or Symbol)
+     * @param fieldValues the initial values for each field
+     */
+    public void setInstanceFieldDefinitions(Object[] fieldIds, Object[] fieldValues) {
+        this.instanceFieldIds = fieldIds;
+        this.instanceFieldValues = fieldValues;
+    }
+
+    /**
+     * Returns the instance field IDs for this class constructor.
+     *
+     * @return array of field IDs, or null if no instance fields
+     */
+    public Object[] getInstanceFieldIds() {
+        return instanceFieldIds;
+    }
+
+    /**
+     * Returns the instance field values for this class constructor.
+     *
+     * @return array of field values, or null if no instance fields
+     */
+    public Object[] getInstanceFieldValues() {
+        return instanceFieldValues;
+    }
+
+    /**
+     * Initializes instance fields on the given object. Called during instance construction. Each
+     * field initializer is stored as a function that is called with `this` bound to the instance.
+     *
+     * @param instance the object to initialize fields on
+     */
+    public void initializeInstanceFields(Scriptable instance) {
+        if (instanceFieldIds == null || instanceFieldIds.length == 0) {
+            return;
+        }
+        Context cx = Context.getCurrentContext();
+        Scriptable scope = getParentScope();
+
+        for (int i = 0; i < instanceFieldIds.length; i++) {
+            Object id = instanceFieldIds[i];
+            Object initializerOrValue =
+                    (instanceFieldValues != null && i < instanceFieldValues.length)
+                            ? instanceFieldValues[i]
+                            : Undefined.instance;
+
+            // The initializer is stored as a function - call it to get the value
+            Object value;
+            if (initializerOrValue instanceof Callable) {
+                Callable initializer = (Callable) initializerOrValue;
+                value = initializer.call(cx, scope, instance, ScriptRuntime.emptyArgs);
+            } else {
+                // Fallback for direct values (e.g., from optimized paths)
+                value = initializerOrValue;
+            }
+
+            if (id instanceof String) {
+                instance.put((String) id, instance, value);
+            } else if (id instanceof Number) {
+                instance.put(((Number) id).intValue(), instance, value);
+            } else if (id instanceof Symbol) {
+                ((SymbolScriptable) instance).put((Symbol) id, instance, value);
+            }
+        }
     }
 }

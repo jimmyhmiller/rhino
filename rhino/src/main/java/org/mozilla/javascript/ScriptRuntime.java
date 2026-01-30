@@ -6203,6 +6203,10 @@ public class ScriptRuntime {
             Object[] staticIds,
             Object[] staticValues,
             int[] staticGetterSetters,
+            Object[] instanceFieldIds,
+            Object[] instanceFieldValues,
+            Object[] staticFieldIds,
+            Object[] staticFieldValues,
             Object superClass,
             Context cx,
             Scriptable scope) {
@@ -6266,6 +6270,32 @@ public class ScriptRuntime {
         // Fill constructor with static methods (non-enumerable per ES6)
         fillClassMembers(constructorObj, staticIds, staticValues, staticGetterSetters, cx, scope);
 
+        // Store instance field definitions on the constructor for later initialization
+        // Instance fields are initialized when instances are created
+        if (instanceFieldIds != null && instanceFieldIds.length > 0) {
+            if (constructor instanceof BaseFunction) {
+                ((BaseFunction) constructor)
+                        .setInstanceFieldDefinitions(instanceFieldIds, instanceFieldValues);
+            }
+        }
+
+        // Initialize static fields on the constructor
+        if (staticFieldIds != null && staticFieldValues != null) {
+            for (int i = 0; i < staticFieldIds.length; i++) {
+                Object id = staticFieldIds[i];
+                Object value =
+                        i < staticFieldValues.length ? staticFieldValues[i] : Undefined.instance;
+                if (id instanceof String) {
+                    constructorObj.put((String) id, constructorObj, value);
+                } else if (id instanceof Number) {
+                    constructorObj.put(((Number) id).intValue(), constructorObj, value);
+                } else if (id instanceof Symbol) {
+                    SymbolScriptable ss = (SymbolScriptable) constructorObj;
+                    ss.put((Symbol) id, constructorObj, value);
+                }
+            }
+        }
+
         // ES6 14.5.14: Class prototype property is non-writable, non-enumerable, non-configurable
         if (constructor instanceof BaseFunction) {
             ((BaseFunction) constructor)
@@ -6317,6 +6347,8 @@ public class ScriptRuntime {
             if (derivedProto != null) {
                 newInstance.setPrototype(derivedProto);
             }
+            // ES2022: Initialize instance fields on the derived class after super() returns
+            ((BaseFunction) callee).initializeInstanceFields(newInstance);
         }
 
         return newInstance;

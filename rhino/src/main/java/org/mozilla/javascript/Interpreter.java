@@ -3963,6 +3963,13 @@ public final class Interpreter extends Icode implements Evaluator {
                             f.getSuperConstructor() == null
                                     ? f.createObject(cx, frame.scope)
                                     : null;
+
+                    // ES2022: Initialize instance fields for base class constructors
+                    // For derived classes, field initialization happens after super()
+                    if (newInstance != null) {
+                        f.initializeInstanceFields(newInstance);
+                    }
+
                     CallFrame calleeFrame =
                             initFrame(
                                     cx,
@@ -4980,7 +4987,14 @@ public final class Interpreter extends Icode implements Evaluator {
             int hasSuperClassFlag = 0xFF & frame.idata.itsICode[frame.pc];
             ++frame.pc;
 
-            // Stack: [constructor, (superClass?), protoStorage, staticStorage]
+            // Stack: [constructor, (superClass?), protoStorage, staticStorage,
+            //         instanceFieldStorage, staticFieldStorage]
+            var staticFieldStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
+            var instanceFieldStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
             var staticStore = (NewLiteralStorage) frame.stack[state.stackTop];
             --state.stackTop;
 
@@ -5006,6 +5020,10 @@ public final class Interpreter extends Icode implements Evaluator {
                             staticStore.getKeys(),
                             staticStore.getValues(),
                             staticStore.getGetterSetters(),
+                            instanceFieldStore.getKeys(),
+                            instanceFieldStore.getValues(),
+                            staticFieldStore.getKeys(),
+                            staticFieldStore.getValues(),
                             superClass,
                             cx,
                             frame.scope);
@@ -5080,6 +5098,8 @@ public final class Interpreter extends Icode implements Evaluator {
                 if (derivedProto != null) {
                     newInstance.setPrototype(derivedProto);
                 }
+                // ES2022: Initialize instance fields on the derived class after super() returns
+                ((BaseFunction) fnOrScript).initializeInstanceFields(newInstance);
             }
 
             // The new instance becomes 'this' for the derived class constructor
@@ -5146,6 +5166,8 @@ public final class Interpreter extends Icode implements Evaluator {
                 if (derivedProto != null) {
                     newInstance.setPrototype(derivedProto);
                 }
+                // ES2022: Initialize instance fields on the derived class after super() returns
+                ((BaseFunction) fnOrScript).initializeInstanceFields(newInstance);
             }
 
             // The new instance becomes 'this' for the derived class constructor
@@ -5205,6 +5227,8 @@ public final class Interpreter extends Icode implements Evaluator {
                 if (derivedProto != null) {
                     newInstance.setPrototype(derivedProto);
                 }
+                // ES2022: Initialize instance fields on the derived class after super() returns
+                ((BaseFunction) fnOrScript).initializeInstanceFields(newInstance);
             }
 
             // The new instance becomes 'this' for the derived class constructor

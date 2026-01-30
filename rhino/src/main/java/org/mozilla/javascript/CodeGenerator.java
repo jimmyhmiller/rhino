@@ -1700,7 +1700,9 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         Node constructor = node.getFirstChild();
         Node protoMethods = constructor.getNext();
         Node staticMethods = protoMethods.getNext();
-        Node superClass = staticMethods.getNext(); // May be null
+        Node instanceFields = staticMethods.getNext();
+        Node staticFields = instanceFields.getNext();
+        Node superClass = staticFields.getNext(); // May be null
 
         // First, emit the constructor function
         visitExpression(constructor, 0);
@@ -1763,7 +1765,68 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         }
         // Stack: [constructor, (superClass?), protoStorage, staticStorage]
 
+        // Emit instance field storage
+        Object[] instanceFieldIds = (Object[]) instanceFields.getProp(Node.OBJECT_IDS_PROP);
+        int instanceFieldIdsIndex = literalIds.size();
+        literalIds.add(instanceFieldIds);
+
+        addIndexOp(Icode_CLASS_STORAGE, instanceFieldIdsIndex);
+        stackChange(1);
+        // Stack: [constructor, (superClass?), protoStorage, staticStorage, instanceFieldStorage]
+
+        int instanceFieldIndex = 0;
+        for (Node fieldChild = instanceFields.getFirstChild();
+                fieldChild != null;
+                fieldChild = fieldChild.getNext()) {
+            Object propertyId =
+                    instanceFieldIds == null ? null : instanceFieldIds[instanceFieldIndex];
+            if (propertyId instanceof Node) {
+                Node computedPropertyNode = (Node) propertyId;
+                visitExpression(computedPropertyNode.first, 0);
+                addIcode(Icode_LITERAL_KEY_SET);
+                stackChange(-1);
+            }
+            // For fields, we push the initializer expression value
+            visitExpression(fieldChild, 0);
+            addIcode(Icode_LITERAL_SET);
+            stackChange(-1);
+            instanceFieldIndex++;
+        }
+        // Stack: [constructor, (superClass?), protoStorage, staticStorage, instanceFieldStorage]
+
+        // Emit static field storage
+        Object[] staticFieldIds = (Object[]) staticFields.getProp(Node.OBJECT_IDS_PROP);
+        int staticFieldIdsIndex = literalIds.size();
+        literalIds.add(staticFieldIds);
+
+        addIndexOp(Icode_CLASS_STORAGE, staticFieldIdsIndex);
+        stackChange(1);
+        // Stack: [constructor, (superClass?), protoStorage, staticStorage, instanceFieldStorage,
+        // staticFieldStorage]
+
+        int staticFieldIndex = 0;
+        for (Node fieldChild = staticFields.getFirstChild();
+                fieldChild != null;
+                fieldChild = fieldChild.getNext()) {
+            Object propertyId = staticFieldIds == null ? null : staticFieldIds[staticFieldIndex];
+            if (propertyId instanceof Node) {
+                Node computedPropertyNode = (Node) propertyId;
+                visitExpression(computedPropertyNode.first, 0);
+                addIcode(Icode_LITERAL_KEY_SET);
+                stackChange(-1);
+            }
+            // For fields, we push the initializer expression value
+            visitExpression(fieldChild, 0);
+            addIcode(Icode_LITERAL_SET);
+            stackChange(-1);
+            staticFieldIndex++;
+        }
+        // Stack: [constructor, (superClass?), protoStorage, staticStorage, instanceFieldStorage,
+        // staticFieldStorage]
+
         // Emit Icode_CLASS_DEF which will:
+        // - Pop staticFieldStorage
+        // - Pop instanceFieldStorage
         // - Pop staticStorage
         // - Pop protoStorage
         // - Pop superClass (if present)
@@ -1773,11 +1836,11 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         addIcode(Icode_CLASS_DEF);
         addUint8(hasSuperClass ? 1 : 0); // Flag: 1 = has superclass, 0 = no superclass
         if (hasSuperClass) {
-            stackChange(-3); // Pops protoStorage, staticStorage, superClass; constructor stays
+            stackChange(-5); // Pops 4 storages + superClass; constructor stays
         } else {
-            stackChange(-2); // Pops protoStorage and staticStorage; constructor stays
+            stackChange(-4); // Pops 4 storages; constructor stays
         }
-        // Stack: [constructor (with methods configured)]
+        // Stack: [constructor (with methods and fields configured)]
     }
 
     private void visitObjectLiteralWithSpread(

@@ -9,13 +9,15 @@ package org.mozilla.javascript.ast;
 import org.mozilla.javascript.Token;
 
 /**
- * AST node representing a class element (method definition) in an ES6 class body.
+ * AST node representing a class element (method or field definition) in an ES6 class body.
  *
- * <p>Node type is {@link Token#METHOD}.
+ * <p>Node type is {@link Token#METHOD} for methods or {@link Token#FIELD} for fields.
  *
  * <pre><i>ClassElement</i> :
  *       MethodDefinition
  *       <b>static</b> MethodDefinition
+ *       FieldDefinition <b>;</b>
+ *       <b>static</b> FieldDefinition <b>;</b>
  *       <b>;</b>
  * <i>MethodDefinition</i> :
  *       PropertyName <b>(</b> UniqueFormalParameters <b>)</b> <b>{</b> FunctionBody <b>}</b>
@@ -24,14 +26,18 @@ import org.mozilla.javascript.Token;
  *       AsyncGeneratorMethod
  *       <b>get</b> PropertyName <b>(</b> <b>)</b> <b>{</b> FunctionBody <b>}</b>
  *       <b>set</b> PropertyName <b>(</b> PropertySetParameterList <b>)</b> <b>{</b> FunctionBody <b>}</b>
+ * <i>FieldDefinition</i> :
+ *       ClassElementName Initializer<sub>opt</sub>
  * </pre>
  */
 public class ClassElement extends AstNode {
 
     private AstNode propertyName; // Name, StringLiteral, NumberLiteral, or ComputedPropertyKey
     private FunctionNode method;
+    private AstNode initializer; // For field definitions, the initializer expression (optional)
     private boolean isStatic;
     private boolean isComputed; // true if property name is computed [expr]
+    private boolean isField; // true for field definitions, false for methods
 
     {
         type = Token.METHOD;
@@ -142,6 +148,48 @@ public class ClassElement extends AstNode {
     }
 
     /**
+     * Returns true if this is a field definition (not a method).
+     *
+     * @return true for field definitions
+     */
+    public boolean isField() {
+        return isField;
+    }
+
+    /**
+     * Sets whether this is a field definition.
+     *
+     * @param isField true for field definitions
+     */
+    public void setIsField(boolean isField) {
+        this.isField = isField;
+        if (isField) {
+            this.type = Token.FIELD;
+        }
+    }
+
+    /**
+     * Returns the initializer expression for field definitions.
+     *
+     * @return the initializer expression, or null if none
+     */
+    public AstNode getInitializer() {
+        return initializer;
+    }
+
+    /**
+     * Sets the initializer expression for field definitions.
+     *
+     * @param initializer the initializer expression
+     */
+    public void setInitializer(AstNode initializer) {
+        this.initializer = initializer;
+        if (initializer != null) {
+            initializer.setParent(this);
+        }
+    }
+
+    /**
      * Returns true if this is a constructor method.
      *
      * @return true if method name is "constructor"
@@ -201,7 +249,14 @@ public class ClassElement extends AstNode {
         } else if (propertyName != null) {
             sb.append(propertyName.toSource(0));
         }
-        if (method != null) {
+        if (isField) {
+            // Field definition
+            if (initializer != null) {
+                sb.append(" = ");
+                sb.append(initializer.toSource(0));
+            }
+            sb.append(";");
+        } else if (method != null) {
             sb.append("(");
             // parameters
             boolean first = true;
@@ -226,6 +281,9 @@ public class ClassElement extends AstNode {
             }
             if (method != null) {
                 method.visit(v);
+            }
+            if (initializer != null) {
+                initializer.visit(v);
             }
         }
     }
