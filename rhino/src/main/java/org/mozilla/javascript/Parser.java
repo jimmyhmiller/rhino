@@ -1342,6 +1342,8 @@ public class Parser {
 
         // Set up the method form - but NOT for constructors
         if (!isConstructor) {
+            // Class methods are shorthand methods (no prototype property)
+            fn.setIsShorthand();
             switch (entryKind) {
                 case GET_ENTRY:
                     fn.setFunctionIsGetterMethod();

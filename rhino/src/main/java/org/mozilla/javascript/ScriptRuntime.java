@@ -6119,6 +6119,79 @@ public class ScriptRuntime {
     }
 
     /**
+     * Fills class members (methods, getters, setters) with correct ES6 property descriptors. Class
+     * members are: writable: true, enumerable: false, configurable: true.
+     */
+    public static void fillClassMembers(
+            Scriptable object,
+            Object[] propertyIds,
+            Object[] propertyValues,
+            int[] getterSetters,
+            Context cx,
+            Scriptable scope) {
+        if (!(object instanceof ScriptableObject)) {
+            // Fall back to regular fill for non-ScriptableObject
+            fillObjectLiteral(object, propertyIds, propertyValues, getterSetters, cx, scope);
+            return;
+        }
+        ScriptableObject so = (ScriptableObject) object;
+        int end = propertyIds == null ? 0 : propertyIds.length;
+        for (int i = 0; i != end; ++i) {
+            Object id = propertyIds[i];
+            int getterSetter = getterSetters == null ? 0 : getterSetters[i];
+            Object value = propertyValues[i];
+
+            if (getterSetter == 0) {
+                // Regular method: writable, non-enumerable, configurable
+                int attributes =
+                        ScriptableObject.DONTENUM; // writable and configurable are default (0)
+                if (id instanceof Symbol) {
+                    so.put((Symbol) id, so, value);
+                    so.setAttributes((Symbol) id, attributes);
+                } else if (id instanceof Integer && ((Integer) id) >= 0) {
+                    int index = (Integer) id;
+                    so.put(index, so, value);
+                    so.setAttributes(index, attributes);
+                } else {
+                    StringIdOrIndex s = toStringIdOrIndex(id);
+                    if (s.stringId == null) {
+                        so.put(s.index, so, value);
+                        so.setAttributes(s.index, attributes);
+                    } else {
+                        so.put(s.stringId, so, value);
+                        so.setAttributes(s.stringId, attributes);
+                    }
+                }
+            } else {
+                // Getter or setter: non-enumerable, configurable
+                Callable getterOrSetter = (Callable) value;
+                boolean isSetter = getterSetter == 1;
+                int attributes = ScriptableObject.DONTENUM;
+                if (isSymbol(id)) {
+                    so.setGetterOrSetter(id, 0, getterOrSetter, isSetter);
+                    so.setAttributes((Symbol) id, attributes);
+                } else if (id instanceof Integer && ((Integer) id) >= 0) {
+                    int index = (Integer) id;
+                    so.setGetterOrSetter(null, index, getterOrSetter, isSetter);
+                    so.setAttributes(index, attributes);
+                } else {
+                    StringIdOrIndex s = toStringIdOrIndex(id);
+                    so.setGetterOrSetter(
+                            s.getStringId(),
+                            s.getIndex() == -1 ? 0 : s.getIndex(),
+                            getterOrSetter,
+                            isSetter);
+                    if (s.stringId != null) {
+                        so.setAttributes(s.stringId, attributes);
+                    } else {
+                        so.setAttributes(s.index, attributes);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Creates an ES6 class by setting up the constructor's prototype with methods and adding static
      * methods to the constructor itself.
      *
@@ -6198,12 +6271,12 @@ public class ScriptRuntime {
         Object protoObj = constructorObj.get("prototype", constructorObj);
         if (protoObj instanceof Scriptable) {
             Scriptable prototype = (Scriptable) protoObj;
-            // Fill prototype with instance methods
-            fillObjectLiteral(prototype, protoIds, protoValues, protoGetterSetters, cx, scope);
+            // Fill prototype with instance methods (non-enumerable per ES6)
+            fillClassMembers(prototype, protoIds, protoValues, protoGetterSetters, cx, scope);
         }
 
-        // Fill constructor with static methods
-        fillObjectLiteral(constructorObj, staticIds, staticValues, staticGetterSetters, cx, scope);
+        // Fill constructor with static methods (non-enumerable per ES6)
+        fillClassMembers(constructorObj, staticIds, staticValues, staticGetterSetters, cx, scope);
 
         // ES6 14.5.14: Class prototype property is non-writable, non-enumerable, non-configurable
         if (constructor instanceof BaseFunction) {
