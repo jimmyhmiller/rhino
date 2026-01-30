@@ -3282,6 +3282,32 @@ public final class Interpreter extends Icode implements Evaluator {
         }
     }
 
+    /**
+     * Finds the enclosing function that has access to private members by walking up the call frame
+     * chain. This is needed for inner functions that access private members of an enclosing class.
+     */
+    private static Object findPrivateContext(CallFrame frame) {
+        CallFrame f = frame;
+        while (f != null) {
+            if (f.fnOrScript != null) {
+                // Check if this function has private member access (has a home object)
+                if (f.fnOrScript instanceof BaseFunction) {
+                    BaseFunction fn = (BaseFunction) f.fnOrScript;
+                    if (fn.getHomeObject() != null
+                            || fn.getPrivateInstanceFieldIds() != null
+                            || fn.getPrivateMethodIds() != null
+                            || fn.getPrivateStaticFieldIds() != null
+                            || fn.getPrivateStaticMethodIds() != null) {
+                        return f.fnOrScript;
+                    }
+                }
+            }
+            f = f.parentFrame;
+        }
+        // Fall back to current frame's function
+        return frame.fnOrScript;
+    }
+
     private static class DoGetPropPrivate extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
@@ -3289,8 +3315,10 @@ public final class Interpreter extends Icode implements Evaluator {
             final double[] sDbl = frame.sDbl;
             Object lhs = stack[state.stackTop];
             if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
+            // Walk up call frame chain to find private context
+            Object privateContext = findPrivateContext(frame);
             stack[state.stackTop] =
-                    ScriptRuntime.getPrivateProp(lhs, state.stringReg, cx, frame.fnOrScript);
+                    ScriptRuntime.getPrivateProp(lhs, state.stringReg, cx, privateContext);
             return null;
         }
     }
@@ -3304,8 +3332,10 @@ public final class Interpreter extends Icode implements Evaluator {
             if (rhs == DOUBLE_MARK) rhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
             Object lhs = stack[state.stackTop - 1];
             if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop - 1]);
+            // Walk up call frame chain to find private context
+            Object privateContext = findPrivateContext(frame);
             stack[--state.stackTop] =
-                    ScriptRuntime.setPrivateProp(lhs, state.stringReg, rhs, cx, frame.fnOrScript);
+                    ScriptRuntime.setPrivateProp(lhs, state.stringReg, rhs, cx, privateContext);
             return null;
         }
     }

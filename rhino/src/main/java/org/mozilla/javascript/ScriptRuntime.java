@@ -6421,12 +6421,12 @@ public class ScriptRuntime {
                     }
 
                     Object[] methodValues = constructor.getPrivateMethodValues();
-                    if (getterSetter == 1) {
-                        // This is a getter - call it to get the value
+                    if (getterSetter < 0) {
+                        // This is a getter (convention: -1) - call it to get the value
                         Callable getter = (Callable) methodValues[i];
                         return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
-                    } else if (getterSetter == 2) {
-                        // This is a setter - reading it is an error
+                    } else if (getterSetter > 0) {
+                        // This is a setter (convention: +1) - reading it is an error
                         throw typeError("msg.private.setter.only");
                     } else {
                         // Regular method - return the function
@@ -6450,12 +6450,12 @@ public class ScriptRuntime {
                     }
 
                     Object[] methodValues = constructor.getPrivateStaticMethodValues();
-                    if (getterSetter == 1) {
-                        // This is a getter - call it
+                    if (getterSetter < 0) {
+                        // This is a getter (convention: -1) - call it
                         Callable getter = (Callable) methodValues[i];
                         return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
-                    } else if (getterSetter == 2) {
-                        // This is a setter - reading it is an error
+                    } else if (getterSetter > 0) {
+                        // This is a setter (convention: +1) - reading it is an error
                         throw typeError("msg.private.setter.only");
                     } else {
                         // Regular method - return the function
@@ -6537,15 +6537,15 @@ public class ScriptRuntime {
                         throw typeError("msg.private.brand.check.failed");
                     }
 
-                    if (getterSetter == 2) {
-                        // This is a setter - call it
+                    if (getterSetter > 0) {
+                        // This is a setter (convention: +1) - call it
                         Object[] methodValues = constructor.getPrivateMethodValues();
                         Callable setter = (Callable) methodValues[i];
                         setter.call(
                                 cx, getTopCallScope(cx), (Scriptable) obj, new Object[] {value});
                         return value;
-                    } else if (getterSetter == 1) {
-                        // This is a getter - writing is an error
+                    } else if (getterSetter < 0) {
+                        // This is a getter (convention: -1) - writing is an error
                         throw typeError("msg.private.getter.only");
                     } else {
                         // Regular method - cannot assign to methods
@@ -6568,15 +6568,15 @@ public class ScriptRuntime {
                         throw typeError("msg.private.brand.check.failed");
                     }
 
-                    if (getterSetter == 2) {
-                        // This is a setter - call it
+                    if (getterSetter > 0) {
+                        // This is a setter (convention: +1) - call it
                         Object[] methodValues = constructor.getPrivateStaticMethodValues();
                         Callable setter = (Callable) methodValues[i];
                         setter.call(
                                 cx, getTopCallScope(cx), (Scriptable) obj, new Object[] {value});
                         return value;
-                    } else if (getterSetter == 1) {
-                        // This is a getter - writing is an error
+                    } else if (getterSetter < 0) {
+                        // This is a getter (convention: -1) - writing is an error
                         throw typeError("msg.private.getter.only");
                     } else {
                         // Regular method - cannot assign to methods
@@ -6628,6 +6628,9 @@ public class ScriptRuntime {
     /**
      * Gets the class constructor from the current function. Used for private member access to
      * determine which class's private members we're accessing.
+     *
+     * <p>Private names are lexically scoped, so inner functions within class methods can access
+     * private members. We walk up the scope chain to find the enclosing class context.
      */
     private static BaseFunction getPrivateConstructor(Object fnOrScript) {
         if (!(fnOrScript instanceof BaseFunction)) {
@@ -6635,16 +6638,53 @@ public class ScriptRuntime {
         }
         BaseFunction fn = (BaseFunction) fnOrScript;
 
+        // First, try to get constructor from this function's home object
+        BaseFunction result = getPrivateConstructorFromHomeObject(fn);
+        if (result != null) {
+            return result;
+        }
+
+        // If this function doesn't have a home object, it might be an inner function
+        // defined within a class method. Walk up the scope chain to find the class context.
+        // The scope chain will have NativeCall activation objects for function calls,
+        // and we can get the function from those.
+        Scriptable scope = fn.getParentScope();
+        while (scope != null) {
+            if (scope instanceof BaseFunction) {
+                BaseFunction scopeFn = (BaseFunction) scope;
+                result = getPrivateConstructorFromHomeObject(scopeFn);
+                if (result != null) {
+                    return result;
+                }
+            } else if (scope instanceof NativeCall) {
+                // NativeCall is an activation object that holds the function being called
+                NativeCall call = (NativeCall) scope;
+                if (call.function != null) {
+                    result = getPrivateConstructorFromHomeObject(call.function);
+                    if (result != null) {
+                        return result;
+                    }
+                }
+            }
+            scope = scope.getParentScope();
+        }
+
+        return null;
+    }
+
+    /** Helper method to get the class constructor from a function's home object. */
+    private static BaseFunction getPrivateConstructorFromHomeObject(BaseFunction fn) {
+        // Check if fn itself is a constructor with private members
+        if (fn.getPrivateInstanceFieldIds() != null
+                || fn.getPrivateMethodIds() != null
+                || fn.getPrivateStaticFieldIds() != null
+                || fn.getPrivateStaticMethodIds() != null) {
+            return fn;
+        }
+
         // Get the home object from the function
         Scriptable homeObject = fn.getHomeObject();
         if (homeObject == null) {
-            // Check if fn itself is a constructor with private members
-            if (fn.getPrivateInstanceFieldIds() != null
-                    || fn.getPrivateMethodIds() != null
-                    || fn.getPrivateStaticFieldIds() != null
-                    || fn.getPrivateStaticMethodIds() != null) {
-                return fn;
-            }
             return null;
         }
 

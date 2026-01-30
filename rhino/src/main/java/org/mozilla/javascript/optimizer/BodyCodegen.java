@@ -3403,16 +3403,23 @@ class BodyCodegen {
         // Stack: [constructor, getterSettersArray]
 
         // Fill getter/setter flags array
-        // Check each method's type - for now, all private methods are regular methods (0)
-        // Getter/setter private accessors would need additional parsing support
+        // Convention: -1 = getter, +1 = setter, 0 = regular method
         methodIdx = 0;
         for (Node methodChild = methodsNode.getFirstChild();
                 methodChild != null;
                 methodChild = methodChild.getNext()) {
             cfw.add(ByteCode.DUP);
             cfw.addPush(methodIdx);
-            // Check the getter/setter property on the method node
-            int getterSetter = methodChild.getIntProp(Node.MEMBER_TYPE_PROP, 0);
+            // Determine getter/setter based on node type
+            int nodeType = methodChild.getType();
+            int getterSetter;
+            if (nodeType == Token.GET) {
+                getterSetter = -1; // getter
+            } else if (nodeType == Token.SET) {
+                getterSetter = 1; // setter
+            } else {
+                getterSetter = 0; // regular method
+            }
             cfw.addPush(getterSetter);
             cfw.add(ByteCode.IASTORE);
             methodIdx++;
