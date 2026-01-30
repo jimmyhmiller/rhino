@@ -182,10 +182,14 @@ class Dog extends Animal {
   - Marks super() calls with `SUPER_CONSTRUCTOR_CALL` node property
   - Files: `Parser.java`, `IRFactory.java`, `Node.java`
 
-- [ ] **4.2 Runtime - super() Semantics** (partial)
+- [x] **4.2 Runtime - super() Semantics** ✅ DONE (explicit `this` access)
   - `super()` calls parent constructor correctly
-  - TODO: Track "this not initialized" state
-  - TODO: Throw ReferenceError if `this` used before `super()`
+  - Added `isDerivedClassConstructor` flag to `JSDescriptor` and `ScriptNode`
+  - Interpreter tracks `superCalled` state in `CallFrame`
+  - `DoThis` checks TDZ before returning `thisObj`
+  - BodyCodegen generates TDZ check before `this` access in derived constructors
+  - Files: `JSDescriptor.java`, `ScriptNode.java`, `IRFactory.java`, `CodeGenUtils.java`, `Interpreter.java`, `BodyCodegen.java`, `ScriptRuntime.java`
+  - NOTE: Implicit return TDZ (constructor returning undefined without super()) not yet implemented
 
 - [x] **4.3 super() Execution** ✅ DONE
   - Interpreter: Added `Icode_SUPER_CALL` instruction and `DoSuperCall` handler
@@ -422,10 +426,10 @@ class Foo {
 
 ## Next Steps
 
-1. **Complete Phase 4.2**: Implement TDZ for `this` before `super()` is called
-   - Track "this not initialized" state in derived class constructors
-   - Throw ReferenceError if `this` accessed before `super()` called
-   - This would fix 19 "super-must-be-called" test failures
+1. **Complete implicit return TDZ**: Handle derived constructor returning without super()
+   - When a derived class constructor returns undefined (or falls through) without calling super(), it should throw ReferenceError
+   - This requires checking superCalled state at function return time
+   - Would fix tests like `constructor-return-undefined-throws.js`
 
 2. **Class constructors must throw TypeError when called without `new`**
    - Currently classes can be called as functions (incorrectly)
