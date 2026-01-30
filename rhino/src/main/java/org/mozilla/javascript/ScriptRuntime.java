@@ -6120,7 +6120,8 @@ public class ScriptRuntime {
 
     /**
      * Fills class members (methods, getters, setters) with correct ES6 property descriptors. Class
-     * members are: writable: true, enumerable: false, configurable: true.
+     * members are: writable: true, enumerable: false, configurable: true. Also sets the homeObject
+     * on each method function to enable super property access.
      */
     public static void fillClassMembers(
             Scriptable object,
@@ -6140,6 +6141,11 @@ public class ScriptRuntime {
             Object id = propertyIds[i];
             int getterSetter = getterSetters == null ? 0 : getterSetters[i];
             Object value = propertyValues[i];
+
+            // Set homeObject on method functions to enable super property access
+            if (value instanceof BaseFunction) {
+                ((BaseFunction) value).setHomeObject(object);
+            }
 
             if (getterSetter == 0) {
                 // Regular method: writable, non-enumerable, configurable
