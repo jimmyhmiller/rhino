@@ -359,6 +359,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         public boolean declaredAsFunctionExpression;
         public boolean skipAnnexBHoisting;
         public boolean isDerivedClassConstructor;
+        public boolean isClassConstructor;
         public SecurityController securityController;
         public Object securityDomain;
         public int functionType;
@@ -432,6 +433,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
                             declaredAsFunctionExpression,
                             skipAnnexBHoisting,
                             isDerivedClassConstructor,
+                            isClassConstructor,
                             securityController,
                             securityDomain,
                             functionType);

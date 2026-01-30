@@ -1916,6 +1916,16 @@ public final class Interpreter extends Icode implements Evaluator {
                         frame = sbr.frame;
                         interpreterResult = frame.result;
                         interpreterResultDbl = frame.resultDbl;
+                        // For derived class constructors returning undefined, use 'this' as result.
+                        // Per ES6 spec 9.2.2 [[Construct]] step 13.d.f: when returning undefined,
+                        // the result is the value of 'this' bound by super().
+                        JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+                        if (desc != null
+                                && desc.isDerivedClassConstructor()
+                                && frame.superCalled
+                                && interpreterResult == Undefined.instance) {
+                            interpreterResult = frame.thisObj;
+                        }
                         break StateLoop;
                     } else if (result instanceof YieldResult) {
                         return ((YieldResult) result).yielding;
@@ -3816,6 +3826,11 @@ public final class Interpreter extends Icode implements Evaluator {
                     && ((JSFunction) fun).getDescriptor().getCode() instanceof InterpreterData) {
                 JSFunction ifun = (JSFunction) fun;
                 JSDescriptor desc = ifun.getDescriptor();
+                // Class constructors cannot be called without 'new'
+                if (desc.isClassConstructor()) {
+                    throw ScriptRuntime.typeErrorById(
+                            "msg.class.constructor.call", ifun.getFunctionName());
+                }
                 InterpreterData idata = (InterpreterData) desc.getCode();
                 if (frame.fnOrScript.getDescriptor().getSecurityDomain()
                         == desc.getSecurityDomain()) {

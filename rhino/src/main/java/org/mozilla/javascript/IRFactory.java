@@ -772,7 +772,7 @@ public final class IRFactory {
         }
 
         // Mark all class constructors - they cannot be called without 'new'
-        constructorFn.putIntProp(Node.CLASS_CONSTRUCTOR, 1);
+        constructorFn.setClassConstructor(true);
 
         // Mark derived class constructors for TDZ checking of 'this' before super()
         if (hasSuperClass) {

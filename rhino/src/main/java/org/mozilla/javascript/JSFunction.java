@@ -183,6 +183,9 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
 
     @Override
     public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+        if (descriptor.isClassConstructor()) {
+            throw ScriptRuntime.typeErrorById("msg.class.constructor.call", getFunctionName());
+        }
         if (!ScriptRuntime.hasTopCall(cx)) {
             return ScriptRuntime.doTopCall(this, cx, scope, thisObj, args, isStrict());
         }

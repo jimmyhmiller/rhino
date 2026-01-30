@@ -41,6 +41,7 @@ public class ScriptNode extends Scope {
     private boolean inStrictMode;
     private boolean isMethodDefinition;
     private boolean isDerivedClassConstructor;
+    private boolean isClassConstructor;
 
     {
         // during parsing, a ScriptNode or FunctionNode's top scope is itself
@@ -367,6 +368,18 @@ public class ScriptNode extends Scope {
 
     public void setDerivedClassConstructor(boolean derivedClassConstructor) {
         isDerivedClassConstructor = derivedClassConstructor;
+    }
+
+    /**
+     * Returns true if this is a class constructor. Class constructors cannot be called without
+     * 'new' - doing so should throw a TypeError.
+     */
+    public boolean isClassConstructor() {
+        return isClassConstructor;
+    }
+
+    public void setClassConstructor(boolean classConstructor) {
+        isClassConstructor = classConstructor;
     }
 
     @Override
