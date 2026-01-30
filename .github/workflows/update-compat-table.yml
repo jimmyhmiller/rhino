@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - latest
-  workflow_dispatch:  # Allow manual trigger
 
 permissions:
   contents: read
