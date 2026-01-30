@@ -6410,28 +6410,44 @@ public class ScriptRuntime {
         // instance)
         Object[] methodIds = constructor.getPrivateMethodIds();
         if (methodIds != null) {
+            // Search for a getter or regular method with this name
+            // (a name may have separate getter and setter entries)
+            int getterIdx = -1;
+            int setterIdx = -1;
+            int methodIdx = -1;
+            int[] getterSetters = constructor.getPrivateMethodGetterSetters();
+
             for (int i = 0; i < methodIds.length; i++) {
                 if (name.equals(methodIds[i])) {
-                    int[] getterSetters = constructor.getPrivateMethodGetterSetters();
                     int getterSetter = getterSetters != null ? getterSetters[i] : 0;
-
-                    // Brand check: ensure obj is an instance of this class
-                    if (!hasPrivateBrand(obj, constructor)) {
-                        throw typeError("msg.private.brand.check.failed");
-                    }
-
-                    Object[] methodValues = constructor.getPrivateMethodValues();
                     if (getterSetter < 0) {
-                        // This is a getter (convention: -1) - call it to get the value
-                        Callable getter = (Callable) methodValues[i];
-                        return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
+                        getterIdx = i;
                     } else if (getterSetter > 0) {
-                        // This is a setter (convention: +1) - reading it is an error
-                        throw typeError("msg.private.setter.only");
+                        setterIdx = i;
                     } else {
-                        // Regular method - return the function
-                        return methodValues != null ? methodValues[i] : Undefined.instance;
+                        methodIdx = i;
                     }
+                }
+            }
+
+            // If we found any matching entry, handle it
+            if (getterIdx >= 0 || setterIdx >= 0 || methodIdx >= 0) {
+                // Brand check: ensure obj is an instance of this class
+                if (!hasPrivateBrand(obj, constructor)) {
+                    throw typeError("msg.private.brand.check.failed");
+                }
+
+                Object[] methodValues = constructor.getPrivateMethodValues();
+                if (getterIdx >= 0) {
+                    // Found a getter - call it
+                    Callable getter = (Callable) methodValues[getterIdx];
+                    return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
+                } else if (setterIdx >= 0) {
+                    // Only setter exists - reading is an error
+                    throw typeError("msg.private.setter.only");
+                } else {
+                    // Regular method - return the function
+                    return methodValues != null ? methodValues[methodIdx] : Undefined.instance;
                 }
             }
         }
@@ -6439,28 +6455,42 @@ public class ScriptRuntime {
         // Check for private static method
         Object[] staticMethodIds = constructor.getPrivateStaticMethodIds();
         if (staticMethodIds != null) {
+            // Search for a getter or regular method with this name
+            int getterIdx = -1;
+            int setterIdx = -1;
+            int methodIdx = -1;
+            int[] getterSetters = constructor.getPrivateStaticMethodGetterSetters();
+
             for (int i = 0; i < staticMethodIds.length; i++) {
                 if (name.equals(staticMethodIds[i])) {
-                    int[] getterSetters = constructor.getPrivateStaticMethodGetterSetters();
                     int getterSetter = getterSetters != null ? getterSetters[i] : 0;
-
-                    // For static private, obj should be the constructor
-                    if (obj != constructor) {
-                        throw typeError("msg.private.brand.check.failed");
-                    }
-
-                    Object[] methodValues = constructor.getPrivateStaticMethodValues();
                     if (getterSetter < 0) {
-                        // This is a getter (convention: -1) - call it
-                        Callable getter = (Callable) methodValues[i];
-                        return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
+                        getterIdx = i;
                     } else if (getterSetter > 0) {
-                        // This is a setter (convention: +1) - reading it is an error
-                        throw typeError("msg.private.setter.only");
+                        setterIdx = i;
                     } else {
-                        // Regular method - return the function
-                        return methodValues != null ? methodValues[i] : Undefined.instance;
+                        methodIdx = i;
                     }
+                }
+            }
+
+            if (getterIdx >= 0 || setterIdx >= 0 || methodIdx >= 0) {
+                // For static private, obj should be the constructor
+                if (obj != constructor) {
+                    throw typeError("msg.private.brand.check.failed");
+                }
+
+                Object[] methodValues = constructor.getPrivateStaticMethodValues();
+                if (getterIdx >= 0) {
+                    // Found a getter - call it
+                    Callable getter = (Callable) methodValues[getterIdx];
+                    return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
+                } else if (setterIdx >= 0) {
+                    // Only setter exists - reading is an error
+                    throw typeError("msg.private.setter.only");
+                } else {
+                    // Regular method - return the function
+                    return methodValues != null ? methodValues[methodIdx] : Undefined.instance;
                 }
             }
         }
@@ -6527,30 +6557,45 @@ public class ScriptRuntime {
         // Check for private method setter (accessor)
         Object[] methodIds = constructor.getPrivateMethodIds();
         if (methodIds != null) {
+            // Search for a setter or regular method with this name
+            // (a name may have separate getter and setter entries)
+            int getterIdx = -1;
+            int setterIdx = -1;
+            int methodIdx = -1;
+            int[] getterSetters = constructor.getPrivateMethodGetterSetters();
+
             for (int i = 0; i < methodIds.length; i++) {
                 if (name.equals(methodIds[i])) {
-                    int[] getterSetters = constructor.getPrivateMethodGetterSetters();
                     int getterSetter = getterSetters != null ? getterSetters[i] : 0;
-
-                    // Brand check
-                    if (!hasPrivateBrand(obj, constructor)) {
-                        throw typeError("msg.private.brand.check.failed");
-                    }
-
-                    if (getterSetter > 0) {
-                        // This is a setter (convention: +1) - call it
-                        Object[] methodValues = constructor.getPrivateMethodValues();
-                        Callable setter = (Callable) methodValues[i];
-                        setter.call(
-                                cx, getTopCallScope(cx), (Scriptable) obj, new Object[] {value});
-                        return value;
-                    } else if (getterSetter < 0) {
-                        // This is a getter (convention: -1) - writing is an error
-                        throw typeError("msg.private.getter.only");
+                    if (getterSetter < 0) {
+                        getterIdx = i;
+                    } else if (getterSetter > 0) {
+                        setterIdx = i;
                     } else {
-                        // Regular method - cannot assign to methods
-                        throw typeError("msg.private.method.assign");
+                        methodIdx = i;
                     }
+                }
+            }
+
+            // If we found any matching entry, handle it
+            if (getterIdx >= 0 || setterIdx >= 0 || methodIdx >= 0) {
+                // Brand check
+                if (!hasPrivateBrand(obj, constructor)) {
+                    throw typeError("msg.private.brand.check.failed");
+                }
+
+                if (setterIdx >= 0) {
+                    // Found a setter - call it
+                    Object[] methodValues = constructor.getPrivateMethodValues();
+                    Callable setter = (Callable) methodValues[setterIdx];
+                    setter.call(cx, getTopCallScope(cx), (Scriptable) obj, new Object[] {value});
+                    return value;
+                } else if (getterIdx >= 0) {
+                    // Only getter exists - writing is an error
+                    throw typeError("msg.private.getter.only");
+                } else {
+                    // Regular method - cannot assign to methods
+                    throw typeError("msg.private.method.assign");
                 }
             }
         }
@@ -6558,30 +6603,43 @@ public class ScriptRuntime {
         // Check for private static method setter
         Object[] staticMethodIds = constructor.getPrivateStaticMethodIds();
         if (staticMethodIds != null) {
+            // Search for a setter or regular method with this name
+            int getterIdx = -1;
+            int setterIdx = -1;
+            int methodIdx = -1;
+            int[] getterSetters = constructor.getPrivateStaticMethodGetterSetters();
+
             for (int i = 0; i < staticMethodIds.length; i++) {
                 if (name.equals(staticMethodIds[i])) {
-                    int[] getterSetters = constructor.getPrivateStaticMethodGetterSetters();
                     int getterSetter = getterSetters != null ? getterSetters[i] : 0;
-
-                    // For static private, obj should be the constructor
-                    if (obj != constructor) {
-                        throw typeError("msg.private.brand.check.failed");
-                    }
-
-                    if (getterSetter > 0) {
-                        // This is a setter (convention: +1) - call it
-                        Object[] methodValues = constructor.getPrivateStaticMethodValues();
-                        Callable setter = (Callable) methodValues[i];
-                        setter.call(
-                                cx, getTopCallScope(cx), (Scriptable) obj, new Object[] {value});
-                        return value;
-                    } else if (getterSetter < 0) {
-                        // This is a getter (convention: -1) - writing is an error
-                        throw typeError("msg.private.getter.only");
+                    if (getterSetter < 0) {
+                        getterIdx = i;
+                    } else if (getterSetter > 0) {
+                        setterIdx = i;
                     } else {
-                        // Regular method - cannot assign to methods
-                        throw typeError("msg.private.method.assign");
+                        methodIdx = i;
                     }
+                }
+            }
+
+            if (getterIdx >= 0 || setterIdx >= 0 || methodIdx >= 0) {
+                // For static private, obj should be the constructor
+                if (obj != constructor) {
+                    throw typeError("msg.private.brand.check.failed");
+                }
+
+                if (setterIdx >= 0) {
+                    // Found a setter - call it
+                    Object[] methodValues = constructor.getPrivateStaticMethodValues();
+                    Callable setter = (Callable) methodValues[setterIdx];
+                    setter.call(cx, getTopCallScope(cx), (Scriptable) obj, new Object[] {value});
+                    return value;
+                } else if (getterIdx >= 0) {
+                    // Only getter exists - writing is an error
+                    throw typeError("msg.private.getter.only");
+                } else {
+                    // Regular method - cannot assign to methods
+                    throw typeError("msg.private.method.assign");
                 }
             }
         }
