@@ -271,9 +271,6 @@ jobs:
           chmod +x .github/scripts/prepare-test262-frontend.sh
           .github/scripts/prepare-test262-frontend.sh build/_site/test262 build/test262-merged
 
-          # Copy merged data to the site
-          cp -r build/test262-merged/* build/_site/test262/data/
-
       - name: Upload test262 artifact
         uses: actions/upload-artifact@v4
         with:

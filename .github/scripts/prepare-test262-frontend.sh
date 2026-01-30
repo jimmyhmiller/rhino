@@ -80,11 +80,10 @@ cat >> "${OUTPUT_DIR}/style.css" << 'CSSEOF'
 }
 CSSEOF
 
-# Create a simple redirect from the data path if data is a subdirectory
+# Copy data to the output directory (symlinks don't work with artifact uploads)
 if [ "${DATA_DIR}" != "./data" ]; then
-    # Create symlink or copy data
     if [ -d "${DATA_DIR}" ]; then
-        ln -sf "$(realpath "${DATA_DIR}")" "${OUTPUT_DIR}/data" || cp -r "${DATA_DIR}" "${OUTPUT_DIR}/data"
+        cp -r "${DATA_DIR}" "${OUTPUT_DIR}/data"
     fi
 else
     mkdir -p "${OUTPUT_DIR}/data"
