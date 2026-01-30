@@ -1116,7 +1116,11 @@ class BodyCodegen {
                     // Check for super() constructor call first
                     if (type == Token.CALL
                             && node.getIntProp(Node.SUPER_CONSTRUCTOR_CALL, 0) == 1) {
-                        visitSuperCall(node, child);
+                        if (node.getIntProp(Node.DEFAULT_CTOR_SUPER_CALL, 0) == 1) {
+                            visitDefaultCtorSuperCall(node);
+                        } else {
+                            visitSuperCall(node, child);
+                        }
                         break;
                     }
 
@@ -3208,6 +3212,32 @@ class BodyCodegen {
         }
     }
 
+    private void visitDefaultCtorSuperCall(Node node) {
+        // Default constructor super() call - forwards all function arguments
+        // Push fnCurrent (the current function that has superConstructor set)
+        cfw.addALoad(funObjLocal);
+
+        // Push thisObj
+        cfw.addALoad(thisObjLocal);
+
+        // Push the function's arguments array directly
+        cfw.addALoad(argsLocal);
+
+        // Push context and scope
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(variableObjectLocal);
+
+        // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope)
+        addScriptRuntimeInvoke(
+                "callSuperConstructor",
+                "(Lorg/mozilla/javascript/Callable;"
+                        + "Lorg/mozilla/javascript/Scriptable;"
+                        + "[Ljava/lang/Object;"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Lorg/mozilla/javascript/Scriptable;"
+                        + ")Lorg/mozilla/javascript/Scriptable;");
+    }
+
     private void visitSuperCall(Node node, Node child) {
         // super() call in a derived class constructor
         // child is the SUPER token, skip it to get to arguments
@@ -3219,8 +3249,13 @@ class BodyCodegen {
         // Push thisObj
         cfw.addALoad(thisObjLocal);
 
-        // Generate the arguments array
-        generateCallArgArray(node, firstArgChild, false);
+        // Generate the arguments array - check for spread arguments
+        int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
+        if (numberOfSpread > 0) {
+            generateSpreadCallArgs(node, firstArgChild);
+        } else {
+            generateCallArgArray(node, firstArgChild, false);
+        }
 
         // Push context and scope
         cfw.addALoad(contextLocal);

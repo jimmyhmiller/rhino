@@ -147,6 +147,37 @@ public class LambdaConstructor extends LambdaFunction {
         return fireConstructor(cx, getDeclarationScope(), args);
     }
 
+    /**
+     * Called when this constructor is invoked via super() from a derived class. This uses
+     * [[Construct]] semantics (checking CONSTRUCTOR_NEW flag) but with an existing thisObj from the
+     * derived class.
+     *
+     * <p>Note: For built-in objects with internal slots (Map, Set, etc.), the internal slots cannot
+     * be properly initialized on an existing thisObj. This is a known limitation - true ES6 class
+     * inheritance for built-ins would require architectural changes to how Rhino creates 'this'.
+     */
+    @Override
+    public Object superCall(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+        if ((flags & CONSTRUCTOR_NEW) == 0) {
+            throw ScriptRuntime.typeErrorById("msg.no.new", getFunctionName());
+        }
+        // For super() calls, we use the targetConstructor if available (this is the [[Construct]]
+        // behavior). We create a new object and return it - the derived class will use this object.
+        // Note: This means built-ins with internal slots (Map, Set, etc.) will work correctly
+        // for the parent's functionality, but the returned object replaces 'this' in the derived
+        // class, which is the correct ES6 behavior.
+        if (targetConstructor != null) {
+            Scriptable result = targetConstructor.construct(cx, getDeclarationScope(), args);
+            result.setPrototype(thisObj.getPrototype());
+            return result;
+        }
+        // Fallback to target.call if no targetConstructor
+        if (target != null) {
+            return target.call(cx, getDeclarationScope(), thisObj, args);
+        }
+        return thisObj;
+    }
+
     private Scriptable fireConstructor(Context cx, Scriptable scope, Object[] args) {
         Scriptable obj = targetConstructor.construct(cx, scope, args);
         obj.setPrototype(getClassPrototype());

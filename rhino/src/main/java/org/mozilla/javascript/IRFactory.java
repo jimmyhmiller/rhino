@@ -922,9 +922,27 @@ public final class IRFactory {
         body.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
 
         // For derived classes, the default constructor needs to call super(...args)
-        // For now, we create an empty body - super() support will be added later
-        // TODO: When super() is implemented, derived class default constructor should be:
-        //       constructor(...args) { super(...args); }
+        // and return the result. The ES6 spec says:
+        //   constructor(...args) { return super(...args); }
+        // Instead of generating AST for super(...args) which has name binding issues,
+        // we create a super call without arguments and mark it for automatic argument forwarding
+        if (hasSuperClass) {
+            // Create super() call - arguments will be forwarded automatically
+            KeywordLiteral superKeyword =
+                    new KeywordLiteral(classNode.getPosition(), 5, Token.SUPER);
+            FunctionCall superCall = new FunctionCall();
+            superCall.setTarget(superKeyword);
+            superCall.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+            // Mark as default constructor super call - this tells runtime to forward arguments
+            superCall.putIntProp(Node.DEFAULT_CTOR_SUPER_CALL, 1);
+
+            // Wrap in return statement - the result of super() becomes the constructor's return
+            // value. This is important for built-in constructors that return new objects.
+            ReturnStatement returnStmt = new ReturnStatement();
+            returnStmt.setReturnValue(superCall);
+            returnStmt.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+            body.addChild(returnStmt);
+        }
 
         fn.setBody(body);
         // Override the bounds set by setBody - use the class bounds for the synthetic constructor
@@ -958,6 +976,10 @@ public final class IRFactory {
             // Mark super() calls in derived class constructors
             if (transformedTarget.getType() == Token.SUPER && insideDerivedClassConstructor) {
                 call.putIntProp(Node.SUPER_CONSTRUCTOR_CALL, 1);
+                // Check if this is a default constructor super call (should forward arguments)
+                if (node.getIntProp(Node.DEFAULT_CTOR_SUPER_CALL, 0) == 1) {
+                    call.putIntProp(Node.DEFAULT_CTOR_SUPER_CALL, 1);
+                }
             }
             return call;
         } finally {

@@ -205,8 +205,14 @@ abstract class Icode {
             // ES6 super() constructor call in derived class
             Icode_SUPER_CALL = Icode_CLASS_STORAGE - 1,
 
+            // ES6 super(...args) constructor call with spread in derived class
+            Icode_SUPER_CALL_SPREAD = Icode_SUPER_CALL - 1,
+
+            // Default constructor super call - forwards all function arguments to super
+            Icode_DEFAULT_CTOR_SUPER_CALL = Icode_SUPER_CALL_SPREAD - 1,
+
             // Last icode
-            MIN_ICODE = Icode_SUPER_CALL;
+            MIN_ICODE = Icode_DEFAULT_CTOR_SUPER_CALL;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -430,6 +436,10 @@ abstract class Icode {
                 return "CLASS_STORAGE";
             case Icode_SUPER_CALL:
                 return "SUPER_CALL";
+            case Icode_SUPER_CALL_SPREAD:
+                return "SUPER_CALL_SPREAD";
+            case Icode_DEFAULT_CTOR_SUPER_CALL:
+                return "DEFAULT_CTOR_SUPER_CALL";
         }
 
         // icode without name

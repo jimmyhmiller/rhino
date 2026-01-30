@@ -79,7 +79,9 @@ public class Node implements Iterable<Node> {
                     39, // Marks a function as a class constructor (cannot be called without 'new')
             SUPER_CONSTRUCTOR_CALL =
                     40, // Marks a call as a super() constructor call in a derived class
-            LAST_PROP = SUPER_CONSTRUCTOR_CALL,
+            DEFAULT_CTOR_SUPER_CALL =
+                    41, // Marks a super() call that should forward all function arguments
+            LAST_PROP = DEFAULT_CTOR_SUPER_CALL,
             FIRST_PROP = FUNCTION_PROP;
 
     // values of ISNUMBER_PROP to specify
@@ -483,6 +485,8 @@ public class Node implements Iterable<Node> {
                 return "class_constructor";
             case SUPER_CONSTRUCTOR_CALL:
                 return "super_constructor_call";
+            case DEFAULT_CTOR_SUPER_CALL:
+                return "default_ctor_super_call";
 
             default:
                 Kit.codeBug();

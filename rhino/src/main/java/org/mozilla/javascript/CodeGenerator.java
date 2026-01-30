@@ -685,6 +685,11 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                             addIcode(Icode_NEW_SPREAD);
                             // stack: f, storage -> result
                             stackChange(-1);
+                        } else if (isSuperConstructorCall) {
+                            // super(...args) call with spread
+                            addIcode(Icode_SUPER_CALL_SPREAD);
+                            // stack: storage -> result
+                            stackChange(0);
                         } else {
                             int callType =
                                     node.getIntProp(Node.SPECIALCALL_PROP, Node.NON_SPECIALCALL);
@@ -715,7 +720,12 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                             addUint16(lineNumber & 0xFFFF);
                         } else if (node.getIntProp(Node.SUPER_CONSTRUCTOR_CALL, 0) == 1) {
                             // super() call in derived class constructor
-                            addIndexOp(Icode_SUPER_CALL, argCount);
+                            if (node.getIntProp(Node.DEFAULT_CTOR_SUPER_CALL, 0) == 1) {
+                                // Default constructor - forward all function arguments
+                                addIcode(Icode_DEFAULT_CTOR_SUPER_CALL);
+                            } else {
+                                addIndexOp(Icode_SUPER_CALL, argCount);
+                            }
                         } else if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
                             addIndexOp(Icode_CALL_ON_SUPER, argCount);
                         } else {

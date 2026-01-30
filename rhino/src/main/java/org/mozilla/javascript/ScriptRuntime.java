@@ -6158,10 +6158,20 @@ public class ScriptRuntime {
             throw typeErrorById("msg.super.not.in.derived.ctor");
         }
 
-        // Call the super constructor with the current thisObj
-        // This allows the parent constructor to initialize properties on the same object
-        superConstructor.call(cx, scope, thisObj, args);
+        // Use superCall() if available - this signals [[Construct]] semantics with an existing
+        // thisObj.
+        // For built-in constructors (LambdaConstructor), this allows proper initialization.
+        Object result;
+        if (superConstructor instanceof BaseFunction) {
+            result = ((BaseFunction) superConstructor).superCall(cx, scope, thisObj, args);
+        } else {
+            result = superConstructor.call(cx, scope, thisObj, args);
+        }
 
+        // If the super constructor returned an object, use that instead of thisObj
+        if (result instanceof Scriptable) {
+            return (Scriptable) result;
+        }
         return thisObj;
     }
 

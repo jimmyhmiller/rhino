@@ -658,6 +658,23 @@ public class BaseFunction extends ScriptableObject implements Function {
         return Undefined.instance;
     }
 
+    /**
+     * Called when this function is invoked as a super constructor from a derived class. This is
+     * similar to [[Construct]] but uses an existing thisObj instead of creating a new one.
+     * Subclasses (like LambdaConstructor) can override this to provide proper construct semantics.
+     *
+     * @param cx the current context
+     * @param scope the scope
+     * @param thisObj the 'this' object from the derived class constructor
+     * @param args the arguments
+     * @return the result of the super call (usually thisObj, but may be a different object if the
+     *     constructor explicitly returns one)
+     */
+    public Object superCall(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+        // Default implementation just delegates to call()
+        return call(cx, scope, thisObj, args);
+    }
+
     @Override
     public Scriptable construct(Context cx, Scriptable scope, Object[] args) {
         if (cx.getLanguageVersion() >= Context.VERSION_ES6 && this.getHomeObject() != null) {
