@@ -1639,6 +1639,10 @@ class BodyCodegen {
                 visitGetProp(node, child);
                 break;
 
+            case Token.GETPROP_PRIVATE:
+                visitGetPrivateProp(node, child);
+                break;
+
             case Token.GETELEM:
                 {
                     Node indexNode = child.getNext();
@@ -1735,6 +1739,10 @@ class BodyCodegen {
             case Token.SETPROP:
             case Token.SETPROP_OP:
                 visitSetProp(type, node, child);
+                break;
+
+            case Token.SETPROP_PRIVATE:
+                visitSetPrivateProp(node, child);
                 break;
 
             case Token.SETELEM:
@@ -2888,11 +2896,26 @@ class BodyCodegen {
         Object[] staticProperties = (Object[]) staticMethods.getProp(Node.OBJECT_IDS_PROP);
         Object[] instanceFieldProperties = (Object[]) instanceFields.getProp(Node.OBJECT_IDS_PROP);
         Object[] staticFieldProperties = (Object[]) staticFields.getProp(Node.OBJECT_IDS_PROP);
+        Object[] privateInstanceFieldProperties =
+                (Object[]) privateInstanceFields.getProp(Node.OBJECT_IDS_PROP);
+        Object[] privateStaticFieldProperties =
+                (Object[]) privateStaticFields.getProp(Node.OBJECT_IDS_PROP);
+        Object[] privateMethodProperties = (Object[]) privateMethods.getProp(Node.OBJECT_IDS_PROP);
+        Object[] privateStaticMethodProperties =
+                (Object[]) privateStaticMethods.getProp(Node.OBJECT_IDS_PROP);
         int protoCount = protoProperties == null ? 0 : protoProperties.length;
         int staticCount = staticProperties == null ? 0 : staticProperties.length;
         int instanceFieldCount =
                 instanceFieldProperties == null ? 0 : instanceFieldProperties.length;
         int staticFieldCount = staticFieldProperties == null ? 0 : staticFieldProperties.length;
+        int privateInstanceFieldCount =
+                privateInstanceFieldProperties == null ? 0 : privateInstanceFieldProperties.length;
+        int privateStaticFieldCount =
+                privateStaticFieldProperties == null ? 0 : privateStaticFieldProperties.length;
+        int privateMethodCount =
+                privateMethodProperties == null ? 0 : privateMethodProperties.length;
+        int privateStaticMethodCount =
+                privateStaticMethodProperties == null ? 0 : privateStaticMethodProperties.length;
 
         // Generate the constructor function
         generateExpression(constructor, node);
@@ -3072,6 +3095,54 @@ class BodyCodegen {
                 staticFieldKeysLocal,
                 staticFieldValuesLocal);
 
+        // Generate private instance field keys and values arrays
+        short privateInstanceFieldKeysLocal = getNewWordLocal();
+        short privateInstanceFieldValuesLocal = getNewWordLocal();
+        generatePrivateFieldArrays(
+                node,
+                privateInstanceFields,
+                privateInstanceFieldProperties,
+                privateInstanceFieldCount,
+                privateInstanceFieldKeysLocal,
+                privateInstanceFieldValuesLocal);
+
+        // Generate private static field keys and values arrays
+        short privateStaticFieldKeysLocal = getNewWordLocal();
+        short privateStaticFieldValuesLocal = getNewWordLocal();
+        generatePrivateFieldArrays(
+                node,
+                privateStaticFields,
+                privateStaticFieldProperties,
+                privateStaticFieldCount,
+                privateStaticFieldKeysLocal,
+                privateStaticFieldValuesLocal);
+
+        // Generate private method ids, values, and getter/setter arrays
+        short privateMethodIdsLocal = getNewWordLocal();
+        short privateMethodValuesLocal = getNewWordLocal();
+        short privateMethodGetterSettersLocal = getNewWordLocal();
+        generatePrivateMethodArrays(
+                node,
+                privateMethods,
+                privateMethodProperties,
+                privateMethodCount,
+                privateMethodIdsLocal,
+                privateMethodValuesLocal,
+                privateMethodGetterSettersLocal);
+
+        // Generate private static method ids, values, and getter/setter arrays
+        short privateStaticMethodIdsLocal = getNewWordLocal();
+        short privateStaticMethodValuesLocal = getNewWordLocal();
+        short privateStaticMethodGetterSettersLocal = getNewWordLocal();
+        generatePrivateMethodArrays(
+                node,
+                privateStaticMethods,
+                privateStaticMethodProperties,
+                privateStaticMethodCount,
+                privateStaticMethodIdsLocal,
+                privateStaticMethodValuesLocal,
+                privateStaticMethodGetterSettersLocal);
+
         // Cast constructor to Callable
         cfw.add(ByteCode.CHECKCAST, "org/mozilla/javascript/Callable");
 
@@ -3087,17 +3158,17 @@ class BodyCodegen {
         cfw.addALoad(staticFieldKeysLocal);
         cfw.addALoad(staticFieldValuesLocal);
 
-        // Private member parameters (not yet supported in optimizer, push nulls)
-        cfw.add(ByteCode.ACONST_NULL); // privateInstanceFieldIds
-        cfw.add(ByteCode.ACONST_NULL); // privateInstanceFieldValues
-        cfw.add(ByteCode.ACONST_NULL); // privateStaticFieldIds
-        cfw.add(ByteCode.ACONST_NULL); // privateStaticFieldValues
-        cfw.add(ByteCode.ACONST_NULL); // privateMethodIds
-        cfw.add(ByteCode.ACONST_NULL); // privateMethodValues
-        cfw.add(ByteCode.ACONST_NULL); // privateMethodGetterSetters
-        cfw.add(ByteCode.ACONST_NULL); // privateStaticMethodIds
-        cfw.add(ByteCode.ACONST_NULL); // privateStaticMethodValues
-        cfw.add(ByteCode.ACONST_NULL); // privateStaticMethodGetterSetters
+        // Private member parameters
+        cfw.addALoad(privateInstanceFieldKeysLocal);
+        cfw.addALoad(privateInstanceFieldValuesLocal);
+        cfw.addALoad(privateStaticFieldKeysLocal);
+        cfw.addALoad(privateStaticFieldValuesLocal);
+        cfw.addALoad(privateMethodIdsLocal);
+        cfw.addALoad(privateMethodValuesLocal);
+        cfw.addALoad(privateMethodGetterSettersLocal);
+        cfw.addALoad(privateStaticMethodIdsLocal);
+        cfw.addALoad(privateStaticMethodValuesLocal);
+        cfw.addALoad(privateStaticMethodGetterSettersLocal);
 
         // Push superClass (or null)
         if (superClassLocal != -1) {
@@ -3148,6 +3219,16 @@ class BodyCodegen {
         releaseWordLocal(instanceFieldValuesLocal);
         releaseWordLocal(staticFieldKeysLocal);
         releaseWordLocal(staticFieldValuesLocal);
+        releaseWordLocal(privateInstanceFieldKeysLocal);
+        releaseWordLocal(privateInstanceFieldValuesLocal);
+        releaseWordLocal(privateStaticFieldKeysLocal);
+        releaseWordLocal(privateStaticFieldValuesLocal);
+        releaseWordLocal(privateMethodIdsLocal);
+        releaseWordLocal(privateMethodValuesLocal);
+        releaseWordLocal(privateMethodGetterSettersLocal);
+        releaseWordLocal(privateStaticMethodIdsLocal);
+        releaseWordLocal(privateStaticMethodValuesLocal);
+        releaseWordLocal(privateStaticMethodGetterSettersLocal);
         if (superClassLocal != -1) {
             releaseWordLocal(superClassLocal);
         }
@@ -3198,6 +3279,145 @@ class BodyCodegen {
             fieldIdx++;
         }
         cfw.addAStore(valuesLocal);
+        // Stack: [constructor]
+    }
+
+    /**
+     * Generates code to create arrays for private field ids and values. For private fields, the ids
+     * are strings (the private name without #), and values are the initializer expressions.
+     */
+    private void generatePrivateFieldArrays(
+            Node parent,
+            Node fieldsNode,
+            Object[] fieldProperties,
+            int fieldCount,
+            short idsLocal,
+            short valuesLocal) {
+        // Create ids array
+        cfw.addPush(fieldCount);
+        cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        // Stack: [constructor, idsArray]
+
+        // Fill ids array with private field names
+        int fieldIdx = 0;
+        for (Node fieldChild = fieldsNode.getFirstChild();
+                fieldChild != null;
+                fieldChild = fieldChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            cfw.addPush(fieldIdx);
+            // Private field ids are stored in the properties array as strings
+            if (fieldProperties != null && fieldIdx < fieldProperties.length) {
+                cfw.addPush((String) fieldProperties[fieldIdx]);
+            } else {
+                cfw.add(ByteCode.ACONST_NULL);
+            }
+            cfw.add(ByteCode.AASTORE);
+            fieldIdx++;
+        }
+        cfw.addAStore(idsLocal);
+        // Stack: [constructor]
+
+        // Create values array
+        cfw.addPush(fieldCount);
+        cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        // Stack: [constructor, valuesArray]
+
+        // Fill values array with initializer expressions
+        fieldIdx = 0;
+        for (Node fieldChild = fieldsNode.getFirstChild();
+                fieldChild != null;
+                fieldChild = fieldChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            cfw.addPush(fieldIdx);
+            // Generate the initializer expression
+            generateExpression(fieldChild, parent);
+            cfw.add(ByteCode.AASTORE);
+            fieldIdx++;
+        }
+        cfw.addAStore(valuesLocal);
+        // Stack: [constructor]
+    }
+
+    /**
+     * Generates code to create arrays for private method ids, values, and getter/setter flags. For
+     * private methods, ids are strings (the private name without #), values are the function
+     * objects, and getter/setter flags indicate if the method is a getter (-1), setter (1), or
+     * regular method (0).
+     */
+    private void generatePrivateMethodArrays(
+            Node parent,
+            Node methodsNode,
+            Object[] methodProperties,
+            int methodCount,
+            short idsLocal,
+            short valuesLocal,
+            short getterSettersLocal) {
+        // Create ids array
+        cfw.addPush(methodCount);
+        cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        // Stack: [constructor, idsArray]
+
+        // Fill ids array with private method names
+        int methodIdx = 0;
+        for (Node methodChild = methodsNode.getFirstChild();
+                methodChild != null;
+                methodChild = methodChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            cfw.addPush(methodIdx);
+            // Private method ids are stored in the properties array as strings
+            if (methodProperties != null && methodIdx < methodProperties.length) {
+                cfw.addPush((String) methodProperties[methodIdx]);
+            } else {
+                cfw.add(ByteCode.ACONST_NULL);
+            }
+            cfw.add(ByteCode.AASTORE);
+            methodIdx++;
+        }
+        cfw.addAStore(idsLocal);
+        // Stack: [constructor]
+
+        // Create values array
+        cfw.addPush(methodCount);
+        cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        // Stack: [constructor, valuesArray]
+
+        // Fill values array with method functions
+        methodIdx = 0;
+        for (Node methodChild = methodsNode.getFirstChild();
+                methodChild != null;
+                methodChild = methodChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            cfw.addPush(methodIdx);
+            // Generate the method function using addLoadPropertyValue
+            // which handles METHOD, GET, SET node types properly
+            addLoadPropertyValue(parent, methodChild);
+            cfw.add(ByteCode.AASTORE);
+            methodIdx++;
+        }
+        cfw.addAStore(valuesLocal);
+        // Stack: [constructor]
+
+        // Create getter/setter flags array
+        cfw.addPush(methodCount);
+        cfw.add(ByteCode.NEWARRAY, ByteCode.T_INT);
+        // Stack: [constructor, getterSettersArray]
+
+        // Fill getter/setter flags array
+        // Check each method's type - for now, all private methods are regular methods (0)
+        // Getter/setter private accessors would need additional parsing support
+        methodIdx = 0;
+        for (Node methodChild = methodsNode.getFirstChild();
+                methodChild != null;
+                methodChild = methodChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            cfw.addPush(methodIdx);
+            // Check the getter/setter property on the method node
+            int getterSetter = methodChild.getIntProp(Node.MEMBER_TYPE_PROP, 0);
+            cfw.addPush(getterSetter);
+            cfw.add(ByteCode.IASTORE);
+            methodIdx++;
+        }
+        cfw.addAStore(getterSettersLocal);
         // Stack: [constructor]
     }
 
@@ -5536,6 +5756,43 @@ class BodyCodegen {
         } else {
             addDynamicInvoke("PROP:SET:" + nameChild.getString(), Signatures.PROP_SET);
         }
+    }
+
+    private void visitGetPrivateProp(Node node, Node child) {
+        // obj.#field
+        generateExpression(child, node); // object
+        Node nameChild = child.getNext();
+        cfw.addPush(nameChild.getString()); // private name
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(funObjLocal);
+        addScriptRuntimeInvoke(
+                "getPrivateProp",
+                "(Ljava/lang/Object;"
+                        + "Ljava/lang/String;"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Ljava/lang/Object;"
+                        + ")Ljava/lang/Object;");
+    }
+
+    private void visitSetPrivateProp(Node node, Node child) {
+        // obj.#field = value
+        generateExpression(child, node); // object
+        child = child.getNext();
+        String privateName = child.getString();
+        child = child.getNext();
+        generateExpression(child, node); // value
+        cfw.addPush(privateName); // private name
+        cfw.add(ByteCode.SWAP); // swap name and value to get obj, name, value order
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(funObjLocal);
+        addScriptRuntimeInvoke(
+                "setPrivateProp",
+                "(Ljava/lang/Object;"
+                        + "Ljava/lang/String;"
+                        + "Ljava/lang/Object;"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Ljava/lang/Object;"
+                        + ")Ljava/lang/Object;");
     }
 
     private void visitSetElem(int type, Node node, Node child) {

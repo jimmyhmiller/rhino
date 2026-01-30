@@ -3,36 +3,10 @@ package org.mozilla.javascript.tests;
 import static org.junit.Assert.*;
 
 import org.junit.Test;
-import org.mozilla.javascript.*;
 import org.mozilla.javascript.testutils.Utils;
 
-/**
- * Tests for ES2022 private class members (#name syntax). Currently only tests in interpreted mode
- * since the optimizer (BodyCodegen) support is not yet implemented.
- */
+/** Tests for ES2022 private class members (#name syntax). */
 public class PrivateMembersTest {
-
-    /** Run script in interpreted mode only (optimizer not yet supported for private members). */
-    private Object runScript(String script) {
-        Utils.runWithMode(
-                cx -> {
-                    cx.setLanguageVersion(Context.VERSION_ES6);
-                    final Scriptable scope = cx.initStandardObjects();
-                    return cx.evaluateString(scope, script, "test.js", 1, null);
-                },
-                true); // interpreted mode
-        // Utils.runWithMode doesn't return a value, so we need to run again to get result
-        final Object[] result = new Object[1];
-        Utils.runWithMode(
-                cx -> {
-                    cx.setLanguageVersion(Context.VERSION_ES6);
-                    final Scriptable scope = cx.initStandardObjects();
-                    result[0] = cx.evaluateString(scope, script, "test.js", 1, null);
-                    return null;
-                },
-                true);
-        return result[0];
-    }
 
     @Test
     public void testPrivateFieldDeclaration() {
@@ -44,8 +18,7 @@ public class PrivateMembersTest {
                         + "var f = new Foo();\n"
                         + "f.getValue();";
 
-        Object result = runScript(script);
-        assertEquals(42.0, ((Number) result).doubleValue(), 0.001);
+        Utils.assertWithAllModes_ES6(42, script);
     }
 
     @Test
@@ -62,8 +35,7 @@ public class PrivateMembersTest {
                         + "c.increment();\n"
                         + "c.increment();";
 
-        Object result = runScript(script);
-        assertEquals(2.0, ((Number) result).doubleValue(), 0.001);
+        Utils.assertWithAllModes_ES6(2, script);
     }
 
     @Test
@@ -75,8 +47,7 @@ public class PrivateMembersTest {
                         + "var f = new Foo();\n"
                         + "'#secret' in f;";
 
-        Object result = runScript(script);
-        assertEquals(Boolean.FALSE, result);
+        Utils.assertWithAllModes_ES6(false, script);
     }
 
     @Test
@@ -91,8 +62,7 @@ public class PrivateMembersTest {
                         + "var b = new Box(2);\n"
                         + "[a.getValue(), b.getValue()].join(',');";
 
-        Object result = runScript(script);
-        assertEquals("1,2", result);
+        Utils.assertWithAllModes_ES6("1,2", script);
     }
 
     @Test
@@ -105,8 +75,7 @@ public class PrivateMembersTest {
                         + "var calc = new Calculator();\n"
                         + "calc.sum(3, 4);";
 
-        Object result = runScript(script);
-        assertEquals(7.0, ((Number) result).doubleValue(), 0.001);
+        Utils.assertWithAllModes_ES6(7, script);
     }
 
     @Test
@@ -123,7 +92,34 @@ public class PrivateMembersTest {
                         + "new Counter();\n"
                         + "Counter.getCount();";
 
-        Object result = runScript(script);
-        assertEquals(2.0, ((Number) result).doubleValue(), 0.001);
+        Utils.assertWithAllModes_ES6(2, script);
+    }
+
+    @Test
+    public void testPrivateFieldBrandCheck() {
+        // Accessing private field on wrong type should throw TypeError
+        String script =
+                "class Foo {\n"
+                        + "    #x = 1;\n"
+                        + "    static getX(obj) { return obj.#x; }\n"
+                        + "}\n"
+                        + "var f = new Foo();\n"
+                        + "var error = '';\n"
+                        + "try { Foo.getX({}); } catch(e) { error = e.name; }\n"
+                        + "error;";
+
+        Utils.assertWithAllModes_ES6("TypeError", script);
+    }
+
+    @Test
+    public void testPrivateStaticMethod() {
+        String script =
+                "class Helper {\n"
+                        + "    static #double(x) { return x * 2; }\n"
+                        + "    static compute(x) { return Helper.#double(x); }\n"
+                        + "}\n"
+                        + "Helper.compute(21);";
+
+        Utils.assertWithAllModes_ES6(42, script);
     }
 }
