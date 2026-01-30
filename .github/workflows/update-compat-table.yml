@@ -237,20 +237,22 @@ jobs:
           echo "Running test262 for upstream..."
           ./gradlew :tests:test262Json \
             -Pengine=rhino-upstream \
-            -Poutput=../test262-upstream \
+            -Poutput=$GITHUB_WORKSPACE/build/test262-upstream \
             -Ptest262path=test262 \
             -Pthreads=4 || true
           echo "Upstream test262 complete"
+          ls -la $GITHUB_WORKSPACE/build/test262-upstream/ || echo "No output directory!"
 
       - name: Run test262 for fork
         run: |
           echo "Running test262 for fork..."
           ./gradlew :tests:test262Json \
             -Pengine=rhino-fork \
-            -Poutput=build/test262-fork \
+            -Poutput=$GITHUB_WORKSPACE/build/test262-fork \
             -Ptest262path=test262 \
             -Pthreads=4 || true
           echo "Fork test262 complete"
+          ls -la $GITHUB_WORKSPACE/build/test262-fork/ || echo "No output directory!"
 
       - name: Generate features and editions data
         run: |
