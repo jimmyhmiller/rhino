@@ -1092,6 +1092,12 @@ public class Parser {
 
         fnNode.setJsDocNode(getAndResetJsDoc());
 
+        // If we're already in a strict mode context (e.g., class body), propagate to this function.
+        // This ensures class methods are always in strict mode per ES6 14.5.
+        if (inUseStrictDirective) {
+            fnNode.setInStrictMode(true);
+        }
+
         PerFunctionVariables savedVars = new PerFunctionVariables(fnNode);
         boolean wasInsideMethod = insideMethod;
         insideMethod = isMethodDefiniton;

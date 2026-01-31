@@ -6246,9 +6246,17 @@ public class ScriptRuntime {
             Scriptable superConstructor = (Scriptable) superClass;
 
             // Get the superclass prototype
+            // ES6 14.5.14 step 6: Let protoParent be ? Get(superclass, "prototype").
+            // ES6 14.5.14 step 7: If Type(protoParent) is neither Object nor Null, throw TypeError
             Object superProtoObj = superConstructor.get("prototype", superConstructor);
             Scriptable superProto = null;
-            if (superProtoObj != Scriptable.NOT_FOUND && superProtoObj != null) {
+
+            // Check for missing property (NOT_FOUND) or undefined - both throw TypeError
+            if (superProtoObj == Scriptable.NOT_FOUND || Undefined.isUndefined(superProtoObj)) {
+                throw typeError("msg.class.extends.prototype.not.object");
+            }
+            // null is valid (creates class with null prototype like Object.create(null))
+            if (superProtoObj != null) {
                 if (!(superProtoObj instanceof Scriptable)) {
                     throw typeError("msg.class.extends.prototype.not.object");
                 }
