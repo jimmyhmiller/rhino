@@ -15,9 +15,13 @@ node scripts/list-tests-by-edition.js -e 6 -s failing
 node scripts/list-tests-by-edition.js -e 6 -s failing -o json
 ```
 
-### Current ES6 Failure Categories (prioritized)
+### Current ES6 Status
 
-1. **class** (796 tests) - Pure ES6 class syntax
+**Pass Rate: 75.9%** (6,955 passing / 2,207 failing)
+
+### ES6 Failure Categories (prioritized)
+
+1. **class** (~700 tests) - Pure ES6 class syntax
 2. **for-of** (252 tests) - Iteration protocol
 3. **generators** (214 tests) - Generator functions
 4. **object expressions** (176 tests) - Computed properties, shorthand methods
