@@ -64,6 +64,9 @@ public class Test262JsonRunner {
     private static final String FLAG_ONLY_STRICT = "onlyStrict";
     private static final String FLAG_NO_STRICT = "noStrict";
 
+    // Timeout for each test execution (per mode) in seconds
+    private static final int TEST_TIMEOUT_SECONDS = 10;
+
     private static final Set<String> UNSUPPORTED_FEATURES =
             new HashSet<>(
                     Arrays.asList(
@@ -110,9 +113,13 @@ public class Test262JsonRunner {
     private final AtomicInteger passCount = new AtomicInteger(0);
     private final AtomicInteger failCount = new AtomicInteger(0);
     private final AtomicInteger skipCount = new AtomicInteger(0);
+    private final AtomicInteger timeoutCount = new AtomicInteger(0);
 
     // Thread-safe map to store results: path -> passed
     private final ConcurrentHashMap<String, Boolean> testResults = new ConcurrentHashMap<>();
+
+    // Separate executor for running individual tests with timeout
+    private ExecutorService testExecutor;
 
     public Test262JsonRunner(String test262Path, String engineName, String outputDir, int threads) {
         this.testDir = new File(test262Path, "test");
@@ -185,6 +192,12 @@ public class Test262JsonRunner {
         recursiveListFilesHelper(testDir, JS_FILE_FILTER, testFiles);
 
         System.out.printf("Found %d test files%n", testFiles.size());
+        System.out.printf(
+                "Using %d threads with %d second timeout per test%n",
+                threadCount, TEST_TIMEOUT_SECONDS);
+
+        // Executor for running individual test modes with timeout
+        testExecutor = Executors.newCachedThreadPool();
 
         // Run tests in parallel
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -212,19 +225,21 @@ public class Test262JsonRunner {
             completed++;
             if (completed % 1000 == 0) {
                 System.out.printf(
-                        "Completed %d/%d tests (pass=%d, fail=%d, skip=%d)%n",
+                        "Completed %d/%d tests (pass=%d, fail=%d, skip=%d, timeout=%d)%n",
                         completed,
                         testFiles.size(),
                         passCount.get(),
                         failCount.get(),
-                        skipCount.get());
+                        skipCount.get(),
+                        timeoutCount.get());
             }
         }
         executor.awaitTermination(1, TimeUnit.HOURS);
+        testExecutor.shutdownNow();
 
         System.out.printf(
-                "Final: %d passed, %d failed, %d skipped%n",
-                passCount.get(), failCount.get(), skipCount.get());
+                "Final: %d passed, %d failed, %d skipped, %d timed out%n",
+                passCount.get(), failCount.get(), skipCount.get(), timeoutCount.get());
 
         // Build hierarchical results and write JSON files
         writeResults();
@@ -300,6 +315,25 @@ public class Test262JsonRunner {
     }
 
     private boolean runSingleTest(
+            Test262Case testCase, String testFilePath, boolean interpretedMode, boolean useStrict) {
+        Future<Boolean> future =
+                testExecutor.submit(
+                        () ->
+                                runSingleTestInternal(
+                                        testCase, testFilePath, interpretedMode, useStrict));
+
+        try {
+            return future.get(TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            future.cancel(true);
+            timeoutCount.incrementAndGet();
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean runSingleTestInternal(
             Test262Case testCase, String testFilePath, boolean interpretedMode, boolean useStrict) {
         try (Context cx = Context.enter()) {
             cx.setInterpretedMode(interpretedMode);
