@@ -1020,11 +1020,16 @@ public class Parser {
     }
 
     private FunctionNode function(int type) throws IOException {
-        return function(type, false);
+        return function(type, false, false);
     }
 
     private FunctionNode function(int type, boolean isMethodDefiniton) throws IOException {
-        boolean isGenerator = false;
+        return function(type, isMethodDefiniton, false);
+    }
+
+    private FunctionNode function(int type, boolean isMethodDefiniton, boolean isGeneratorMethod)
+            throws IOException {
+        boolean isGenerator = isGeneratorMethod;
         int syntheticType = type;
         int baseLineno = lineNumber(); // line number where source starts
         int functionSourceStart = ts.tokenBeg; // start of "function" kwd
@@ -1416,8 +1421,9 @@ public class Parser {
 
         // Parse the function
         // All class methods (including constructors) need isMethodDefinition=true
-        // during parsing so that `super` is allowed in the parser
-        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true);
+        // during parsing so that `super` is allowed in the parser.
+        // Pass isGenerator so the function body knows it's a generator for yield parsing.
+        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator);
 
         // Validate getter/setter parameter counts per ES6 spec
         int paramCount = fn.getParams().size();
@@ -5045,7 +5051,8 @@ public class Parser {
     private ObjectProperty methodDefinition(
             int pos, AstNode propName, int entryKind, boolean isGenerator, boolean isShorthand)
             throws IOException {
-        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true);
+        // Pass isGenerator so the function body knows it's a generator for yield parsing
+        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator);
 
         // Validate getter/setter parameter counts per ES6 spec
         int paramCount = fn.getParams().size();
