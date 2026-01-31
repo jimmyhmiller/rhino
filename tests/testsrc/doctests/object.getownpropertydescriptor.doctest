@@ -31,14 +31,14 @@ true
 js> desc.configurable
 true
 
-js> var desc = Object.getOwnPropertyDescriptor({ get p() {}, set p() {} }, 'p');
+js> var desc = Object.getOwnPropertyDescriptor({ get p() {}, set p(v) {} }, 'p');
 js> desc.value === undefined;
 true
 js> desc.writable
 js> desc.get.toSource()
 p() {}
 js> desc.set.toSource()
-p() {}
+p(v) {}
 js> desc.enumerable
 true
 js> desc.configurable
