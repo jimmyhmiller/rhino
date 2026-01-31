@@ -17,7 +17,7 @@ node scripts/list-tests-by-edition.js -e 6 -s failing -o json
 
 ### Current ES6 Status
 
-**Pass Rate: 75.9%** (6,955 passing / 2,207 failing)
+**Pass Rate: 76.4%** (6,998 passing / 2,164 failing)
 
 ### ES6 Failure Categories (prioritized)
 
