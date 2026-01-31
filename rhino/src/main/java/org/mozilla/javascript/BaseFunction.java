@@ -1150,13 +1150,29 @@ public class BaseFunction extends ScriptableObject implements Function {
      *
      * @param methodIds array of private method names (without # prefix)
      * @param methodValues array of method functions
-     * @param getterSetters array indicating getter/setter status (0=method, 1=getter, 2=setter)
+     * @param getterSetters array indicating getter/setter status (0=method, -1=getter, +1=setter)
      */
     public void setPrivateMethodDefinitions(
             Object[] methodIds, Object[] methodValues, int[] getterSetters) {
         this.privateMethodIds = methodIds;
         this.privateMethodValues = methodValues;
         this.privateMethodGetterSetters = getterSetters;
+
+        // Set function names for private methods (with # prefix and get/set prefix for accessors)
+        if (methodIds != null && methodValues != null) {
+            for (int i = 0; i < methodIds.length && i < methodValues.length; i++) {
+                if (methodValues[i] instanceof BaseFunction) {
+                    String name = "#" + methodIds[i];
+                    int getterSetter = getterSetters != null ? getterSetters[i] : 0;
+                    if (getterSetter < 0) {
+                        name = "get " + name;
+                    } else if (getterSetter > 0) {
+                        name = "set " + name;
+                    }
+                    ((BaseFunction) methodValues[i]).setFunctionName(name);
+                }
+            }
+        }
     }
 
     /**
@@ -1220,13 +1236,29 @@ public class BaseFunction extends ScriptableObject implements Function {
      *
      * @param methodIds array of private static method names (without # prefix)
      * @param methodValues array of method functions
-     * @param getterSetters array indicating getter/setter status (0=method, 1=getter, 2=setter)
+     * @param getterSetters array indicating getter/setter status (0=method, -1=getter, +1=setter)
      */
     public void setPrivateStaticMethodDefinitions(
             Object[] methodIds, Object[] methodValues, int[] getterSetters) {
         this.privateStaticMethodIds = methodIds;
         this.privateStaticMethodValues = methodValues;
         this.privateStaticMethodGetterSetters = getterSetters;
+
+        // Set function names for private static methods (with # prefix and get/set for accessors)
+        if (methodIds != null && methodValues != null) {
+            for (int i = 0; i < methodIds.length && i < methodValues.length; i++) {
+                if (methodValues[i] instanceof BaseFunction) {
+                    String name = "#" + methodIds[i];
+                    int getterSetter = getterSetters != null ? getterSetters[i] : 0;
+                    if (getterSetter < 0) {
+                        name = "get " + name;
+                    } else if (getterSetter > 0) {
+                        name = "set " + name;
+                    }
+                    ((BaseFunction) methodValues[i]).setFunctionName(name);
+                }
+            }
+        }
     }
 
     /**
