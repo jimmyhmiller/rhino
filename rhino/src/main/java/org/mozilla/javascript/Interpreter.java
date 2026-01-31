@@ -3738,6 +3738,15 @@ public final class Interpreter extends Icode implements Evaluator {
             Scriptable funHomeObj =
                     (fun instanceof BaseFunction) ? ((BaseFunction) fun).getHomeObject() : null;
             if (op == Icode_CALL_ON_SUPER) {
+                // In derived class constructors, super method calls require 'this' to be
+                // initialized (super() must have been called) because the method will use
+                // 'this' as the receiver. Check TDZ for 'this' before allowing the call.
+                JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+                if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                    throw ScriptRuntime.constructError(
+                            "ReferenceError",
+                            "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+                }
                 // funThisObj would have been the "super" object, which we
                 // used to lookup the function. Now that that's done, we
                 // discard it and invoke the function with the current
