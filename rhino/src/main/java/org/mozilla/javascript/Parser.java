@@ -5619,7 +5619,63 @@ public class Parser {
         String iteratorName = null;
         String lastResultName = null;
 
-        for (AstNode n : array.getElements()) {
+        List<AstNode> elements = array.getElements();
+        for (int elemIndex = 0; elemIndex < elements.size(); elemIndex++) {
+            AstNode n = elements.get(elemIndex);
+
+            // Handle rest element: [...rest]
+            if (n.getType() == Token.DOTDOTDOT) {
+                // Rest element must be last in the pattern (no elements or trailing comma after)
+                // Also check destructuringLength - a trailing comma increments it
+                boolean hasTrailingComma = array.getDestructuringLength() > elements.size();
+                if (elemIndex != elements.size() - 1 || hasTrailingComma) {
+                    reportError("msg.parm.after.rest");
+                    return new DestructuringArrayResult(false, iteratorName, lastResultName);
+                }
+
+                // Get the binding target from the Spread node
+                AstNode restTarget = ((Spread) n).getExpression();
+
+                if (defaultValue != null && !defaultValuesSetup) {
+                    setupDefaultValues(tempName, parent, defaultValue, setOp, transformer);
+                    defaultValuesSetup = true;
+                }
+
+                // Use Array.prototype.slice.call(tempName, index) to collect remaining elements
+                // This works for arrays and array-like objects
+                // Generate: restTarget = Array.prototype.slice.call(tempName, index)
+                Node arrayProto =
+                        new Node(Token.GETPROP, createName("Array"), Node.newString("prototype"));
+                Node sliceMethod = new Node(Token.GETPROP, arrayProto, Node.newString("slice"));
+                Node callMethod = new Node(Token.GETPROP, sliceMethod, Node.newString("call"));
+                Node sliceCall = new Node(Token.CALL, callMethod);
+                sliceCall.addChildToBack(createName(tempName));
+                sliceCall.addChildToBack(createNumber(index));
+
+                if (restTarget.getType() == Token.NAME) {
+                    String name = restTarget.getString();
+                    parent.addChildToBack(
+                            new Node(setOp, createName(Token.BINDNAME, name, null), sliceCall));
+                    if (variableType != -1) {
+                        defineSymbol(variableType, name, true);
+                        destructuringNames.add(name);
+                    }
+                } else {
+                    // Nested destructuring in rest: [...[a, b]]
+                    parent.addChildToBack(
+                            destructuringAssignmentHelper(
+                                    variableType,
+                                    restTarget,
+                                    sliceCall,
+                                    currentScriptOrFn.getNextTempName(),
+                                    null,
+                                    transformer,
+                                    isFunctionParameter));
+                }
+                empty = false;
+                break; // Rest element must be last
+            }
+
             if (n.getType() == Token.EMPTY) {
                 // For function parameters with ES6+ iterator protocol, elisions must advance the
                 // iterator
