@@ -837,7 +837,9 @@ public final class IRFactory {
         List<ClassElement> privateMethods = new ArrayList<>();
         List<ClassElement> privateStaticMethods = new ArrayList<>();
         for (ClassElement element : elements) {
-            if (element.isConstructor()) {
+            // Skip the class constructor (instance method named "constructor")
+            // Static methods named "constructor" are valid and should not be skipped
+            if (!element.isStatic() && element.isConstructor()) {
                 continue;
             }
             if (element.isField()) {
