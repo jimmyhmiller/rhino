@@ -165,7 +165,8 @@ jobs:
           name: compat-site
           path: build/_site/
 
-  build-test262:
+  # Run test262 for fork (runs in parallel with build-test262-upstream)
+  build-test262-fork:
     runs-on: ubuntu-latest
     steps:
       - name: Check out fork with test262 submodule
@@ -179,20 +180,38 @@ jobs:
           java-version: '21'
           distribution: 'adopt'
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Build fork
         run: ./gradlew build -x test
 
-      - name: Get fork version
-        id: fork-version
+      - name: Run test262 for fork
         run: |
-          VERSION=$(./gradlew properties -q | grep "^version:" | awk '{print $2}')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Fork version: $VERSION"
+          echo "Running test262 for fork with $(nproc) threads..."
+          ./gradlew :tests:test262Json \
+            -Pengine=rhino-fork \
+            -Poutput=$GITHUB_WORKSPACE/build/test262-fork \
+            -Ptest262path=test262 \
+            -Pthreads=$(nproc) || true
+          echo "Fork test262 complete"
+          ls -la $GITHUB_WORKSPACE/build/test262-fork/ || echo "No output directory!"
+
+      - name: Upload fork test262 results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test262-fork-results
+          path: build/test262-fork/
+
+  # Run test262 for upstream (runs in parallel with build-test262-fork)
+  build-test262-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out fork (for scripts and Test262JsonRunner)
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'adopt'
 
       - name: Clone and build upstream mozilla/rhino
         run: |
@@ -214,13 +233,11 @@ jobs:
           echo "Built upstream version: $VERSION"
 
           # Copy the Test262JsonRunner and gradle task from fork to upstream
-          # so we can run the same runner against both codebases
           cp ../../tests/src/test/java/org/mozilla/javascript/tests/Test262JsonRunner.java \
              tests/src/test/java/org/mozilla/javascript/tests/
 
           # Check if snakeyaml dependency exists, add it if not
           if ! grep -q "snakeyaml" tests/build.gradle; then
-            # Add snakeyaml dependency after existing testImplementation lines
             sed -i '/testImplementation.*junit/a\    testImplementation "org.yaml:snakeyaml:2.5"' tests/build.gradle
           fi
 
@@ -233,25 +250,47 @@ jobs:
       - name: Run test262 for upstream
         run: |
           cd build/upstream-rhino
-          echo "Running test262 for upstream..."
+          echo "Running test262 for upstream with $(nproc) threads..."
           ./gradlew :tests:test262Json \
             -Pengine=rhino-upstream \
             -Poutput=$GITHUB_WORKSPACE/build/test262-upstream \
             -Ptest262path=test262 \
-            -Pthreads=4 || true
+            -Pthreads=$(nproc) || true
           echo "Upstream test262 complete"
           ls -la $GITHUB_WORKSPACE/build/test262-upstream/ || echo "No output directory!"
 
-      - name: Run test262 for fork
-        run: |
-          echo "Running test262 for fork..."
-          ./gradlew :tests:test262Json \
-            -Pengine=rhino-fork \
-            -Poutput=$GITHUB_WORKSPACE/build/test262-fork \
-            -Ptest262path=test262 \
-            -Pthreads=4 || true
-          echo "Fork test262 complete"
-          ls -la $GITHUB_WORKSPACE/build/test262-fork/ || echo "No output directory!"
+      - name: Upload upstream test262 results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test262-upstream-results
+          path: build/test262-upstream/
+
+  # Merge test262 results from both jobs
+  build-test262:
+    runs-on: ubuntu-latest
+    needs: [build-test262-fork, build-test262-upstream]
+    steps:
+      - name: Check out fork (for scripts)
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download fork results
+        uses: actions/download-artifact@v4
+        with:
+          name: test262-fork-results
+          path: build/test262-fork/
+
+      - name: Download upstream results
+        uses: actions/download-artifact@v4
+        with:
+          name: test262-upstream-results
+          path: build/test262-upstream/
 
       - name: Generate features and editions data
         run: |
