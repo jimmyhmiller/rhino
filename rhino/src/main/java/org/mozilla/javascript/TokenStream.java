@@ -637,6 +637,10 @@ class TokenStream implements Parser.CurrentPositionReporter {
         return stringHasEscapes;
     }
 
+    final boolean identifierContainsEscape() {
+        return identifierContainsEscape;
+    }
+
     final double getNumber() {
         return number;
     }
@@ -828,6 +832,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
                                 && parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
                                 && (result == Token.LET || result == Token.CONST)) {
                             this.string = internString(str);
+                            this.identifierContainsEscape = true;
                             if (result == Token.CONST) {
                                 // const is always reserved
                                 return Token.RESERVED;
@@ -842,6 +847,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
                             // Save the string in case we need to use in
                             // object literal definitions.
                             this.string = internString(str);
+                            this.identifierContainsEscape = containsEscape;
                             if (result != Token.RESERVED) {
                                 return result;
                             } else if (parser.compilerEnv.getLanguageVersion()
@@ -868,6 +874,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
                     return Token.ERROR;
                 }
 
+                this.identifierContainsEscape = containsEscape;
                 this.string = internString(str);
                 return Token.NAME;
             }
@@ -2670,6 +2677,9 @@ class TokenStream implements Parser.CurrentPositionReporter {
 
     // true if the last string literal contained escape sequences or line continuations
     private boolean stringHasEscapes;
+
+    // true if the last identifier contained unicode escape sequences
+    private boolean identifierContainsEscape;
 
     private char[] stringBuffer = new char[128];
     private int stringBufferTop;

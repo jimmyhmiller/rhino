@@ -1477,6 +1477,17 @@ public class Parser {
                 cpk.setExpression(expr);
                 return cpk;
             default:
+                // In ES6+, reserved words and keywords are allowed as property names.
+                // This includes words formed via unicode escapes (e.g., def\u0061ult -> default)
+                // However, literal keywords without escapes (like 'function' after 'async')
+                // should not be treated as method names to preserve correct error handling.
+                if (TokenStream.isKeyword(
+                        ts.getString(), compilerEnv.getLanguageVersion(), inUseStrictDirective)) {
+                    // Only allow if it was formed via unicode escapes
+                    if (ts.identifierContainsEscape()) {
+                        return createNameNode();
+                    }
+                }
                 return null;
         }
     }
