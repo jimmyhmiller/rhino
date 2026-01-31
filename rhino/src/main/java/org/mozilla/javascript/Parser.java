@@ -1590,6 +1590,67 @@ public class Parser {
         return fnNode;
     }
 
+    /**
+     * Checks if any names in a destructuring pattern duplicate existing parameter names or each
+     * other. Reports errors for any duplicates found (arrow functions are always strict w.r.t.
+     * duplicate params). The check for eval/arguments only applies in strict mode.
+     */
+    private void checkDestructuringDuplicates(AstNode pattern, Set<String> paramNames) {
+        // Use a list to detect duplicates within the pattern itself
+        List<String> patternNames = new ArrayList<>();
+        collectDestructuringNamesToList(pattern, patternNames);
+        for (String name : patternNames) {
+            // eval/arguments check only in strict mode
+            if (this.inUseStrictDirective) {
+                if ("eval".equals(name) || "arguments".equals(name)) {
+                    reportError("msg.bad.id.strict", name);
+                }
+            }
+            // Duplicate check always applies for arrow functions (ES6 14.2.1)
+            if (paramNames.contains(name)) {
+                addError("msg.dup.param.strict", name);
+            } else {
+                paramNames.add(name);
+            }
+        }
+    }
+
+    /** Collects all bound names from a destructuring pattern into a List (preserves duplicates). */
+    private void collectDestructuringNamesToList(AstNode node, List<String> names) {
+        if (node instanceof Name) {
+            names.add(((Name) node).getIdentifier());
+        } else if (node instanceof ArrayLiteral) {
+            for (AstNode elem : ((ArrayLiteral) node).getElements()) {
+                if (elem != null && elem.getType() != Token.EMPTY) {
+                    collectDestructuringNamesToList(elem, names);
+                }
+            }
+        } else if (node instanceof ObjectLiteral) {
+            for (AstNode elem : ((ObjectLiteral) node).getElements()) {
+                if (elem instanceof ObjectProperty) {
+                    ObjectProperty prop = (ObjectProperty) elem;
+                    AstNode value = prop.getValue();
+                    if (value != null) {
+                        collectDestructuringNamesToList(value, names);
+                    } else {
+                        // Shorthand property like {x} - the key is the name
+                        collectDestructuringNamesToList(prop.getKey(), names);
+                    }
+                }
+            }
+        } else if (node instanceof Assignment) {
+            // Default value like [x = 1] - collect from left side
+            collectDestructuringNamesToList(((Assignment) node).getLeft(), names);
+        } else if (node.getType() == Token.DOTDOTDOT) {
+            // Rest element like [...x] - collect the underlying name
+            for (Node child = node.getFirstChild(); child != null; child = child.getNext()) {
+                if (child instanceof AstNode) {
+                    collectDestructuringNamesToList((AstNode) child, names);
+                }
+            }
+        }
+    }
+
     private void arrowFunctionParams(
             FunctionNode fnNode,
             AstNode params,
@@ -1598,6 +1659,9 @@ public class Parser {
             Set<String> paramNames)
             throws IOException {
         if (params instanceof ArrayLiteral || params instanceof ObjectLiteral) {
+            // Check for duplicate names in destructuring pattern (arrow functions are always
+            // strict)
+            checkDestructuringDuplicates(params, paramNames);
             markDestructuring(params);
             fnNode.addParam(params);
             String pname = currentScriptOrFn.getNextTempName();
@@ -1621,13 +1685,18 @@ public class Parser {
             String paramName = ((Name) params).getIdentifier();
             defineSymbol(Token.LP, paramName);
 
+            // eval/arguments check only in strict mode
             if (this.inUseStrictDirective) {
                 if ("eval".equals(paramName) || "arguments".equals(paramName)) {
                     reportError("msg.bad.id.strict", paramName);
                 }
-                if (paramNames.contains(paramName)) addError("msg.dup.param.strict", paramName);
-                paramNames.add(paramName);
             }
+            // Duplicate check always applies for arrow functions (ES6 14.2.1 Early Errors:
+            // ArrowFormalParameters must not contain any duplicate parameters)
+            if (paramNames.contains(paramName)) {
+                addError("msg.dup.param.strict", paramName);
+            }
+            paramNames.add(paramName);
         } else if (params instanceof Assignment) {
             if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
                 AstNode rhs = ((Assignment) params).getRight();
@@ -1641,6 +1710,9 @@ public class Parser {
                     arrowFunctionParams(
                             fnNode, lhs, destructuring, destructuringDefault, paramNames);
                 } else if (lhs instanceof ArrayLiteral || lhs instanceof ObjectLiteral) {
+                    // Check for duplicate names in destructuring pattern (arrow functions are
+                    // always strict)
+                    checkDestructuringDuplicates(lhs, paramNames);
                     markDestructuring(lhs);
                     fnNode.addParam(lhs);
                     String pname = currentScriptOrFn.getNextTempName();
