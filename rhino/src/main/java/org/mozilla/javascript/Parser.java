@@ -1408,6 +1408,14 @@ public class Parser {
         // during parsing so that `super` is allowed in the parser
         FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true);
 
+        // Validate getter/setter parameter counts per ES6 spec
+        int paramCount = fn.getParams().size();
+        if (entryKind == GET_ENTRY && paramCount != 0) {
+            reportError("msg.getter.param.count");
+        } else if (entryKind == SET_ENTRY && paramCount != 1) {
+            reportError("msg.setter.param.count");
+        }
+
         // For constructors, clear the methodDefinition flag after parsing
         // Constructors should be created as closures, not methods (no homeObject needed)
         if (isConstructor) {
@@ -4928,6 +4936,15 @@ public class Parser {
             int pos, AstNode propName, int entryKind, boolean isGenerator, boolean isShorthand)
             throws IOException {
         FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true);
+
+        // Validate getter/setter parameter counts per ES6 spec
+        int paramCount = fn.getParams().size();
+        if (entryKind == GET_ENTRY && paramCount != 0) {
+            reportError("msg.getter.param.count");
+        } else if (entryKind == SET_ENTRY && paramCount != 1) {
+            reportError("msg.setter.param.count");
+        }
+
         // We've already parsed the function name, so fn should be anonymous.
         Name name = fn.getFunctionName();
         if (name != null && name.length() != 0) {
