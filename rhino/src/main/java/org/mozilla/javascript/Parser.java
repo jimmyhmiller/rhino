@@ -1210,6 +1210,7 @@ public class Parser {
 
         try {
             // Parse class elements
+            boolean hasConstructor = false;
             while (peekToken() != Token.RC) {
                 if (peekToken() == Token.SEMI) {
                     consumeToken();
@@ -1217,6 +1218,13 @@ public class Parser {
                 }
                 ClassElement element = parseClassElement();
                 if (element != null) {
+                    // Check for duplicate constructor
+                    if (!element.isStatic() && element.isConstructor()) {
+                        if (hasConstructor) {
+                            reportError("msg.class.duplicate.constructor");
+                        }
+                        hasConstructor = true;
+                    }
                     classNode.addElement(element);
                 }
             }
@@ -1371,10 +1379,28 @@ public class Parser {
             int entryKind,
             boolean isPrivate)
             throws IOException {
+        // Get the property name string for validation
+        String propNameStr = null;
+        if (propName instanceof Name) {
+            propNameStr = ((Name) propName).getIdentifier();
+        } else if (propName instanceof StringLiteral) {
+            propNameStr = ((StringLiteral) propName).getValue();
+        }
+
         // Check if this is a constructor (name is "constructor" and not static)
         boolean isConstructor = false;
-        if (!isStatic && propName instanceof Name) {
-            isConstructor = "constructor".equals(((Name) propName).getIdentifier());
+        if (!isStatic && "constructor".equals(propNameStr)) {
+            isConstructor = true;
+            // Getters, setters, and generators cannot be named "constructor"
+            if (entryKind == GET_ENTRY || entryKind == SET_ENTRY || isGenerator) {
+                reportError("msg.class.special.constructor");
+            }
+        }
+
+        // Static public methods cannot be named "prototype"
+        // (Private methods like static #prototype() are allowed)
+        if (isStatic && !isPrivate && "prototype".equals(propNameStr)) {
+            reportError("msg.class.static.prototype");
         }
 
         // Parse the function
