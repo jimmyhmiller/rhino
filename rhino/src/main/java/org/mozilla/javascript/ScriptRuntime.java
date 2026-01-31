@@ -6225,7 +6225,9 @@ public class ScriptRuntime {
 
         // Set up inheritance if there's a superclass
         if (superClass != null) {
-            if (!(superClass instanceof Callable)) {
+            // ES6 15.4.5 step 5.d: If IsConstructor(superclass) is false, throw a TypeError
+            // This rejects arrow functions, bound functions without [[Construct]], etc.
+            if (!AbstractEcmaObjectOperations.isConstructor(cx, superClass)) {
                 throw typeError("msg.class.extends.not.callable");
             }
             Scriptable superConstructor = (Scriptable) superClass;
