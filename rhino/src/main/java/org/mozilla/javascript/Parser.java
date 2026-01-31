@@ -975,7 +975,12 @@ public class Parser {
                         }
 
                         if (matchToken(Token.ASSIGN, true)) {
-                            if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                            if (wasRest) {
+                                // ES6: Rest parameter cannot have an initializer
+                                reportError("msg.no.rest.default");
+                                // Still parse the expression to recover
+                                assignExpr();
+                            } else if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
                                 fnNode.putDefaultParams(paramName, assignExpr());
                             } else {
                                 reportError("msg.default.args");
