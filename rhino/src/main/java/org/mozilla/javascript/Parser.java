@@ -2128,6 +2128,20 @@ public class Parser {
             if (isLabelledFunction(body)) {
                 reportError("msg.labelled.function.stmt");
             }
+            // Generator and async function declarations are not allowed in statement position
+            // ES6 13.7.0.1 - Only regular function declarations are allowed, not generators
+            if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                    && body instanceof FunctionNode) {
+                FunctionNode fn = (FunctionNode) body;
+                if (fn.isES6Generator()) {
+                    reportError("msg.generator.decl.not.in.block");
+                }
+            }
+            // Class declarations are not allowed in statement position
+            if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                    && body instanceof ClassNode) {
+                reportError("msg.class.decl.not.in.block");
+            }
             return body;
         } finally {
             inSingleStatementContext = savedSingleStatementContext;
@@ -2923,6 +2937,19 @@ public class Parser {
                     if (vd.getType() == Token.LET || vd.getType() == Token.CONST) {
                         reportError("msg.lexical.decl.not.in.block");
                     }
+                }
+                // Generator declarations cannot be labeled (ES6+)
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && stmt instanceof FunctionNode) {
+                    FunctionNode fn = (FunctionNode) stmt;
+                    if (fn.isES6Generator()) {
+                        reportError("msg.generator.decl.not.in.block");
+                    }
+                }
+                // Class declarations cannot be labeled (ES6+)
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && stmt instanceof ClassNode) {
+                    reportError("msg.class.decl.not.in.block");
                 }
                 int ntt = peekToken();
                 if (ntt == Token.COMMENT
