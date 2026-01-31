@@ -6119,6 +6119,19 @@ public class ScriptRuntime {
     }
 
     /**
+     * Validates that none of the property IDs for static class members is "prototype". ES6 14.5.14
+     * step 21.a: A static method or field named "prototype" is a TypeError.
+     */
+    private static void validateNoStaticPrototype(Object[] propertyIds) {
+        if (propertyIds == null) return;
+        for (Object id : propertyIds) {
+            if ("prototype".equals(id)) {
+                throw typeError("msg.class.static.prototype");
+            }
+        }
+    }
+
+    /**
      * Fills class members (methods, getters, setters) with correct ES6 property descriptors. Class
      * members are: writable: true, enumerable: false, configurable: true. Also sets the homeObject
      * on each method function to enable super property access.
@@ -6278,6 +6291,10 @@ public class ScriptRuntime {
             // Fill prototype with instance methods (non-enumerable per ES6)
             fillClassMembers(prototype, protoIds, protoValues, protoGetterSetters, cx, scope);
         }
+
+        // Validate static member names - "prototype" is not allowed (ES6 14.5.14 step 21.a)
+        validateNoStaticPrototype(staticIds);
+        validateNoStaticPrototype(staticFieldIds);
 
         // Fill constructor with static methods (non-enumerable per ES6)
         fillClassMembers(constructorObj, staticIds, staticValues, staticGetterSetters, cx, scope);
