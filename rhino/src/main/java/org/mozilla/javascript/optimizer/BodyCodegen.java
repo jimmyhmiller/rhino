@@ -3171,11 +3171,15 @@ class BodyCodegen {
         cfw.addALoad(privateStaticMethodGetterSettersLocal);
 
         // Push superClass (or null)
-        if (superClassLocal != -1) {
+        boolean hasExtendsClause = (superClassLocal != -1);
+        if (hasExtendsClause) {
             cfw.addALoad(superClassLocal);
         } else {
             cfw.add(ByteCode.ACONST_NULL);
         }
+
+        // Push hasExtendsClause boolean
+        cfw.addPush(hasExtendsClause);
 
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
@@ -3204,6 +3208,7 @@ class BodyCodegen {
                         + "[Ljava/lang/Object;"
                         + "[I"
                         + "Ljava/lang/Object;"
+                        + "Z"
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + ")Lorg/mozilla/javascript/Callable;");

@@ -982,12 +982,27 @@ public class BaseFunction extends ScriptableObject implements Function {
     public boolean isConstructor() {
         // In ES6, methods have homeObject set and are not constructors.
         // However, derived class constructors also have homeObject set (for super property access)
-        // but ARE constructors. We distinguish them by checking superConstructor.
-        if (Context.getCurrentContext().getLanguageVersion() >= Context.VERSION_ES6
+        // but ARE constructors. We distinguish them by checking superConstructor or extendsNull.
+        Context cx = Context.getCurrentContext();
+        System.out.println(
+                "DEBUG isConstructor: cx="
+                        + (cx != null)
+                        + " langVersion="
+                        + (cx != null ? cx.getLanguageVersion() : -1)
+                        + " homeObject="
+                        + this.getHomeObject()
+                        + " superCtor="
+                        + this.superConstructor
+                        + " extendsNull="
+                        + this.extendsNull
+                        + " this="
+                        + this.getClass().getSimpleName());
+        if (cx != null
+                && cx.getLanguageVersion() >= Context.VERSION_ES6
                 && this.getHomeObject() != null) {
-            // If superConstructor is set, this is a derived class constructor, which IS a
-            // constructor
-            return this.superConstructor != null;
+            // If superConstructor is set or extendsNull is true, this is a derived class
+            // constructor, which IS a constructor
+            return this.superConstructor != null || this.extendsNull;
         }
         return true;
     }
@@ -1008,6 +1023,8 @@ public class BaseFunction extends ScriptableObject implements Function {
     private Scriptable homeObject = null;
     // For derived class constructors, stores the super class for super() calls
     private Callable superConstructor = null;
+    // For classes that "extends null" - super() should fail but args must be evaluated first
+    private boolean extendsNull = false;
     // For ES2022 class fields: stores instance field names and their initial values
     private Object[] instanceFieldIds = null;
     private Object[] instanceFieldValues = null;
@@ -1035,6 +1052,14 @@ public class BaseFunction extends ScriptableObject implements Function {
 
     public Callable getSuperConstructor() {
         return superConstructor;
+    }
+
+    public void setExtendsNull(boolean extendsNull) {
+        this.extendsNull = extendsNull;
+    }
+
+    public boolean isExtendsNull() {
+        return extendsNull;
     }
 
     /**

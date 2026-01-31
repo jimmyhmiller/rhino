@@ -5621,6 +5621,52 @@ public class Parser {
 
         for (AstNode n : array.getElements()) {
             if (n.getType() == Token.EMPTY) {
+                // For function parameters with ES6+ iterator protocol, elisions must advance the
+                // iterator
+                if (isFunctionParameter
+                        && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                    // Apply default value first if not done yet - this is critical for patterns
+                    // like [,] = iter where the default should be used when arg is undefined
+                    if (defaultValue != null && !defaultValuesSetup) {
+                        setupDefaultValues(tempName, parent, defaultValue, setOp, transformer);
+                        defaultValuesSetup = true;
+                    }
+                    // Set up iterator if not done yet (lazy initialization)
+                    if (!iteratorSetup) {
+                        iteratorName = currentScriptOrFn.getNextTempName();
+                        lastResultName = currentScriptOrFn.getNextTempName();
+                        defineSymbol(Token.LET, iteratorName, true);
+                        defineSymbol(Token.LET, lastResultName, true);
+
+                        Node symbolName = createName("Symbol");
+                        Node getIteratorProp =
+                                new Node(Token.GETPROP, symbolName, Node.newString("iterator"));
+                        Node getIteratorMethod = new Node(Token.GETELEM, createName(tempName));
+                        getIteratorMethod.addChildToBack(getIteratorProp);
+                        Node callIterator = new Node(Token.CALL, getIteratorMethod);
+                        Node iteratorAssign =
+                                new Node(
+                                        Token.SETNAME,
+                                        createName(Token.BINDNAME, iteratorName, null),
+                                        callIterator);
+                        parent.addChildToBack(iteratorAssign);
+                        iteratorSetup = true;
+                        empty = false;
+                    }
+                    // Advance the iterator for this elision position
+                    Node getNextProp =
+                            new Node(
+                                    Token.GETPROP,
+                                    createName(iteratorName),
+                                    Node.newString("next"));
+                    Node callNext = new Node(Token.CALL, getNextProp);
+                    Node storeResult =
+                            new Node(
+                                    Token.SETNAME,
+                                    createName(Token.BINDNAME, lastResultName, null),
+                                    callNext);
+                    parent.addChildToBack(storeResult);
+                }
                 index++;
                 continue;
             }

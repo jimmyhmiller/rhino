@@ -4009,18 +4009,22 @@ public final class Interpreter extends Icode implements Evaluator {
                     // In ES6, methods have homeObject set and cannot be used as constructors.
                     // However, derived class constructors also have homeObject set
                     // (for super property access) but ARE constructors.
+                    // Classes that extend null also have homeObject set and superConstructor
+                    // null, but ARE constructors (super() will fail at runtime).
                     if (cx.getLanguageVersion() >= Context.VERSION_ES6
                             && f.getHomeObject() != null
-                            && f.getSuperConstructor() == null) {
+                            && f.getSuperConstructor() == null
+                            && !f.isExtendsNull()) {
                         // This is a method (homeObject set, no superConstructor), not a constructor
                         throw ScriptRuntime.typeErrorById("msg.not.ctor", f.getFunctionName());
                     }
 
                     // For regular constructors, create a new instance.
-                    // For derived class constructors (superConstructor != null), newInstance
-                    // is null because 'this' is created by the super() call.
+                    // For derived class constructors (superConstructor != null) or classes
+                    // that extend null, newInstance is null because 'this' is created by
+                    // the super() call (which will fail for extends null).
                     Scriptable newInstance =
-                            f.getSuperConstructor() == null
+                            (f.getSuperConstructor() == null && !f.isExtendsNull())
                                     ? f.createObject(cx, frame.scope)
                                     : null;
 
@@ -5076,7 +5080,8 @@ public final class Interpreter extends Icode implements Evaluator {
 
             // Get superclass if present
             Object superClass = null;
-            if (hasSuperClassFlag != 0) {
+            boolean hasExtendsClause = hasSuperClassFlag != 0;
+            if (hasExtendsClause) {
                 superClass = frame.stack[state.stackTop];
                 --state.stackTop;
             }
@@ -5108,6 +5113,7 @@ public final class Interpreter extends Icode implements Evaluator {
                             privateStaticMethodStore.getValues(),
                             privateStaticMethodStore.getGetterSetters(),
                             superClass,
+                            hasExtendsClause,
                             cx,
                             frame.scope);
             return null;
@@ -5147,15 +5153,20 @@ public final class Interpreter extends Icode implements Evaluator {
             // Get the super constructor from the current function
             ScriptOrFn<?> fnOrScript = frame.fnOrScript;
             Callable superConstructor = null;
+            boolean extendsNull = false;
             if (fnOrScript instanceof BaseFunction) {
                 superConstructor = ((BaseFunction) fnOrScript).getSuperConstructor();
+                extendsNull = ((BaseFunction) fnOrScript).isExtendsNull();
             }
 
-            if (superConstructor == null) {
+            // For "class extends null", we still need to evaluate arguments first before throwing
+            // Per ES6 12.3.5.1: 4. Let argList be ? ArgumentListEvaluation of Arguments.
+            // Then 5. If IsConstructor(func) is false, throw a TypeError exception.
+            if (superConstructor == null && !extendsNull) {
                 throw ScriptRuntime.typeErrorById("msg.super.not.in.derived.ctor");
             }
 
-            // Get the arguments from the stack
+            // Get the arguments from the stack (ArgumentListEvaluation per ES6 spec)
             Object[] args =
                     getArgsArray(
                             frame.stack,
@@ -5163,6 +5174,11 @@ public final class Interpreter extends Icode implements Evaluator {
                             state.stackTop - state.indexReg + 1,
                             state.indexReg);
             state.stackTop -= state.indexReg;
+
+            // Now check if this is "extends null" - null is not a constructor
+            if (extendsNull) {
+                throw ScriptRuntime.typeErrorById("msg.not.ctor");
+            }
 
             // Call the super constructor using [[Construct]] semantics.
             // In ES6, super() invokes the parent's [[Construct]] which creates the instance.

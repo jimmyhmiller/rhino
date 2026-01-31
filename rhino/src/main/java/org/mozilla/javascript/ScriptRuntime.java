@@ -6204,6 +6204,7 @@ public class ScriptRuntime {
      * @param staticValues The method functions for static members
      * @param staticGetterSetters Flags indicating getter (-1), setter (1), or normal method (0)
      * @param superClass The superclass (parent class) to extend from, or null
+     * @param hasExtendsClause True if the class has an extends clause (even if the value is null)
      * @param cx The current context
      * @param scope The current scope
      * @return The constructor function with prototype and static members set up
@@ -6231,64 +6232,96 @@ public class ScriptRuntime {
             Object[] privateStaticMethodValues,
             int[] privateStaticMethodGetterSetters,
             Object superClass,
+            boolean hasExtendsClause,
             Context cx,
             Scriptable scope) {
 
         Scriptable constructorObj = (Scriptable) constructor;
 
-        // Set up inheritance if there's a superclass
-        if (superClass != null) {
-            // ES6 15.4.5 step 5.d: If IsConstructor(superclass) is false, throw a TypeError
-            // This rejects arrow functions, bound functions without [[Construct]], etc.
-            if (!AbstractEcmaObjectOperations.isConstructor(cx, superClass)) {
-                throw typeError("msg.class.extends.not.callable");
-            }
-            Scriptable superConstructor = (Scriptable) superClass;
+        // Set up inheritance if there's an extends clause
+        if (hasExtendsClause) {
+            // ES6 14.5.14 step 7.a: If superclass is null, protoParent is null
+            if (superClass == null) {
+                // "extends null" - create prototype with null prototype chain
+                ScriptableObject newProto = new NativeObject();
+                newProto.setParentScope(scope);
+                newProto.setPrototype(null); // null prototype chain
 
-            // Get the superclass prototype
-            // ES6 14.5.14 step 6: Let protoParent be ? Get(superclass, "prototype").
-            // ES6 14.5.14 step 7: If Type(protoParent) is neither Object nor Null, throw TypeError
-            Object superProtoObj = superConstructor.get("prototype", superConstructor);
-            Scriptable superProto = null;
+                // Set constructor.prototype = newProto
+                constructorObj.put("prototype", constructorObj, newProto);
 
-            // Check for missing property (NOT_FOUND) or undefined - both throw TypeError
-            if (superProtoObj == Scriptable.NOT_FOUND || Undefined.isUndefined(superProtoObj)) {
-                throw typeError("msg.class.extends.prototype.not.object");
-            }
-            // null is valid (creates class with null prototype like Object.create(null))
-            if (superProtoObj != null) {
-                if (!(superProtoObj instanceof Scriptable)) {
+                // Set newProto.constructor = constructor
+                newProto.put("constructor", newProto, constructor);
+
+                // Constructor's prototype should be Function.prototype (not null)
+                // This is already the default, so we don't need to change it
+
+                // Mark this as a derived class by setting a flag, but don't set a super constructor
+                // since null is not a constructor. The super() call will check this and fail
+                // after evaluating arguments (per ES6 spec ArgumentListEvaluation happens first).
+                if (constructor instanceof BaseFunction) {
+                    ((BaseFunction) constructor).setExtendsNull(true);
+                }
+
+                // Set the home object on the constructor to be the class's prototype.
+                // This enables super.property access in the constructor.
+                if (constructor instanceof BaseFunction) {
+                    ((BaseFunction) constructor).setHomeObject(newProto);
+                }
+            } else {
+                // ES6 15.4.5 step 5.d: If IsConstructor(superclass) is false, throw a TypeError
+                // This rejects arrow functions, bound functions without [[Construct]], etc.
+                if (!AbstractEcmaObjectOperations.isConstructor(cx, superClass)) {
+                    throw typeError("msg.class.extends.not.callable");
+                }
+                Scriptable superConstructor = (Scriptable) superClass;
+
+                // Get the superclass prototype
+                // ES6 14.5.14 step 6: Let protoParent be ? Get(superclass, "prototype").
+                // ES6 14.5.14 step 7: If Type(protoParent) is neither Object nor Null, throw
+                // TypeError
+                Object superProtoObj = superConstructor.get("prototype", superConstructor);
+                Scriptable superProto = null;
+
+                // Check for missing property (NOT_FOUND) or undefined - both throw TypeError
+                if (superProtoObj == Scriptable.NOT_FOUND || Undefined.isUndefined(superProtoObj)) {
                     throw typeError("msg.class.extends.prototype.not.object");
                 }
-                superProto = (Scriptable) superProtoObj;
-            }
+                // null is valid (creates class with null prototype like Object.create(null))
+                if (superProtoObj != null) {
+                    if (!(superProtoObj instanceof Scriptable)) {
+                        throw typeError("msg.class.extends.prototype.not.object");
+                    }
+                    superProto = (Scriptable) superProtoObj;
+                }
 
-            // Create new prototype: Object.create(superClass.prototype)
-            // Use NativeObject directly like Object.create does
-            ScriptableObject newProto = new NativeObject();
-            newProto.setParentScope(scope);
-            newProto.setPrototype(superProto);
+                // Create new prototype: Object.create(superClass.prototype)
+                // Use NativeObject directly like Object.create does
+                ScriptableObject newProto = new NativeObject();
+                newProto.setParentScope(scope);
+                newProto.setPrototype(superProto);
 
-            // Set constructor.prototype = newProto
-            constructorObj.put("prototype", constructorObj, newProto);
+                // Set constructor.prototype = newProto
+                constructorObj.put("prototype", constructorObj, newProto);
 
-            // Set newProto.constructor = constructor
-            newProto.put("constructor", newProto, constructor);
+                // Set newProto.constructor = constructor
+                newProto.put("constructor", newProto, constructor);
 
-            // Set constructor.__proto__ = superClass (for static inheritance)
-            if (constructorObj instanceof ScriptableObject) {
-                ((ScriptableObject) constructorObj).setPrototype(superConstructor);
-            }
+                // Set constructor.__proto__ = superClass (for static inheritance)
+                if (constructorObj instanceof ScriptableObject) {
+                    ((ScriptableObject) constructorObj).setPrototype(superConstructor);
+                }
 
-            // Store the super constructor for super() calls in derived class constructors
-            if (constructor instanceof BaseFunction) {
-                ((BaseFunction) constructor).setSuperConstructor((Callable) superClass);
-            }
+                // Store the super constructor for super() calls in derived class constructors
+                if (constructor instanceof BaseFunction) {
+                    ((BaseFunction) constructor).setSuperConstructor((Callable) superClass);
+                }
 
-            // Set the home object on the constructor to be the class's prototype.
-            // This enables super.property access in the constructor.
-            if (constructor instanceof BaseFunction) {
-                ((BaseFunction) constructor).setHomeObject(newProto);
+                // Set the home object on the constructor to be the class's prototype.
+                // This enables super.property access in the constructor.
+                if (constructor instanceof BaseFunction) {
+                    ((BaseFunction) constructor).setHomeObject(newProto);
+                }
             }
         }
 
@@ -6913,8 +6946,15 @@ public class ScriptRuntime {
     public static Scriptable callSuperConstructor(
             Callable callee, Scriptable thisObj, Object[] args, Context cx, Scriptable scope) {
         Callable superConstructor = null;
+        boolean extendsNull = false;
         if (callee instanceof BaseFunction) {
             superConstructor = ((BaseFunction) callee).getSuperConstructor();
+            extendsNull = ((BaseFunction) callee).isExtendsNull();
+        }
+
+        // For "class extends null", args are already evaluated at this point (per ES6 spec)
+        if (extendsNull) {
+            throw typeErrorById("msg.not.ctor");
         }
 
         if (superConstructor == null) {
