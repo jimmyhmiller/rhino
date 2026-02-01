@@ -3309,9 +3309,19 @@ public class Parser {
         boolean varInSameBlock =
                 (declType == Token.LET || declType == Token.CONST)
                         && currentScope.hasVarNameInBlock(name);
-        // ES6: let/const can't redeclare catch parameter in the same catch block
+        // ES6: let/const can't redeclare catch parameter in the same catch block.
+        // Per ES6 13.15.1 Static Semantics: Early Errors, if any element of the BoundNames
+        // of CatchParameter also occurs in the LexicallyDeclaredNames of Block, it's an error.
+        // Function declarations directly in the catch block (not inside an if/for/etc.) are
+        // also lexically scoped and conflict with the catch parameter per ES6 13.15.1.
+        // However, Annex B.3.2 allows function declarations inside if/else as the statement
+        // body, which have different scoping rules (indicated by inSingleStatementContext).
+        boolean isFunctionInStatementPosition =
+                declType == Token.FUNCTION && inSingleStatementContext;
         boolean catchParamRedecl =
-                (declType == Token.LET || declType == Token.CONST)
+                (declType == Token.LET
+                                || declType == Token.CONST
+                                || (declType == Token.FUNCTION && !isFunctionInStatementPosition))
                         && currentScope.isCatchParameterName(name);
         if (catchParamRedecl) {
             addError("msg.let.redecl", name);
