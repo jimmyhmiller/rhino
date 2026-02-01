@@ -2871,16 +2871,21 @@ public class Parser {
         int lineno = lineNumber(), column = columnNumber(), pos = ts.tokenBeg, end = ts.tokenEnd;
 
         boolean yieldStar = false;
+        // Per ES6 spec, no line terminator is allowed between yield and *
+        // Use peekTokenOrEOL to detect newlines
         if ((tt == Token.YIELD)
                 && (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6)
-                && (peekToken() == Token.MUL)) {
+                && (peekTokenOrEOL() == Token.MUL)) {
             yieldStar = true;
             consumeToken();
         }
 
         AstNode e = null;
         // This is ugly, but we don't want to require a semicolon.
-        switch (peekTokenOrEOL()) {
+        // For yield* expressions, the expression is required and can start on a new line,
+        // so we use peekToken() instead of peekTokenOrEOL().
+        int nextToken = yieldStar ? peekToken() : peekTokenOrEOL();
+        switch (nextToken) {
             case Token.SEMI:
             case Token.RC:
             case Token.RB:
@@ -2891,10 +2896,17 @@ public class Parser {
             case Token.COMMA:
                 // Per ES spec, yield takes an AssignmentExpression, not an Expression.
                 // So comma terminates the yield operand (allowing "yield, yield" in generators).
+                // For yield*, an expression is required, so report error if we hit these.
+                if (yieldStar) {
+                    reportError("msg.syntax");
+                }
                 break;
             case Token.COLON:
                 // Colon terminates yield when used in conditional expression (e.g., "a ? yield :
                 // b")
+                if (yieldStar) {
+                    reportError("msg.syntax");
+                }
                 break;
             case Token.YIELD:
                 if (compilerEnv.getLanguageVersion() < Context.VERSION_ES6) {
