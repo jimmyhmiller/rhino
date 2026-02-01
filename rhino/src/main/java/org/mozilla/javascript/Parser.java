@@ -1090,7 +1090,8 @@ public class Parser {
                 && name != null
                 && name.length() > 0) {
             // Function statements define a symbol in the enclosing scope
-            skipAnnexBHoisting = defineSymbol(Token.FUNCTION, name.getIdentifier());
+            skipAnnexBHoisting =
+                    defineSymbol(Token.FUNCTION, name.getIdentifier(), false, isGenerator);
         }
 
         FunctionNode fnNode = new FunctionNode(functionSourceStart, name);
@@ -3283,13 +3284,18 @@ public class Parser {
      * @return true if Annex B hoisting was skipped due to let/const conflict
      */
     boolean defineSymbol(int declType, String name) {
-        return defineSymbol(declType, name, false);
+        return defineSymbol(declType, name, false, false);
+    }
+
+    boolean defineSymbol(int declType, String name, boolean ignoreNotInBlock) {
+        return defineSymbol(declType, name, ignoreNotInBlock, false);
     }
 
     /**
+     * @param isGenerator true if this is a generator function/method declaration
      * @return true if Annex B hoisting was skipped due to let/const conflict
      */
-    boolean defineSymbol(int declType, String name, boolean ignoreNotInBlock) {
+    boolean defineSymbol(int declType, String name, boolean ignoreNotInBlock, boolean isGenerator) {
         if (name == null) {
             if (compilerEnv.isIdeMode()) { // be robust in IDE-mode
                 return false;
@@ -3326,6 +3332,69 @@ public class Parser {
         if (catchParamRedecl) {
             addError("msg.let.redecl", name);
             return false;
+        }
+        // ES6: Check for let/const conflicting with prior function/generator declaration in the
+        // same block. In ES6, function/generator declarations in blocks are part of
+        // LexicallyDeclaredNames, so they conflict with let/const declarations of the same name.
+        if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                && (declType == Token.LET || declType == Token.CONST)
+                && currentScope != currentScriptOrFn
+                && (currentScope.hasFunctionNameInBlock(name)
+                        || currentScope.hasGeneratorNameInBlock(name))) {
+            addError("msg.let.redecl", name);
+            return false;
+        }
+        // ES6: Check for function/generator declaration conflicts in blocks.
+        // Per Annex B.3.3.4: duplicate entries in LexicallyDeclaredNames are allowed in non-strict
+        // mode ONLY if they are all bound by FunctionDeclarations (not generators).
+        // So: function+function in non-strict = OK, all other combinations = error.
+        if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                && declType == Token.FUNCTION
+                && !isFunctionInStatementPosition
+                && currentScope != currentScriptOrFn) {
+            // Generator conflicting with prior function or generator: always error
+            if (isGenerator
+                    && (currentScope.hasFunctionNameInBlock(name)
+                            || currentScope.hasGeneratorNameInBlock(name))) {
+                addError("msg.fn.redecl", name);
+                return false;
+            }
+            // Regular function conflicting with prior generator: always error
+            if (!isGenerator && currentScope.hasGeneratorNameInBlock(name)) {
+                addError("msg.fn.redecl", name);
+                return false;
+            }
+            // Regular function conflicting with prior function: error in strict mode only
+            if (!isGenerator && currentScope.hasFunctionNameInBlock(name) && inUseStrictDirective) {
+                addError("msg.fn.redecl", name);
+                return false;
+            }
+        }
+        // ES6: Check for function declaration conflicting with var in the same block.
+        // Function declarations in blocks are lexically scoped in ES6, so they cannot
+        // coexist with var declarations of the same name in the same block.
+        // Per sec-block-static-semantics-early-errors: "It is a Syntax Error if any
+        // element of the LexicallyDeclaredNames of StatementList also occurs in the
+        // VarDeclaredNames of StatementList."
+        if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                && declType == Token.FUNCTION
+                && !isFunctionInStatementPosition
+                && currentScope != currentScriptOrFn
+                && currentScope.hasVarNameInBlock(name)) {
+            addError("msg.var.redecl", name);
+            return false;
+        }
+        // ES6: Check for var declaration conflicting with function/generator in enclosing blocks.
+        // Since var hoists through blocks, we need to check all enclosing block scopes.
+        if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6 && declType == Token.VAR) {
+            for (Scope s = currentScope;
+                    s != null && s != currentScriptOrFn;
+                    s = s.getParentScope()) {
+                if (s.hasFunctionNameInBlock(name) || s.hasGeneratorNameInBlock(name)) {
+                    addError("msg.var.redecl", name);
+                    return false;
+                }
+            }
         }
         // Annex B.3.3.3: In non-strict eval code, function declarations that
         // would conflict with let/const should skip hoisting rather than error
@@ -3421,10 +3490,25 @@ public class Parser {
                 // detecting conflicts with let/const at the block level. Since var hoists through
                 // nested blocks, we need to mark the var name in all parent scopes up to the
                 // function.
-                for (Scope s = currentScope;
-                        s != null && s != currentScriptOrFn;
-                        s = s.getParentScope()) {
-                    s.addVarNameInBlock(name);
+                if (declType == Token.VAR) {
+                    for (Scope s = currentScope;
+                            s != null && s != currentScriptOrFn;
+                            s = s.getParentScope()) {
+                        s.addVarNameInBlock(name);
+                    }
+                }
+                // ES6: Record function/generator declaration in the block for conflict detection.
+                // Function declarations in blocks are lexically scoped in ES6.
+                // We track regular functions and generators separately because Annex B.3.3.4
+                // allows duplicate function declarations in non-strict mode, but not generators.
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && declType == Token.FUNCTION
+                        && currentScope != currentScriptOrFn) {
+                    if (isGenerator) {
+                        currentScope.addGeneratorNameInBlock(name);
+                    } else {
+                        currentScope.addFunctionNameInBlock(name);
+                    }
                 }
                 return false;
 

@@ -34,6 +34,17 @@ public class Scope extends Jump {
     // var declarations in the same block.
     private Set<String> varNamesInBlock;
 
+    // ES6: Tracks regular function declaration names in this block. In ES6, function declarations
+    // in blocks are lexically scoped. Used for detecting conflicts with var declarations
+    // in the same block (since LexicallyDeclaredNames and VarDeclaredNames must not overlap).
+    // Note: This tracks only regular functions (not generators) because Annex B.3.3.4 allows
+    // duplicate function declarations (but not generators) in non-strict mode.
+    private Set<String> functionNamesInBlock;
+
+    // ES6: Tracks generator declaration names in this block. Generators in blocks are lexically
+    // scoped like let/const and cannot be duplicated even in non-strict mode.
+    private Set<String> generatorNamesInBlock;
+
     // ES6: catch parameter name for detecting let/const redeclaration conflicts.
     // The catch parameter exists at runtime but not in the compile-time symbol table
     // to avoid TDZ transformation.
@@ -218,6 +229,43 @@ public class Scope extends Jump {
      */
     public boolean hasVarNameInBlock(String name) {
         return varNamesInBlock != null && varNamesInBlock.contains(name);
+    }
+
+    /**
+     * ES6: Records that a function declaration with the given name was declared in this block. In
+     * ES6, function declarations in blocks are lexically scoped, so they conflict with var
+     * declarations in the same block.
+     */
+    public void addFunctionNameInBlock(String name) {
+        if (functionNamesInBlock == null) {
+            functionNamesInBlock = new HashSet<>();
+        }
+        functionNamesInBlock.add(name);
+    }
+
+    /**
+     * ES6: Returns true if a function declaration with the given name was declared in this block.
+     */
+    public boolean hasFunctionNameInBlock(String name) {
+        return functionNamesInBlock != null && functionNamesInBlock.contains(name);
+    }
+
+    /**
+     * ES6: Records that a generator declaration with the given name was declared in this block.
+     * Generators in blocks are lexically scoped and cannot be redeclared even in non-strict mode.
+     */
+    public void addGeneratorNameInBlock(String name) {
+        if (generatorNamesInBlock == null) {
+            generatorNamesInBlock = new HashSet<>();
+        }
+        generatorNamesInBlock.add(name);
+    }
+
+    /**
+     * ES6: Returns true if a generator declaration with the given name was declared in this block.
+     */
+    public boolean hasGeneratorNameInBlock(String name) {
+        return generatorNamesInBlock != null && generatorNamesInBlock.contains(name);
     }
 
     /**

@@ -384,7 +384,6 @@ ecma/Date/15.9.5.4-2-n.js
 ecma/Date/15.9.5.5.js
 ecma/Date/15.9.5.6.js
 ecma/Date/15.9.5.7.js
-ecma/Date/15.9.5.8.js
 ecma/Date/15.9.5.9.js
 ecma/ExecutionContexts/10.1.3-1.js
 ecma/ExecutionContexts/10.1.3-2.js
@@ -1932,7 +1931,6 @@ js1_7/decompilation/regress-355786.js
 js1_7/decompilation/regress-375794.js
 js1_7/decompilation/regress-380506.js
 js1_7/decompilation/regress-410649.js
-js1_7/expressions/destructuring-scope.js
 js1_7/expressions/regress-346203.js
 js1_7/expressions/regress-346645-01.js
 js1_7/expressions/regress-346645-02.js
@@ -1997,7 +1995,6 @@ js1_7/geniter/regress-345736.js
 js1_7/geniter/regress-345855.js
 js1_7/geniter/regress-345879-01.js
 js1_7/geniter/regress-345879-02.js
-js1_7/geniter/regress-347593.js
 js1_7/geniter/regress-349012-02.js
 js1_7/geniter/regress-349012-03.js
 js1_7/geniter/regress-349012-04.js
@@ -2016,7 +2013,6 @@ js1_7/geniter/regress-352605.js
 js1_7/geniter/regress-352876.js
 js1_7/geniter/regress-355834.js
 js1_7/geniter/regress-359062.js
-js1_7/geniter/regress-366941.js
 js1_7/geniter/regress-382335.js
 js1_7/geniter/regress-387871.js
 js1_7/geniter/regress-390918.js
