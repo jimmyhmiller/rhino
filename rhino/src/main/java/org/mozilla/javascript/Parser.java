@@ -5693,21 +5693,39 @@ public class Parser {
                     defaultValuesSetup = true;
                 }
 
-                // Use Array.prototype.slice.call(tempName, index) to collect remaining elements
-                // This works for arrays and array-like objects
-                // Generate: restTarget = Array.prototype.slice.call(tempName, index)
-                Node arrayProto =
-                        new Node(Token.GETPROP, createName("Array"), Node.newString("prototype"));
-                Node sliceMethod = new Node(Token.GETPROP, arrayProto, Node.newString("slice"));
-                Node callMethod = new Node(Token.GETPROP, sliceMethod, Node.newString("call"));
-                Node sliceCall = new Node(Token.CALL, callMethod);
-                sliceCall.addChildToBack(createName(tempName));
-                sliceCall.addChildToBack(createNumber(index));
+                Node restValue;
+
+                // In ES6+, use Array.from for rest patterns at position 0 to properly
+                // handle iterables (including iterators). This applies to both function
+                // parameters and variable declarations.
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6 && index == 0) {
+                    // Use Array.from(tempName) which properly handles the iterator protocol
+                    Node arrayFrom =
+                            new Node(Token.GETPROP, createName("Array"), Node.newString("from"));
+                    Node fromCall = new Node(Token.CALL, arrayFrom);
+                    fromCall.addChildToBack(createName(tempName));
+                    restValue = fromCall;
+                } else {
+                    // Use Array.prototype.slice.call(tempName, index) to collect remaining elements
+                    // This works for arrays and array-like objects
+                    // Generate: restTarget = Array.prototype.slice.call(tempName, index)
+                    Node arrayProto =
+                            new Node(
+                                    Token.GETPROP,
+                                    createName("Array"),
+                                    Node.newString("prototype"));
+                    Node sliceMethod = new Node(Token.GETPROP, arrayProto, Node.newString("slice"));
+                    Node callMethod = new Node(Token.GETPROP, sliceMethod, Node.newString("call"));
+                    Node sliceCall = new Node(Token.CALL, callMethod);
+                    sliceCall.addChildToBack(createName(tempName));
+                    sliceCall.addChildToBack(createNumber(index));
+                    restValue = sliceCall;
+                }
 
                 if (restTarget.getType() == Token.NAME) {
                     String name = restTarget.getString();
                     parent.addChildToBack(
-                            new Node(setOp, createName(Token.BINDNAME, name, null), sliceCall));
+                            new Node(setOp, createName(Token.BINDNAME, name, null), restValue));
                     if (variableType != -1) {
                         defineSymbol(variableType, name, true);
                         destructuringNames.add(name);
@@ -5718,7 +5736,7 @@ public class Parser {
                             destructuringAssignmentHelper(
                                     variableType,
                                     restTarget,
-                                    sliceCall,
+                                    restValue,
                                     currentScriptOrFn.getNextTempName(),
                                     null,
                                     transformer,
