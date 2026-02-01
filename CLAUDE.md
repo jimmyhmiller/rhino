@@ -6,34 +6,43 @@
 
 The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-negotiable - keep fixing tests until there are zero failures.
 
-### Check Current ES6 Status
+### Check Current Test Status
 
-Always start by running the ES6 status script to see where we are:
+Use the test status script to see conformance by ECMAScript edition:
 
 ```bash
-./scripts/es6-test-status.sh
+# Summary of all editions
+node scripts/test-status.js
+
+# Detailed ES6 report with failures by category
+node scripts/test-status.js 6
+
+# ES6 report with individual failing test paths
+node scripts/test-status.js 6 --all
 ```
 
 This shows:
-- Total ES6 tests and current pass rate
+- Pass rates by ECMAScript edition (ES5, ES6, ES2017, etc.)
 - Failures broken down by category
 - Categories with 100% pass rate
 
-### Finding Specific Failing Tests
+### Comparing Branches
 
-The status script shows categories. To find specific failing tests within a category, check `test262.properties`:
+To see improvements/regressions between branches:
 
 ```bash
-# See what's failing in a specific category
-grep -A 50 "^language/statements/for " tests/testsrc/test262.properties
+# Compare current branch to master (all editions)
+node scripts/test-status.js --diff master HEAD
 
-# Count how many fn-name tests are failing
-grep "fn-name" tests/testsrc/test262.properties | wc -l
+# Compare ES6 only
+node scripts/test-status.js --diff master HEAD 6
 ```
+
+This shows pass rate changes and lists individual tests that improved or regressed.
 
 ### Strategy for Fixing Tests
 
-1. Run `./scripts/es6-test-status.sh` to see current status
+1. Run `node scripts/test-status.js 6` to see ES6 status
 2. Pick a category with fixable tests (avoid `{unsupported: [...]}` tests)
 3. Look for patterns - fixing one issue often fixes many tests
 4. After each fix, regenerate test262.properties and verify improvements
