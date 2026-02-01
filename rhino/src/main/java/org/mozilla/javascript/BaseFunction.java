@@ -915,10 +915,11 @@ public class BaseFunction extends ScriptableObject implements Function {
         int arglen = args.length;
         StringBuilder sourceBuf = new StringBuilder();
 
-        sourceBuf.append("function ");
+        sourceBuf.append("function");
         if (isGeneratorFunction) {
-            sourceBuf.append("* ");
+            sourceBuf.append("*");
         }
+        sourceBuf.append(" ");
         /* version != 1.2 Function constructor behavior -
          * print 'anonymous' as the function name if the
          * version (under which the function was compiled) is
@@ -930,14 +931,15 @@ public class BaseFunction extends ScriptableObject implements Function {
         }
         sourceBuf.append('(');
 
-        // Append arguments as coma separated strings
+        // Append arguments as comma separated strings
         for (int i = 0; i < arglen - 1; i++) {
             if (i > 0) {
                 sourceBuf.append(',');
             }
             sourceBuf.append(ScriptRuntime.toString(args[i]));
         }
-        sourceBuf.append(") {");
+        // Add newline before closing paren to handle line comments in parameters
+        sourceBuf.append("\n) {\n");
         if (arglen != 0) {
             // append function body
             String funBody = ScriptRuntime.toString(args[arglen - 1]);
