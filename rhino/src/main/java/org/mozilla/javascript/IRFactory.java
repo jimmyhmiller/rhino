@@ -2315,14 +2315,14 @@ public final class IRFactory {
             }
 
             Node localBlock = new Node(Token.LOCAL_BLOCK);
+            // ES6: for-in iterates keys (strings), for-of iterates values.
+            // ENUM_INIT_ARRAY is only for the Rhino-specific "for each (let [k,v] in map)"
+            // extension which provides key-value pairs. ES6 destructuring in for-in/for-of
+            // destructures the iterated value (key string or value) directly.
             int initType =
                     isForEach
                             ? Token.ENUM_INIT_VALUES
-                            : isForOf
-                                    ? Token.ENUM_INIT_VALUES_IN_ORDER
-                                    : (destructuring != -1
-                                            ? Token.ENUM_INIT_ARRAY
-                                            : Token.ENUM_INIT_KEYS);
+                            : isForOf ? Token.ENUM_INIT_VALUES_IN_ORDER : Token.ENUM_INIT_KEYS;
             Node init = new Node(initType, obj);
             init.putProp(Node.LOCAL_BLOCK_PROP, localBlock);
             Node cond = new Node(Token.ENUM_NEXT);
@@ -2335,13 +2335,9 @@ public final class IRFactory {
             if (destructuring != -1) {
                 assign =
                         parser.createDestructuringAssignment(declType, lvalue, id, this::transform);
-                if (!isForEach
-                        && !isForOf
-                        && (destructuring == Token.OBJECTLIT || destructuringLen != 2)) {
-                    // destructuring assignment is only allowed in for..each or
-                    // with an array type of length 2 (to hold key and value)
-                    parser.reportError("msg.bad.for.in.destruct");
-                }
+                // ES6: for-in/for-of with destructuring is valid. The iterated value
+                // (key string for for-in, value for for-of) is destructured directly.
+                // The old Rhino-specific restriction (array length 2 for key/value) is removed.
             } else {
                 assign = parser.simpleAssignment(lvalue, id, this::transform, declType);
             }
