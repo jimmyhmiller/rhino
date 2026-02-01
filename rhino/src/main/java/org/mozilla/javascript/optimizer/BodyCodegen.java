@@ -1651,6 +1651,11 @@ class BodyCodegen {
                     // This prevents VerifyError from type mismatches after stack restoration.
                     short indexTempLocal = -1;
                     if (isGenerator && indexNode != null && findNestedYield(indexNode) != null) {
+                        // For super[expr], per ES6 spec 13.3.7.1 step 2, we must call
+                        // GetThisBinding() BEFORE evaluating the expression.
+                        if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
+                            emitTdzCheckIfNeeded();
+                        }
                         // Evaluate index first and save to temp
                         generateExpression(indexNode, node);
                         indexTempLocal = getNewWordLocal();
@@ -2010,17 +2015,24 @@ class BodyCodegen {
     }
 
     private void finishGetElemGeneration(Node node, Node child, short indexTempLocal) {
+        boolean isSuperPropertyAccess = node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1;
         if (indexTempLocal != -1) {
             // Index was already evaluated and stored in temp (for generator yield handling)
+            // TDZ check was done before expression evaluation
             cfw.addALoad(indexTempLocal);
         } else {
+            // For super[expr], per ES6 spec 13.3.7.1 step 2, we must call
+            // GetThisBinding() BEFORE evaluating the expression. This throws
+            // ReferenceError if 'this' is uninitialized in a derived constructor.
+            if (isSuperPropertyAccess) {
+                emitTdzCheckIfNeeded();
+            }
             generateExpression(child.getNext(), node); // id
         }
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
 
-        if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
-            emitTdzCheckIfNeeded();
+        if (isSuperPropertyAccess) {
             cfw.addALoad(thisObjLocal);
             addDynamicInvoke("PROP:GETELEMENTSUPER", Signatures.PROP_GET_ELEMENT_SUPER);
         } else {
@@ -5819,15 +5831,21 @@ class BodyCodegen {
     }
 
     private void visitSetElem(int type, Node node, Node child) {
+        boolean isSuper = node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1;
         generateExpression(child, node);
         child = child.getNext();
         if (type == Token.SETELEM_OP) {
             cfw.add(ByteCode.DUP);
         }
+        // For super[expr], per ES6 spec 13.3.7.1 step 2, we must call
+        // GetThisBinding() BEFORE evaluating the expression. This throws
+        // ReferenceError if 'this' is uninitialized in a derived constructor.
+        if (isSuper) {
+            emitTdzCheckIfNeeded();
+        }
         generateExpression(child, node);
         child = child.getNext();
         boolean indexIsNumber = (node.getIntProp(Node.ISNUMBER_PROP, -1) != -1);
-        boolean isSuper = node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1;
         if (type == Token.SETELEM_OP) {
             int opType = child.getType();
             boolean isLogicalOp =
@@ -5840,7 +5858,7 @@ class BodyCodegen {
                 // After GETELEMENT: [obj, key, value]
 
                 if (isSuper) {
-                    emitTdzCheckIfNeeded();
+                    // TDZ check was done before evaluating the key expression
                     cfw.add(ByteCode.DUP_X1);
                     cfw.addALoad(contextLocal);
                     cfw.addALoad(variableObjectLocal);
@@ -5894,7 +5912,7 @@ class BodyCodegen {
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
                 if (isSuper) {
-                    emitTdzCheckIfNeeded();
+                    // TDZ check was done before evaluating the key expression
                     cfw.addALoad(thisObjLocal);
                     addDynamicInvoke("PROP:SETELEMENTSUPER", Signatures.PROP_SET_ELEMENT_SUPER);
                 } else if (indexIsNumber) {
@@ -5909,7 +5927,7 @@ class BodyCodegen {
 
             // Non-logical compound assignment
             if (isSuper) {
-                emitTdzCheckIfNeeded();
+                // TDZ check was done before evaluating the key expression
                 cfw.add(ByteCode.DUP_X1);
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
@@ -5931,7 +5949,7 @@ class BodyCodegen {
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
         if (isSuper) {
-            emitTdzCheckIfNeeded();
+            // TDZ check was done before evaluating the key expression
             cfw.addALoad(thisObjLocal);
             addDynamicInvoke("PROP:SETELEMENTSUPER", Signatures.PROP_SET_ELEMENT_SUPER);
         } else if (indexIsNumber) {

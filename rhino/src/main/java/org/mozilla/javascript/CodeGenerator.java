@@ -892,6 +892,13 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     addIcode(Icode_UNDEF);
                     resolveForwardGoto(afterLabel);
                 } else if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
+                    // For super[expr], per ES6 spec 13.3.7.1 step 2, we must call
+                    // GetThisBinding() BEFORE evaluating the expression. This throws
+                    // ReferenceError if 'this' is uninitialized in a derived constructor.
+                    if (scriptOrFn instanceof FunctionNode
+                            && ((FunctionNode) scriptOrFn).isDerivedClassConstructor()) {
+                        addIcode(Icode_CHECK_THIS_TDZ);
+                    }
                     visitExpression(child, 0);
                     addToken(Token.GETELEM_SUPER);
                     stackChange(-1);
@@ -1071,83 +1078,92 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
 
             case Token.SETELEM:
             case Token.SETELEM_OP:
-                visitExpression(child, 0);
-                child = child.getNext();
-                visitExpression(child, 0);
-                child = child.getNext();
-                if (type == Token.SETELEM_OP) {
-                    int opType = child.getType();
-                    boolean isLogicalOp =
-                            opType == Token.AND
-                                    || opType == Token.OR
-                                    || opType == Token.NULLISH_COALESCING;
-
-                    if (isLogicalOp) {
-                        // For logical assignment (&&=, ||=, ??=), we need to short-circuit
-                        // Stack: [obj, key]
-                        addIcode(Icode_DUP2); // [obj, key, obj, key]
-                        stackChange(2);
-                        addToken(Token.GETELEM); // [obj, key, value]
-                        stackChange(-1);
-
-                        // Check short-circuit condition
-                        addIcode(Icode_DUP); // [obj, key, value, value]
-                        stackChange(1);
-                        int noShortCircuitLabel = iCodeTop;
-                        if (opType == Token.AND) {
-                            // AND: short-circuit if falsy, so jump to noShortCircuit if truthy
-                            addGotoOp(Token.IFEQ);
-                        } else if (opType == Token.OR) {
-                            // OR: short-circuit if truthy, so jump to noShortCircuit if falsy
-                            addGotoOp(Token.IFNE);
-                        } else {
-                            addGotoOp(Icode_IF_NULL_UNDEF);
-                        }
-                        stackChange(-1); // [obj, key, value]
-                        int stackAtJumpTarget = stackDepth; // Save stack for jump target
-
-                        // Short-circuit path: return value without setting
-                        // Need to get from [obj, key, value] to [value]
-                        addIcode(Icode_SWAP); // [obj, value, key]
-                        addIcode(Icode_POP); // [obj, value]
-                        addIcode(Icode_SWAP); // [value, obj]
-                        addIcode(Icode_POP); // [value]
-                        stackChange(-2);
-                        int endLabel = iCodeTop;
-                        addGotoOp(Token.GOTO);
-
-                        // Non-short-circuit path: evaluate RHS and set element
-                        resolveForwardGoto(noShortCircuitLabel);
-                        stackDepth = stackAtJumpTarget; // Restore stack for this branch
-                        // Stack: [obj, key, value]
-                        addIcode(Icode_POP); // [obj, key]
-                        stackChange(-1);
-                        Node rhs = child.getLastChild();
-                        visitExpression(rhs, 0); // [obj, key, rhs]
-                        addToken(
-                                node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1
-                                        ? Token.SETELEM_SUPER
-                                        : Token.SETELEM); // [result]
-                        stackChange(-2);
-
-                        resolveForwardGoto(endLabel);
-                        break;
+                {
+                    boolean isSuperPropertyAccess =
+                            node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1;
+                    visitExpression(child, 0);
+                    child = child.getNext();
+                    // For super[expr], per ES6 spec 13.3.7.1 step 2, we must call
+                    // GetThisBinding() BEFORE evaluating the expression. This throws
+                    // ReferenceError if 'this' is uninitialized in a derived constructor.
+                    if (isSuperPropertyAccess
+                            && scriptOrFn instanceof FunctionNode
+                            && ((FunctionNode) scriptOrFn).isDerivedClassConstructor()) {
+                        addIcode(Icode_CHECK_THIS_TDZ);
                     }
+                    visitExpression(child, 0);
+                    child = child.getNext();
+                    if (type == Token.SETELEM_OP) {
+                        int opType = child.getType();
+                        boolean isLogicalOp =
+                                opType == Token.AND
+                                        || opType == Token.OR
+                                        || opType == Token.NULLISH_COALESCING;
 
-                    // Non-logical compound assignment
-                    addIcode(Icode_DUP2);
-                    stackChange(2);
-                    addToken(Token.GETELEM);
-                    stackChange(-1);
-                    // Compensate for the following USE_STACK
-                    stackChange(-1);
+                        if (isLogicalOp) {
+                            // For logical assignment (&&=, ||=, ??=), we need to short-circuit
+                            // Stack: [obj, key]
+                            addIcode(Icode_DUP2); // [obj, key, obj, key]
+                            stackChange(2);
+                            addToken(Token.GETELEM); // [obj, key, value]
+                            stackChange(-1);
+
+                            // Check short-circuit condition
+                            addIcode(Icode_DUP); // [obj, key, value, value]
+                            stackChange(1);
+                            int noShortCircuitLabel = iCodeTop;
+                            if (opType == Token.AND) {
+                                // AND: short-circuit if falsy, so jump to noShortCircuit if truthy
+                                addGotoOp(Token.IFEQ);
+                            } else if (opType == Token.OR) {
+                                // OR: short-circuit if truthy, so jump to noShortCircuit if falsy
+                                addGotoOp(Token.IFNE);
+                            } else {
+                                addGotoOp(Icode_IF_NULL_UNDEF);
+                            }
+                            stackChange(-1); // [obj, key, value]
+                            int stackAtJumpTarget = stackDepth; // Save stack for jump target
+
+                            // Short-circuit path: return value without setting
+                            // Need to get from [obj, key, value] to [value]
+                            addIcode(Icode_SWAP); // [obj, value, key]
+                            addIcode(Icode_POP); // [obj, value]
+                            addIcode(Icode_SWAP); // [value, obj]
+                            addIcode(Icode_POP); // [value]
+                            stackChange(-2);
+                            int endLabel = iCodeTop;
+                            addGotoOp(Token.GOTO);
+
+                            // Non-short-circuit path: evaluate RHS and set element
+                            resolveForwardGoto(noShortCircuitLabel);
+                            stackDepth = stackAtJumpTarget; // Restore stack for this branch
+                            // Stack: [obj, key, value]
+                            addIcode(Icode_POP); // [obj, key]
+                            stackChange(-1);
+                            Node rhs = child.getLastChild();
+                            visitExpression(rhs, 0); // [obj, key, rhs]
+                            addToken(
+                                    isSuperPropertyAccess
+                                            ? Token.SETELEM_SUPER
+                                            : Token.SETELEM); // [result]
+                            stackChange(-2);
+
+                            resolveForwardGoto(endLabel);
+                            break;
+                        }
+
+                        // Non-logical compound assignment
+                        addIcode(Icode_DUP2);
+                        stackChange(2);
+                        addToken(Token.GETELEM);
+                        stackChange(-1);
+                        // Compensate for the following USE_STACK
+                        stackChange(-1);
+                    }
+                    visitExpression(child, 0);
+                    addToken(isSuperPropertyAccess ? Token.SETELEM_SUPER : Token.SETELEM);
+                    stackChange(-2);
                 }
-                visitExpression(child, 0);
-                addToken(
-                        node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1
-                                ? Token.SETELEM_SUPER
-                                : Token.SETELEM);
-                stackChange(-2);
                 break;
 
             case Token.SET_REF:
@@ -1537,6 +1553,14 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                             stackChange(1);
                         }
                     } else {
+                        // For super[expr](), per ES6 spec 13.3.7.1 step 2, we must call
+                        // GetThisBinding() BEFORE evaluating the expression. This throws
+                        // ReferenceError if 'this' is uninitialized in a derived constructor.
+                        if (isSuperPropertyAccess
+                                && scriptOrFn instanceof FunctionNode
+                                && ((FunctionNode) scriptOrFn).isDerivedClassConstructor()) {
+                            addIcode(Icode_CHECK_THIS_TDZ);
+                        }
                         visitExpression(id, 0);
                         // stack: ... target id -> ... function thisObj
                         if (isSuperPropertyAccess) {
@@ -1662,6 +1686,13 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             case Token.GETELEM:
                 {
                     Node index = object.getNext();
+                    // For super[expr], per ES6 spec 13.3.7.1 step 2, we must call
+                    // GetThisBinding() BEFORE evaluating the expression. This throws
+                    // ReferenceError if 'this' is uninitialized in a derived constructor.
+                    if (scriptOrFn instanceof FunctionNode
+                            && ((FunctionNode) scriptOrFn).isDerivedClassConstructor()) {
+                        addIcode(Icode_CHECK_THIS_TDZ);
+                    }
                     visitExpression(index, 0); // stack: [super, elem]
                     addToken(Token.GETELEM_SUPER); // stack: [p]
                     stackChange(-1);
