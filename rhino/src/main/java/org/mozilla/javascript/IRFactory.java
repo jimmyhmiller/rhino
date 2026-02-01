@@ -2561,6 +2561,8 @@ public final class IRFactory {
 
     private Node createWith(Node obj, Node body, int lineno, int column) {
         parser.setRequiresActivation();
+        // ES6: with statement returns undefined if body has no completion value
+        body = ensureCompletionValue(body, lineno, column);
         Node result = new Node(Token.BLOCK, lineno, column);
         result.addChildToBack(new Node(Token.ENTERWITH, obj));
         Node bodyNode = new Node(Token.WITH, body, lineno, column);
