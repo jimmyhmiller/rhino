@@ -584,7 +584,8 @@ public final class IRFactory {
         try {
             Node body = transform(loop.getBody());
             Node cond = transform(loop.getCondition());
-            return createLoop(loop, LOOP_DO_WHILE, body, cond, null, null);
+            return wrapLoopForES6CompletionValue(
+                    createLoop(loop, LOOP_DO_WHILE, body, cond, null, null));
         } finally {
             parser.popScope();
         }
@@ -622,6 +623,9 @@ public final class IRFactory {
             Node lhs = transform(iter);
             Node obj = transform(loop.getIteratedObject());
             Node body = transform(loop.getBody());
+            // Note: for-in/for-of loops have complex structure with LOCAL_BLOCK wrapper
+            // and we don't add ES6 completion value handling for them to avoid breaking
+            // the existing structure that NodeTransformer expects.
             return createForIn(
                     declType, loop, lhs, obj, body, loop, loop.isForEach(), loop.isForOf());
         } finally {
@@ -639,7 +643,7 @@ public final class IRFactory {
             Node test = transform(loop.getCondition());
             Node incr = transform(loop.getIncrement());
             Node body = transform(loop.getBody());
-            return createFor(loop, init, test, incr, body);
+            return wrapLoopForES6CompletionValue(createFor(loop, init, test, incr, body));
         } finally {
             parser.currentScope = savedScope;
         }
@@ -1872,7 +1876,8 @@ public final class IRFactory {
         try {
             Node cond = transform(loop.getCondition());
             Node body = transform(loop.getBody());
-            return createLoop(loop, LOOP_WHILE, body, cond, null, null);
+            return wrapLoopForES6CompletionValue(
+                    createLoop(loop, LOOP_WHILE, body, cond, null, null));
         } finally {
             parser.popScope();
         }
@@ -2009,6 +2014,11 @@ public final class IRFactory {
         if (defaultTarget == null) {
             defaultTarget = switchBreakTarget;
         }
+
+        // Set initial completion value to undefined. ES6 spec requires switch statements
+        // that don't match any case to return undefined.
+        switchBlock.addChildToFront(
+                createUndefinedResult(switchBlock.getLineno(), switchBlock.getColumn()));
 
         switchBlock.addChildAfter(makeJump(Token.GOTO, defaultTarget), switchNode);
         switchBlock.addChildToBack(switchBreakTarget);
@@ -2231,6 +2241,23 @@ public final class IRFactory {
         return loop;
     }
 
+    /**
+     * Wraps a loop with ES6 completion value semantics. ES6 spec requires loops that never iterate
+     * to return undefined, not the previous statement's value. This is only applied for ES6+.
+     *
+     * <p>Note: This should only be called for simple loops (for/while/do-while), not for-in/for-of
+     * which have complex LOCAL_BLOCK wrapper structure.
+     */
+    private Node wrapLoopForES6CompletionValue(Node loop) {
+        if (parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                && loop.getType() == Token.LOOP) {
+            // Set initial completion value to undefined. This gets overwritten if
+            // the loop body executes and produces a value.
+            loop.addChildToFront(createUndefinedResult(loop.getLineno(), loop.getColumn()));
+        }
+        return loop;
+    }
+
     /** Generate IR for a for..in loop. */
     private Node createForIn(
             int declType,
@@ -2360,7 +2387,7 @@ public final class IRFactory {
 
         // short circuit
         if (tryBlock.getType() == Token.BLOCK && !tryBlock.hasChildren() && !hasFinally) {
-            return tryBlock;
+            return ensureCompletionValue(tryBlock, lineno, column);
         }
 
         boolean hasCatch = catchBlocks.hasChildren();
@@ -2368,8 +2395,11 @@ public final class IRFactory {
         // short circuit
         if (!hasFinally && !hasCatch) {
             // bc finally might be an empty block...
-            return tryBlock;
+            return ensureCompletionValue(tryBlock, lineno, column);
         }
+
+        // Ensure try block has a completion value (undefined for empty blocks)
+        tryBlock = ensureCompletionValue(tryBlock, lineno, column);
 
         Node handlerBlock = new Node(Token.LOCAL_BLOCK);
         Jump pn = new Jump(Token.TRY, tryBlock);
@@ -2450,6 +2480,9 @@ public final class IRFactory {
                 cb.removeChild(name);
                 cb.removeChild(cond);
                 cb.removeChild(catchStatement);
+
+                // Ensure catch block has a completion value (undefined for empty blocks)
+                catchStatement = ensureCompletionValue(catchStatement, catchLineno, catchColumn);
 
                 // Add goto to the catch statement to jump out of catch
                 // but prefix it with LEAVEWITH since try..catch produces
@@ -2532,13 +2565,13 @@ public final class IRFactory {
     private static Node createIf(Node cond, Node ifTrue, Node ifFalse, int lineno, int column) {
         int condStatus = isAlwaysDefinedBoolean(cond);
         if (condStatus == ALWAYS_TRUE_BOOLEAN) {
-            return ifTrue;
+            return ensureCompletionValue(ifTrue, lineno, column);
         } else if (condStatus == ALWAYS_FALSE_BOOLEAN) {
             if (ifFalse != null) {
-                return ifFalse;
+                return ensureCompletionValue(ifFalse, lineno, column);
             }
-            // Replace if (false) xxx by empty block
-            return new Node(Token.BLOCK, lineno, column);
+            // Replace if (false) xxx by undefined result
+            return createUndefinedResult(lineno, column);
         }
 
         Node result = new Node(Token.BLOCK, lineno, column);
@@ -2547,12 +2580,16 @@ public final class IRFactory {
         IFNE.target = ifNotTarget;
 
         result.addChildToBack(IFNE);
+        // Add undefined as default completion value, will be overwritten if branch has a value
+        result.addChildToBack(createUndefinedResult(lineno, column));
         result.addChildrenToBack(ifTrue);
 
         if (ifFalse != null) {
             Node endTarget = Node.newTarget();
             result.addChildToBack(makeJump(Token.GOTO, endTarget));
             result.addChildToBack(ifNotTarget);
+            // Same for else branch
+            result.addChildToBack(createUndefinedResult(lineno, column));
             result.addChildrenToBack(ifFalse);
             result.addChildToBack(endTarget);
         } else {
@@ -2565,6 +2602,58 @@ public final class IRFactory {
         }
 
         return result;
+    }
+
+    /**
+     * Creates an EXPR_RESULT node that sets the completion value to undefined. Used for empty
+     * if/else branches according to ES6 spec: if the statement completion is empty, return
+     * NormalCompletion(undefined).
+     */
+    private static Node createUndefinedResult(int lineno, int column) {
+        Node undefined = new Node(Token.UNDEFINED);
+        Node result = new Node(Token.EXPR_RESULT, undefined, lineno, column);
+        return result;
+    }
+
+    /**
+     * Ensures a block has a completion value. If the block is empty, wraps it in a block that sets
+     * the completion value to undefined.
+     */
+    private static Node ensureCompletionValue(Node block, int lineno, int column) {
+        // If the block has no children that produce a value, add undefined result
+        if (!hasCompletionValue(block)) {
+            Node result = new Node(Token.BLOCK, lineno, column);
+            result.addChildToBack(createUndefinedResult(lineno, column));
+            result.addChildrenToBack(block);
+            return result;
+        }
+        return block;
+    }
+
+    /**
+     * Checks if a node (typically a block) has any children that produce a completion value. Empty
+     * blocks or blocks containing only declarations (var, let, const, function) don't produce
+     * completion values.
+     */
+    private static boolean hasCompletionValue(Node node) {
+        for (Node child = node.getFirstChild(); child != null; child = child.getNext()) {
+            int type = child.getType();
+            // EXPR_RESULT produces a completion value
+            if (type == Token.EXPR_RESULT) {
+                return true;
+            }
+            // Nested blocks/statements that might have completion values
+            if (type == Token.BLOCK
+                    || type == Token.IF
+                    || type == Token.SWITCH
+                    || type == Token.WITH
+                    || type == Token.TRY) {
+                if (hasCompletionValue(child)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static Node createCondExpr(Node cond, Node ifTrue, Node ifFalse) {

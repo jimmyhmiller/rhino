@@ -2026,6 +2026,12 @@ public class Parser {
         IfStatement pn = new IfStatement(pos);
         ConditionData data = condition();
         AstNode ifTrue = getNextStatementAfterInlineComments(pn), ifFalse = null;
+        // In strict mode, function declarations cannot be the body of an if statement
+        if (inUseStrictDirective
+                && ifTrue instanceof FunctionNode
+                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+            reportError("msg.func.decl.if.strict");
+        }
         if (matchToken(Token.ELSE, true)) {
             int tt = peekToken();
             if (tt == Token.COMMENT) {
@@ -2034,6 +2040,12 @@ public class Parser {
             }
             elsePos = ts.tokenBeg - pos;
             ifFalse = getNextStatementAfterInlineComments(null);
+            // Same check for else branch
+            if (inUseStrictDirective
+                    && ifFalse instanceof FunctionNode
+                    && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                reportError("msg.func.decl.if.strict");
+            }
         }
         int end = getNodeEnd(ifFalse != null ? ifFalse : ifTrue);
         pn.setLength(end - pos);
