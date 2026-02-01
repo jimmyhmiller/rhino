@@ -1040,11 +1040,18 @@ public class Parser {
         do {
             if (matchToken(Token.NAME, true) || matchToken(Token.UNDEFINED, true)) {
                 name = createNameNode(true, Token.NAME);
+                String id = name.getIdentifier();
                 if (inUseStrictDirective) {
-                    String id = name.getIdentifier();
                     if ("eval".equals(id) || "arguments".equals(id)) {
                         reportError("msg.bad.id.strict", id);
                     }
+                }
+                // Generator functions cannot be named "yield" since yield is a keyword
+                // inside generator function bodies.
+                if (isGenerator
+                        && "yield".equals(id)
+                        && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                    reportError("msg.reserved.id", id);
                 }
                 if (!matchToken(Token.LP, true)) {
                     if (compilerEnv.isAllowMemberExprAsFunctionName()) {
@@ -1187,11 +1194,15 @@ public class Parser {
         // Parse optional class name
         if (matchToken(Token.NAME, true)) {
             className = createNameNode(true, Token.NAME);
-            if (inUseStrictDirective) {
-                String id = className.getIdentifier();
-                if ("eval".equals(id) || "arguments".equals(id)) {
-                    reportError("msg.bad.id.strict", id);
-                }
+            // Class definitions are always strict mode code per ES6 10.2.1,
+            // so reserved words in strict mode cannot be used as class names.
+            String id = className.getIdentifier();
+            if ("eval".equals(id) || "arguments".equals(id)) {
+                reportError("msg.bad.id.strict", id);
+            } else if ("yield".equals(id)
+                    && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                // yield is reserved in strict mode (which classes always are)
+                reportError("msg.reserved.id", id);
             }
         } else if (classType == ClassNode.CLASS_STATEMENT) {
             // Class declarations require a name
@@ -3032,11 +3043,14 @@ public class Parser {
                     }
                 }
                 // Generator declarations cannot be labeled (ES6+)
+                // Function declarations cannot be labeled in strict mode (ES6+)
                 if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
                         && stmt instanceof FunctionNode) {
                     FunctionNode fn = (FunctionNode) stmt;
                     if (fn.isES6Generator()) {
                         reportError("msg.generator.decl.not.in.block");
+                    } else if (inUseStrictDirective) {
+                        reportError("msg.func.decl.labeled.strict");
                     }
                 }
                 // Class declarations cannot be labeled (ES6+)
@@ -3383,8 +3397,10 @@ public class Parser {
     }
 
     /** Check if current function is an ES6 generator */
-    private boolean isCurrentFunctionGenerator() {
-        if (!insideFunctionBody()) {
+    boolean isCurrentFunctionGenerator() {
+        // We might be inside the function body OR inside function parameters
+        // (for generator functions, yield is also a keyword in the parameter list)
+        if (!insideFunctionBody() && !insideFunctionParams()) {
             return false;
         }
         if (currentScriptOrFn instanceof FunctionNode) {

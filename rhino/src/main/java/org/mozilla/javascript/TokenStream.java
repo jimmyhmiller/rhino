@@ -823,6 +823,16 @@ class TokenStream implements Parser.CurrentPositionReporter {
                             string = result == Token.LET ? "let" : "yield";
                             result = Token.NAME;
                         }
+                        // ES6+: yield is only a keyword inside generator functions.
+                        // In non-strict mode outside generators, yield is a valid identifier.
+                        // In strict mode, yield is always reserved.
+                        if (result == Token.YIELD
+                                && parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                                && !parser.inUseStrictDirective()
+                                && !parser.isCurrentFunctionGenerator()) {
+                            this.string = internString(str);
+                            result = Token.NAME;
+                        }
                         // ES6+: Keywords with escapes should not be treated as keywords.
                         // - `l\u0065t x = 1` is NOT a let declaration
                         // - In non-strict mode, `let` is contextual, so escaped let is a NAME
