@@ -116,17 +116,17 @@ public final class NativeJSON extends ScriptableObject {
                         String id = Long.toString(i);
                         Object newElement = walk(cx, scope, reviver, val, id);
                         if (newElement == Undefined.instance) {
-                            val.delete(id);
+                            tryDeleteProperty(val, id);
                         } else {
-                            val.put(id, val, newElement);
+                            createDataProperty(cx, val, id, newElement);
                         }
                     } else {
                         int idx = (int) i;
                         Object newElement = walk(cx, scope, reviver, val, Integer.valueOf(idx));
                         if (newElement == Undefined.instance) {
-                            val.delete(idx);
+                            tryDeleteProperty(val, idx);
                         } else {
-                            val.put(idx, val, newElement);
+                            createDataProperty(cx, val, idx, newElement);
                         }
                     }
                 }
@@ -135,17 +135,91 @@ public final class NativeJSON extends ScriptableObject {
                 for (Object p : keys) {
                     Object newElement = walk(cx, scope, reviver, val, p);
                     if (newElement == Undefined.instance) {
-                        if (p instanceof Number) val.delete(((Number) p).intValue());
-                        else val.delete((String) p);
+                        if (p instanceof Number) tryDeleteProperty(val, ((Number) p).intValue());
+                        else tryDeleteProperty(val, (String) p);
                     } else {
-                        if (p instanceof Number) val.put(((Number) p).intValue(), val, newElement);
-                        else val.put((String) p, val, newElement);
+                        if (p instanceof Number) {
+                            createDataProperty(cx, val, ((Number) p).intValue(), newElement);
+                        } else {
+                            createDataProperty(cx, val, (String) p, newElement);
+                        }
                     }
                 }
             }
         }
 
-        return reviver.call(cx, scope, holder, new Object[] {name, property});
+        // Per ES6 spec, the reviver always receives property names as strings
+        String nameStr = (name instanceof Number) ? name.toString() : (String) name;
+        return reviver.call(cx, scope, holder, new Object[] {nameStr, property});
+    }
+
+    /**
+     * ES6 [[Delete]] - deletes a property if allowed. In strict mode, delete on a non-configurable
+     * property throws, but per ES6 InternalizeJSONProperty spec, we should silently fail.
+     */
+    private static void tryDeleteProperty(Scriptable obj, int index) {
+        try {
+            obj.delete(index);
+        } catch (EcmaError e) {
+            // Per ES6 spec, silently fail if property is non-configurable
+        }
+    }
+
+    /**
+     * ES6 [[Delete]] - deletes a property if allowed. In strict mode, delete on a non-configurable
+     * property throws, but per ES6 InternalizeJSONProperty spec, we should silently fail.
+     */
+    private static void tryDeleteProperty(Scriptable obj, String key) {
+        try {
+            obj.delete(key);
+        } catch (EcmaError e) {
+            // Per ES6 spec, silently fail if property is non-configurable
+        }
+    }
+
+    /**
+     * ES6 CreateDataProperty - creates/updates a data property if allowed. Returns false (no
+     * exception) if property is non-configurable. Per ES6, this operation should not throw when the
+     * property cannot be changed.
+     */
+    private static boolean createDataProperty(Context cx, Scriptable obj, int index, Object value) {
+        if (obj instanceof ScriptableObject) {
+            ScriptableObject so = (ScriptableObject) obj;
+            ScriptableObject.DescriptorInfo desc =
+                    new ScriptableObject.DescriptorInfo(true, true, true, value);
+            try {
+                return so.defineOwnProperty(cx, Integer.valueOf(index), desc);
+            } catch (EcmaError e) {
+                // Per ES6 spec, CreateDataProperty returns false without throwing
+                // if [[DefineOwnProperty]] fails (e.g., non-configurable property)
+                return false;
+            }
+        }
+        obj.put(index, obj, value);
+        return true;
+    }
+
+    /**
+     * ES6 CreateDataProperty - creates/updates a data property if allowed. Returns false (no
+     * exception) if property is non-configurable. Per ES6, this operation should not throw when the
+     * property cannot be changed.
+     */
+    private static boolean createDataProperty(
+            Context cx, Scriptable obj, String key, Object value) {
+        if (obj instanceof ScriptableObject) {
+            ScriptableObject so = (ScriptableObject) obj;
+            ScriptableObject.DescriptorInfo desc =
+                    new ScriptableObject.DescriptorInfo(true, true, true, value);
+            try {
+                return so.defineOwnProperty(cx, key, desc);
+            } catch (EcmaError e) {
+                // Per ES6 spec, CreateDataProperty returns false without throwing
+                // if [[DefineOwnProperty]] fails (e.g., non-configurable property)
+                return false;
+            }
+        }
+        obj.put(key, obj, value);
+        return true;
     }
 
     private static String repeat(char c, int count) {
