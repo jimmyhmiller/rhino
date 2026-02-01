@@ -6991,10 +6991,16 @@ public class ScriptRuntime {
      * @param args The arguments to pass to the super constructor
      * @param cx The context
      * @param scope The scope
+     * @param superAlreadyCalled Whether super() has already been called in this constructor
      * @return The thisObj after the super constructor has initialized it
      */
     public static Scriptable callSuperConstructor(
-            Callable callee, Scriptable thisObj, Object[] args, Context cx, Scriptable scope) {
+            Callable callee,
+            Scriptable thisObj,
+            Object[] args,
+            Context cx,
+            Scriptable scope,
+            boolean superAlreadyCalled) {
         Callable superConstructor = null;
         boolean extendsNull = false;
         if (callee instanceof BaseFunction) {
@@ -7014,11 +7020,20 @@ public class ScriptRuntime {
         // Call the super constructor using [[Construct]] semantics.
         // In ES6, super() invokes the parent's [[Construct]] which creates the instance.
         // The created instance becomes 'this' for the derived class.
+        // Per ES6 spec 12.3.5.1, the super constructor is called FIRST, and then
+        // BindThisValue throws ReferenceError if 'this' is already bound.
         Scriptable newInstance;
         if (superConstructor instanceof Function) {
             newInstance = ((Function) superConstructor).construct(cx, scope, args);
         } else {
             throw typeErrorById("msg.not.ctor");
+        }
+
+        // ES6 spec 12.3.5.1 step 7: BindThisValue(result)
+        // If 'this' was already bound (super() already called), throw ReferenceError
+        // This check happens AFTER the super constructor is called
+        if (superAlreadyCalled) {
+            throw constructError("ReferenceError", "Super constructor may only be called once");
         }
 
         // Set the prototype of the new instance based on the derived class

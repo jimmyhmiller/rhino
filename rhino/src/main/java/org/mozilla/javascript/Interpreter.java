@@ -5201,12 +5201,9 @@ public final class Interpreter extends Icode implements Evaluator {
             // Stack: args (no function or thisObj)
             // indexReg: number of arguments
 
-            // Check if super() has already been called - calling super() twice is a ReferenceError
-            // per ES6 spec 12.3.5.1 (super already bound means 'this' is already initialized)
-            if (frame.superCalled) {
-                throw ScriptRuntime.constructError(
-                        "ReferenceError", "Super constructor may only be called once");
-            }
+            // Remember if super was already called - we'll check this AFTER calling
+            // the super constructor, per ES6 spec 12.3.5.1 step 7 (BindThisValue)
+            boolean superAlreadyCalled = frame.superCalled;
 
             // Get the super constructor from the current function
             ScriptOrFn<?> fnOrScript = frame.fnOrScript;
@@ -5241,11 +5238,20 @@ public final class Interpreter extends Icode implements Evaluator {
             // Call the super constructor using [[Construct]] semantics.
             // In ES6, super() invokes the parent's [[Construct]] which creates the instance.
             // The created instance becomes 'this' for the derived class.
+            // Per ES6 spec, this call happens BEFORE checking if 'this' is already bound.
             Scriptable newInstance;
             if (superConstructor instanceof Function) {
                 newInstance = ((Function) superConstructor).construct(cx, frame.scope, args);
             } else {
                 throw ScriptRuntime.typeErrorById("msg.not.ctor");
+            }
+
+            // ES6 spec 12.3.5.1 step 7: BindThisValue(result)
+            // If 'this' is already bound (super() already called), throw ReferenceError
+            // This check happens AFTER the super constructor is called
+            if (superAlreadyCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError", "Super constructor may only be called once");
             }
 
             // Set the prototype of the new instance based on the derived class
@@ -5281,11 +5287,9 @@ public final class Interpreter extends Icode implements Evaluator {
             // super(...args) call with spread in a derived class constructor
             // Stack: NewLiteralStorage -> result
 
-            // Check if super() has already been called - calling super() twice is a ReferenceError
-            if (frame.superCalled) {
-                throw ScriptRuntime.constructError(
-                        "ReferenceError", "Super constructor may only be called once");
-            }
+            // Remember if super was already called - we'll check this AFTER calling
+            // the super constructor, per ES6 spec 12.3.5.1 step 7 (BindThisValue)
+            boolean superAlreadyCalled = frame.superCalled;
 
             // Get the storage from the stack
             NewLiteralStorage storage = (NewLiteralStorage) frame.stack[state.stackTop];
@@ -5310,11 +5314,20 @@ public final class Interpreter extends Icode implements Evaluator {
 
             // Call the super constructor using [[Construct]] semantics.
             // In ES6, super() invokes the parent's [[Construct]] which creates the instance.
+            // Per ES6 spec, this call happens BEFORE checking if 'this' is already bound.
             Scriptable newInstance;
             if (superConstructor instanceof Function) {
                 newInstance = ((Function) superConstructor).construct(cx, frame.scope, args);
             } else {
                 throw ScriptRuntime.typeErrorById("msg.not.ctor");
+            }
+
+            // ES6 spec 12.3.5.1 step 7: BindThisValue(result)
+            // If 'this' is already bound (super() already called), throw ReferenceError
+            // This check happens AFTER the super constructor is called
+            if (superAlreadyCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError", "Super constructor may only be called once");
             }
 
             // Set the prototype of the new instance based on the derived class

@@ -3634,17 +3634,6 @@ class BodyCodegen {
     private void visitDefaultCtorSuperCall(Node node) {
         // Default constructor super() call - forwards all function arguments
 
-        // Check if super() has already been called - calling super() twice is a ReferenceError
-        if (isDerivedClassConstructor && superCalledLocal != -1) {
-            cfw.addILoad(superCalledLocal);
-            int notCalledYet = cfw.acquireLabel();
-            cfw.add(ByteCode.IFEQ, notCalledYet);
-            // super() already called - throw ReferenceError
-            cfw.addPush("Super constructor may only be called once");
-            addScriptRuntimeInvoke("throwReferenceErrorForThis", "(Ljava/lang/String;)V");
-            cfw.markLabel(notCalledYet);
-        }
-
         // Push fnCurrent (the current function that has superConstructor set)
         cfw.addALoad(funObjLocal);
 
@@ -3658,8 +3647,18 @@ class BodyCodegen {
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
 
-        // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope)
+        // Push the superCalled flag - per ES6 spec 12.3.5.1, we check AFTER calling
+        // the super constructor (in BindThisValue step 7)
+        if (isDerivedClassConstructor && superCalledLocal != -1) {
+            cfw.addILoad(superCalledLocal);
+        } else {
+            cfw.addPush(0); // false - super not called yet
+        }
+
+        // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope,
+        // superAlreadyCalled)
         // Returns the new instance created by the super constructor
+        // The method checks if super was already called and throws ReferenceError if so
         addScriptRuntimeInvoke(
                 "callSuperConstructor",
                 "(Lorg/mozilla/javascript/Callable;"
@@ -3667,6 +3666,7 @@ class BodyCodegen {
                         + "[Ljava/lang/Object;"
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
+                        + "Z"
                         + ")Lorg/mozilla/javascript/Scriptable;");
 
         // Store the result as the new 'this' for this constructor
@@ -3694,7 +3694,6 @@ class BodyCodegen {
 
         // Generate the arguments array - check for spread arguments
         // Per ES6 spec 12.3.5.1, arguments are evaluated first (ArgumentListEvaluation)
-        // before checking if super() was already called
         int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
         if (numberOfSpread > 0) {
             generateSpreadCallArgs(node, firstArgChild);
@@ -3702,24 +3701,22 @@ class BodyCodegen {
             generateCallArgArray(node, firstArgChild, false);
         }
 
-        // Now check if super() has already been called - calling super() twice is a ReferenceError
-        // This check happens AFTER argument evaluation per ES6 spec 12.3.5.1
-        if (isDerivedClassConstructor && superCalledLocal != -1) {
-            cfw.addILoad(superCalledLocal);
-            int notCalledYet = cfw.acquireLabel();
-            cfw.add(ByteCode.IFEQ, notCalledYet);
-            // super() already called - throw ReferenceError
-            cfw.addPush("Super constructor may only be called once");
-            addScriptRuntimeInvoke("throwReferenceErrorForThis", "(Ljava/lang/String;)V");
-            cfw.markLabel(notCalledYet);
-        }
-
         // Push context and scope
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
 
-        // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope)
+        // Push the superCalled flag - per ES6 spec 12.3.5.1, we check AFTER calling
+        // the super constructor (in BindThisValue step 7)
+        if (isDerivedClassConstructor && superCalledLocal != -1) {
+            cfw.addILoad(superCalledLocal);
+        } else {
+            cfw.addPush(0); // false - super not called yet
+        }
+
+        // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope,
+        // superAlreadyCalled)
         // Returns the new instance created by the super constructor
+        // The method checks if super was already called and throws ReferenceError if so
         addScriptRuntimeInvoke(
                 "callSuperConstructor",
                 "(Lorg/mozilla/javascript/Callable;"
@@ -3727,6 +3724,7 @@ class BodyCodegen {
                         + "[Ljava/lang/Object;"
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
+                        + "Z"
                         + ")Lorg/mozilla/javascript/Scriptable;");
 
         // Store the result as the new 'this' for this constructor
