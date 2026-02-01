@@ -1729,6 +1729,8 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_ELEM_AND_THIS] = new DoElemAndThis();
         instructionObjs[base + Icode_ELEM_AND_THIS_OPTIONAL] = new DoElemAndThisOptional();
         instructionObjs[base + Icode_VALUE_AND_THIS] = new DoValueAndThis();
+        instructionObjs[base + Icode_SUPER_PROP_AND_THIS] = new DoSuperPropAndThis();
+        instructionObjs[base + Icode_SUPER_ELEM_AND_THIS] = new DoSuperElemAndThis();
         instructionObjs[base + Icode_VALUE_AND_THIS_OPTIONAL] = new DoValueAndThisOptional();
         instructionObjs[base + Icode_CALLSPECIAL] = new DoCallSpecial();
         instructionObjs[base + Icode_CALLSPECIAL_OPTIONAL] = new DoCallSpecial();
@@ -3633,6 +3635,53 @@ public final class Interpreter extends Icode implements Evaluator {
             if (id == DOUBLE_MARK) id = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
             stack[--state.stackTop] =
                     ScriptRuntime.getElemAndThisOptional(obj, id, cx, frame.scope);
+            return null;
+        }
+    }
+
+    private static class DoSuperPropAndThis extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // In derived class constructors, super property access requires 'this' to be
+            // initialized (super() must have been called). Check TDZ for 'this'.
+            JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+            if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            }
+            final Object[] stack = frame.stack;
+            Object superObject = stack[state.stackTop];
+            if (superObject == DOUBLE_MARK) Kit.codeBug();
+            // Get property from super object, but use 'this' as the receiver
+            stack[state.stackTop] =
+                    ScriptRuntime.getSuperPropAndThis(
+                            superObject, state.stringReg, cx, frame.scope, frame.thisObj);
+            return null;
+        }
+    }
+
+    private static class DoSuperElemAndThis extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // In derived class constructors, super element access requires 'this' to be
+            // initialized (super() must have been called). Check TDZ for 'this'.
+            JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+            if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            }
+            final Object[] stack = frame.stack;
+            final double[] sDbl = frame.sDbl;
+            Object superObject = stack[state.stackTop - 1];
+            if (superObject == DOUBLE_MARK) Kit.codeBug();
+            Object id = stack[state.stackTop];
+            if (id == DOUBLE_MARK) id = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
+            // Get element from super object, but use 'this' as the receiver
+            stack[--state.stackTop] =
+                    ScriptRuntime.getSuperElemAndThis(
+                            superObject, id, cx, frame.scope, frame.thisObj);
             return null;
         }
     }

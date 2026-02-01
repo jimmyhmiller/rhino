@@ -3462,6 +3462,56 @@ public class ScriptRuntime {
     }
 
     /**
+     * Prepare for calling super.property(...): return function corresponding to super.property with
+     * 'this' as the receiver. This is used for super method calls in derived class constructors.
+     */
+    public static LookupResult getSuperPropAndThis(
+            Object superObject, String property, Context cx, Scriptable scope, Scriptable thisObj) {
+        Scriptable superObj = toObjectOrNull(cx, superObject, scope);
+        if (superObj == null) {
+            throw undefCallError(superObject, property);
+        }
+
+        Object value = ScriptableObject.getProperty(superObj, property);
+        if (value == ScriptableObject.NOT_FOUND) {
+            Object noSuchMethod = ScriptableObject.getProperty(superObj, "__noSuchMethod__");
+            if (noSuchMethod instanceof Callable) {
+                value = new NoSuchMethodShim((Callable) noSuchMethod, property);
+            }
+        }
+        // Use 'this' (from the constructor) as the receiver, not the super object
+        return new LookupResult(value, thisObj, property);
+    }
+
+    /**
+     * Prepare for calling super[elem](...): return function corresponding to super[elem] with
+     * 'this' as the receiver. This is used for super method calls in derived class constructors.
+     */
+    public static LookupResult getSuperElemAndThis(
+            Object superObject, Object elem, Context cx, Scriptable scope, Scriptable thisObj) {
+        Scriptable superObj = toObjectOrNull(cx, superObject, scope);
+        if (superObj == null) {
+            throw undefCallError(superObject, String.valueOf(elem));
+        }
+
+        Object value;
+        String propertyName;
+        if (isSymbol(elem)) {
+            value = ScriptableObject.getProperty(superObj, (Symbol) elem);
+            propertyName = elem.toString();
+        } else {
+            StringIdOrIndex s = toStringIdOrIndex(elem);
+            if (s.stringId != null) {
+                return getSuperPropAndThis(superObject, s.stringId, cx, scope, thisObj);
+            }
+            value = ScriptableObject.getProperty(superObj, s.index);
+            propertyName = String.valueOf(s.index);
+        }
+        // Use 'this' (from the constructor) as the receiver, not the super object
+        return new LookupResult(value, thisObj, propertyName);
+    }
+
+    /**
      * Prepare for calling &lt;expression&gt;(...): return function corresponding to
      * &lt;expression&gt; and make parent scope of the function available as
      * ScriptRuntime.lastStoredScriptable() for consumption as thisObj. The caller must call

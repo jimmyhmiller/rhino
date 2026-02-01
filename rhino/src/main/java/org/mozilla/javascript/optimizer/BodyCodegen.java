@@ -3686,7 +3686,24 @@ class BodyCodegen {
         // child is the SUPER token, skip it to get to arguments
         Node firstArgChild = child.getNext();
 
-        // Check if super() has already been called - calling super() twice is a ReferenceError
+        // Push fnCurrent (the current function that has superConstructor set)
+        cfw.addALoad(funObjLocal);
+
+        // Push thisObj (will be replaced by super constructor result)
+        cfw.addALoad(thisObjLocal);
+
+        // Generate the arguments array - check for spread arguments
+        // Per ES6 spec 12.3.5.1, arguments are evaluated first (ArgumentListEvaluation)
+        // before checking if super() was already called
+        int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
+        if (numberOfSpread > 0) {
+            generateSpreadCallArgs(node, firstArgChild);
+        } else {
+            generateCallArgArray(node, firstArgChild, false);
+        }
+
+        // Now check if super() has already been called - calling super() twice is a ReferenceError
+        // This check happens AFTER argument evaluation per ES6 spec 12.3.5.1
         if (isDerivedClassConstructor && superCalledLocal != -1) {
             cfw.addILoad(superCalledLocal);
             int notCalledYet = cfw.acquireLabel();
@@ -3695,20 +3712,6 @@ class BodyCodegen {
             cfw.addPush("Super constructor may only be called once");
             addScriptRuntimeInvoke("throwReferenceErrorForThis", "(Ljava/lang/String;)V");
             cfw.markLabel(notCalledYet);
-        }
-
-        // Push fnCurrent (the current function that has superConstructor set)
-        cfw.addALoad(funObjLocal);
-
-        // Push thisObj (will be replaced by super constructor result)
-        cfw.addALoad(thisObjLocal);
-
-        // Generate the arguments array - check for spread arguments
-        int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
-        if (numberOfSpread > 0) {
-            generateSpreadCallArgs(node, firstArgChild);
-        } else {
-            generateCallArgArray(node, firstArgChild, false);
         }
 
         // Push context and scope

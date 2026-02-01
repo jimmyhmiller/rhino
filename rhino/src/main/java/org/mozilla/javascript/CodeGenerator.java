@@ -1507,10 +1507,16 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     Node target = left.getFirstChild();
                     visitExpression(target, 0);
                     Node id = target.getNext();
+                    boolean isSuperPropertyAccess =
+                            left.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1;
                     if (type == Token.GETPROP) {
                         String property = id.getString();
                         // stack: ... target -> ... function thisObj
-                        if (isOptionalChainingCall) {
+                        if (isSuperPropertyAccess) {
+                            // Super property call - uses special handling for TDZ and receiver
+                            addStringOp(Icode_SUPER_PROP_AND_THIS, property);
+                            stackChange(1);
+                        } else if (isOptionalChainingCall) {
                             addStringOp(Icode_PROP_AND_THIS_OPTIONAL, property);
                             stackChange(1);
                             return completeOptionalCallJump();
@@ -1521,7 +1527,10 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     } else {
                         visitExpression(id, 0);
                         // stack: ... target id -> ... function thisObj
-                        if (isOptionalChainingCall) {
+                        if (isSuperPropertyAccess) {
+                            // Super element call - uses special handling for TDZ and receiver
+                            addIcode(Icode_SUPER_ELEM_AND_THIS);
+                        } else if (isOptionalChainingCall) {
                             addIcode(Icode_ELEM_AND_THIS_OPTIONAL);
                             return completeOptionalCallJump();
                         } else {
