@@ -5903,6 +5903,17 @@ public class Parser {
 
             right = (transformer != null) ? transformer.transform(n.getRight()) : n.getRight();
 
+            // ES6 function name inference for anonymous functions in destructuring defaults
+            if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                if (transformer != null) {
+                    // When transformer is provided, work with the transformed node
+                    inferFunctionNameInDestructuring(left, right);
+                } else {
+                    // During parsing, work with the AST node directly
+                    inferFunctionNameForAstNode(left, n.getRight());
+                }
+            }
+
             // Inner condition checks if the destructured value is undefined:
             // ($1[0] === undefined) ? defaultValue : $1[0]
             Node cond_inner =
@@ -5977,6 +5988,75 @@ public class Parser {
                                 isFunctionParameter));
             } else {
                 reportError("msg.bad.assign.left");
+            }
+        }
+    }
+
+    /**
+     * Infer function name for anonymous functions used as default values in destructuring patterns.
+     * This implements the ES6 SetFunctionName semantic for destructuring bindings.
+     */
+    private void inferFunctionNameInDestructuring(Node left, Node right) {
+        if (!(left instanceof Name) || right == null) {
+            return;
+        }
+
+        Name name = (Name) left;
+        if (name.getIdentifier().equals(NativeObject.PROTO_PROPERTY)) {
+            return;
+        }
+
+        // Handle anonymous function expressions
+        if (right.type == Token.FUNCTION) {
+            int fnIndex = right.getExistingIntProp(Node.FUNCTION_PROP);
+            FunctionNode functionNode = currentScriptOrFn.getFunctionNode(fnIndex);
+            if (functionNode.getFunctionName() == null) {
+                functionNode.setFunctionName(name);
+            }
+        }
+
+        // Handle anonymous class expressions
+        if (right.type == Token.CLASS) {
+            Node constructorNode = right.getFirstChild();
+            if (constructorNode != null && constructorNode.type == Token.FUNCTION) {
+                int fnIndex = constructorNode.getExistingIntProp(Node.FUNCTION_PROP);
+                FunctionNode functionNode = currentScriptOrFn.getFunctionNode(fnIndex);
+                if (functionNode.getFunctionName() == null) {
+                    functionNode.setFunctionName(name);
+                }
+            }
+        }
+    }
+
+    /**
+     * Infer function name for anonymous functions in destructuring defaults during parsing. This
+     * handles the case when we're working with AST nodes (FunctionNode) directly rather than
+     * transformed IR nodes.
+     */
+    private void inferFunctionNameForAstNode(Node left, Node right) {
+        if (!(left instanceof Name) || right == null) {
+            return;
+        }
+
+        Name name = (Name) left;
+        if (name.getIdentifier().equals(NativeObject.PROTO_PROPERTY)) {
+            return;
+        }
+
+        // Handle anonymous function expressions (FunctionNode in AST form)
+        if (right instanceof FunctionNode) {
+            FunctionNode functionNode = (FunctionNode) right;
+            if (functionNode.getFunctionName() == null) {
+                functionNode.setFunctionName(name);
+            }
+        }
+
+        // Handle anonymous class expressions (ClassNode in AST form)
+        if (right instanceof ClassNode) {
+            ClassNode classNode = (ClassNode) right;
+            FunctionNode constructor = classNode.getConstructor();
+            if (constructor != null && constructor.getFunctionName() == null) {
+                constructor.setFunctionName(name);
             }
         }
     }
