@@ -1,60 +1,49 @@
 @AGENTS.md
 
-## Current Goal: 100% ES6 (ES2015) Test262 Pass Rate
+## TOP PRIORITY: 100% ES6 Test262 Conformance
 
-The primary goal is to achieve 100% passing rate for ES6-only test262 tests. Use the edition analysis script to track progress:
+**THIS IS THE #1 PRIORITY. We will not stop until ALL ES6 tests pass.**
 
-```bash
-# See current pass rates by edition
-node scripts/list-tests-by-edition.js
+The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-negotiable - keep fixing tests until there are zero failures.
 
-# List all failing ES6 tests
-node scripts/list-tests-by-edition.js -e 6 -s failing
+### Check Current ES6 Status
 
-# Get ES6 failing tests as JSON
-node scripts/list-tests-by-edition.js -e 6 -s failing -o json
-```
-
-### Current ES6 Status
-
-**Pass Rate: 76.4%** (6,998 passing / 2,164 failing)
-
-### ES6 Failure Categories (prioritized)
-
-1. **class** (~700 tests) - Pure ES6 class syntax
-2. **for-of** (252 tests) - Iteration protocol
-3. **generators** (214 tests) - Generator functions
-4. **object expressions** (176 tests) - Computed properties, shorthand methods
-5. **destructuring/assignment** (115 tests)
-6. **arrow-function** (65 tests)
-
-See [CLASSES_IMPLEMENTATION_PLAN.md](CLASSES_IMPLEMENTATION_PLAN.md) for class-specific work.
-
-## Understanding ECMAScript Editions in test262
-
-Tests are categorized by the **highest edition** of any feature they use. For example:
-- A test using only `class` (ES6) and `const` (ES6) → ES6
-- A test using `class` (ES6) and `class-fields-private` (ES2022) → ES2022
-
-The script `scripts/list-tests-by-edition.js` uses the official feature-to-edition mapping from [test262-fyi](https://github.com/test262-fyi/test262.fyi).
-
-### Edition Analysis Script
+Always start by running the ES6 status script to see where we are:
 
 ```bash
-# Summary of all editions
-node scripts/list-tests-by-edition.js
-
-# All tests for a specific edition
-node scripts/list-tests-by-edition.js -e 6           # ES6
-node scripts/list-tests-by-edition.js -e 13          # ES2022
-
-# Filter by status
-node scripts/list-tests-by-edition.js -e 6 -s failing
-node scripts/list-tests-by-edition.js -e 6 -s passing
-
-# Output as JSON
-node scripts/list-tests-by-edition.js -e 6 -s failing -o json
+./scripts/es6-test-status.sh
 ```
+
+This shows:
+- Total ES6 tests and current pass rate
+- Failures broken down by category
+- Categories with 100% pass rate
+
+### Finding Specific Failing Tests
+
+The status script shows categories. To find specific failing tests within a category, check `test262.properties`:
+
+```bash
+# See what's failing in a specific category
+grep -A 50 "^language/statements/for " tests/testsrc/test262.properties
+
+# Count how many fn-name tests are failing
+grep "fn-name" tests/testsrc/test262.properties | wc -l
+```
+
+### Strategy for Fixing Tests
+
+1. Run `./scripts/es6-test-status.sh` to see current status
+2. Pick a category with fixable tests (avoid `{unsupported: [...]}` tests)
+3. Look for patterns - fixing one issue often fixes many tests
+4. After each fix, regenerate test262.properties and verify improvements
+5. Commit and continue - don't stop until we hit 100%
+
+### What to Prioritize
+
+- **High-value fixes**: Issues that affect many tests (like function name inference)
+- **Avoid**: Tests marked `{unsupported: [async-functions]}` etc. - these need new features
+- **Focus on**: Pure ES6 syntax/semantics issues in the parser, IRFactory, or runtime
 
 ## Fixing test262 tests
 
