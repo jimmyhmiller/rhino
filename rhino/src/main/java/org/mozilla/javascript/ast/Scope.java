@@ -34,6 +34,11 @@ public class Scope extends Jump {
     // var declarations in the same block.
     private Set<String> varNamesInBlock;
 
+    // ES6: catch parameter name for detecting let/const redeclaration conflicts.
+    // The catch parameter exists at runtime but not in the compile-time symbol table
+    // to avoid TDZ transformation.
+    private String catchParameterName;
+
     {
         this.type = Token.BLOCK;
     }
@@ -213,6 +218,24 @@ public class Scope extends Jump {
      */
     public boolean hasVarNameInBlock(String name) {
         return varNamesInBlock != null && varNamesInBlock.contains(name);
+    }
+
+    /**
+     * ES6: Sets the catch parameter name for this scope. Used to detect let/const redeclaration
+     * conflicts without adding the catch parameter to the symbol table (which would trigger TDZ).
+     */
+    public void setCatchParameterName(String name) {
+        this.catchParameterName = name;
+    }
+
+    /** ES6: Returns the catch parameter name if this is a catch block scope, null otherwise. */
+    public String getCatchParameterName() {
+        return catchParameterName;
+    }
+
+    /** ES6: Returns true if the given name is the catch parameter for this scope. */
+    public boolean isCatchParameterName(String name) {
+        return catchParameterName != null && catchParameterName.equals(name);
     }
 
     private Map<String, Symbol> ensureSymbolTable() {

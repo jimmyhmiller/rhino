@@ -2559,6 +2559,15 @@ public class Parser {
                 catchNode.setLineColumnNumber(catchLine, catchColumn);
                 pushScope(catchScope);
                 try {
+                    // ES6: catch parameter prevents let/const redeclaration in catch block.
+                    // Set the catch parameter name for redeclaration detection.
+                    // We don't add it to the symbol table because that would trigger TDZ
+                    // transformation in NodeTransformer.
+                    if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                            && varName instanceof Name) {
+                        String catchVarName = ((Name) varName).getIdentifier();
+                        catchScope.setCatchParameterName(catchVarName);
+                    }
                     statements(catchScope);
                 } finally {
                     hasUndefinedBeenRedefined = previous;
@@ -3300,6 +3309,14 @@ public class Parser {
         boolean varInSameBlock =
                 (declType == Token.LET || declType == Token.CONST)
                         && currentScope.hasVarNameInBlock(name);
+        // ES6: let/const can't redeclare catch parameter in the same catch block
+        boolean catchParamRedecl =
+                (declType == Token.LET || declType == Token.CONST)
+                        && currentScope.isCatchParameterName(name);
+        if (catchParamRedecl) {
+            addError("msg.let.redecl", name);
+            return false;
+        }
         // Annex B.3.3.3: In non-strict eval code, function declarations that
         // would conflict with let/const should skip hoisting rather than error
         boolean isAnnexBFunctionInEval =
