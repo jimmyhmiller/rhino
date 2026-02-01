@@ -844,19 +844,31 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 break;
 
             case Token.DELPROP:
-                boolean isName = child.getType() == Token.BINDNAME;
-                visitExpression(child, 0);
-                child = child.getNext();
-                visitExpression(child, 0);
-                if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
-                    addIcode(Icode_DELPROP_SUPER);
-                } else if (isName) {
-                    // special handling for delete name
-                    addIcode(Icode_DELNAME);
-                } else {
-                    addToken(Token.DELPROP);
+                {
+                    boolean isName = child.getType() == Token.BINDNAME;
+                    boolean isSuperPropertyAccess =
+                            node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1;
+                    visitExpression(child, 0);
+                    child = child.getNext();
+                    // For delete super[expr], per ES6 spec 13.3.7.1 step 2, we must call
+                    // GetThisBinding() BEFORE evaluating the expression. This throws
+                    // ReferenceError if 'this' is uninitialized in a derived constructor.
+                    if (isSuperPropertyAccess
+                            && scriptOrFn instanceof FunctionNode
+                            && ((FunctionNode) scriptOrFn).isDerivedClassConstructor()) {
+                        addIcode(Icode_CHECK_THIS_TDZ);
+                    }
+                    visitExpression(child, 0);
+                    if (isSuperPropertyAccess) {
+                        addIcode(Icode_DELPROP_SUPER);
+                    } else if (isName) {
+                        // special handling for delete name
+                        addIcode(Icode_DELNAME);
+                    } else {
+                        addToken(Token.DELPROP);
+                    }
+                    stackChange(-1);
                 }
-                stackChange(-1);
                 break;
 
             case Token.GETELEM:

@@ -1788,30 +1788,40 @@ class BodyCodegen {
                 break;
 
             case Token.DELPROP:
-                boolean isName = child.getType() == Token.BINDNAME;
-                generateExpression(child, node);
-                child = child.getNext();
-                generateExpression(child, node);
-                if (node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1) {
-                    // We have pushed `super` and the expression, but we need to remove them because
-                    // we actually are just going to throw an error. However, delete is supposed to
-                    // put a boolean on the stack and the class file writer would complain if we
-                    // don't have only popped here. So we pop and the push 0 (false). Anyway, this
-                    // is code that will always fail, so honestly no one will ever write something
-                    // like this (delete super[foo]), so... even if this is not the most efficient
-                    // bytecode, it's fine.
-                    cfw.add(ByteCode.POP2);
-                    cfw.addLoadConstant(0);
-                    addScriptRuntimeInvoke("throwDeleteOnSuperPropertyNotAllowed", "()V");
-                } else {
-                    cfw.addALoad(contextLocal);
-                    cfw.addPush(isName);
-                    addScriptRuntimeInvoke(
-                            "delete",
-                            "(Ljava/lang/Object;"
-                                    + "Ljava/lang/Object;"
-                                    + "Lorg/mozilla/javascript/Context;"
-                                    + "Z)Ljava/lang/Object;");
+                {
+                    boolean isName = child.getType() == Token.BINDNAME;
+                    boolean isSuperPropertyAccess =
+                            node.getIntProp(Node.SUPER_PROPERTY_ACCESS, 0) == 1;
+                    generateExpression(child, node);
+                    child = child.getNext();
+                    // For delete super[expr], per ES6 spec 13.3.7.1 step 2, we must call
+                    // GetThisBinding() BEFORE evaluating the expression. This throws
+                    // ReferenceError if 'this' is uninitialized in a derived constructor.
+                    if (isSuperPropertyAccess) {
+                        emitTdzCheckIfNeeded();
+                    }
+                    generateExpression(child, node);
+                    if (isSuperPropertyAccess) {
+                        // We have pushed `super` and the expression, but we need to remove them
+                        // because we actually are just going to throw an error. However, delete is
+                        // supposed to put a boolean on the stack and the class file writer would
+                        // complain if we don't have only popped here. So we pop and the push 0
+                        // (false). Anyway, this is code that will always fail, so honestly no one
+                        // will ever write something like this (delete super[foo]), so... even if
+                        // this is not the most efficient bytecode, it's fine.
+                        cfw.add(ByteCode.POP2);
+                        cfw.addLoadConstant(0);
+                        addScriptRuntimeInvoke("throwDeleteOnSuperPropertyNotAllowed", "()V");
+                    } else {
+                        cfw.addALoad(contextLocal);
+                        cfw.addPush(isName);
+                        addScriptRuntimeInvoke(
+                                "delete",
+                                "(Ljava/lang/Object;"
+                                        + "Ljava/lang/Object;"
+                                        + "Lorg/mozilla/javascript/Context;"
+                                        + "Z)Ljava/lang/Object;");
+                    }
                 }
                 break;
 

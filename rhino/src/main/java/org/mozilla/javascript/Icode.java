@@ -213,8 +213,12 @@ abstract class Icode {
             // Default constructor super call - forwards all function arguments to super
             Icode_DEFAULT_CTOR_SUPER_CALL = Icode_SUPER_CALL_SPREAD - 1,
 
+            // TDZ check for 'this' in derived class constructor - throws ReferenceError if
+            // uninitialized
+            Icode_CHECK_THIS_TDZ = Icode_DEFAULT_CTOR_SUPER_CALL - 1,
+
             // Last icode
-            MIN_ICODE = Icode_DEFAULT_CTOR_SUPER_CALL;
+            MIN_ICODE = Icode_CHECK_THIS_TDZ;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -446,6 +450,8 @@ abstract class Icode {
                 return "SUPER_CALL_SPREAD";
             case Icode_DEFAULT_CTOR_SUPER_CALL:
                 return "DEFAULT_CTOR_SUPER_CALL";
+            case Icode_CHECK_THIS_TDZ:
+                return "CHECK_THIS_TDZ";
         }
 
         // icode without name

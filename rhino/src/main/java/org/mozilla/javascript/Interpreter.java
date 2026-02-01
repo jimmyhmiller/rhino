@@ -1779,6 +1779,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_SUPER_CALL] = new DoSuperCall();
         instructionObjs[base + Icode_SUPER_CALL_SPREAD] = new DoSuperCallSpread();
         instructionObjs[base + Icode_DEFAULT_CTOR_SUPER_CALL] = new DoDefaultCtorSuperCall();
+        instructionObjs[base + Icode_CHECK_THIS_TDZ] = new DoCheckThisTdz();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
@@ -5410,6 +5411,21 @@ public final class Interpreter extends Icode implements Evaluator {
             // Push the new instance onto the stack
             frame.stack[++state.stackTop] = newInstance;
 
+            return null;
+        }
+    }
+
+    private static class DoCheckThisTdz extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Check if 'this' is initialized in a derived class constructor
+            // Per ES6 spec, GetThisBinding() should throw ReferenceError if this is uninitialized
+            JSDescriptor<?> desc = frame.fnOrScript.getDescriptor();
+            if (desc != null && desc.isDerivedClassConstructor() && !frame.superCalled) {
+                throw ScriptRuntime.constructError(
+                        "ReferenceError",
+                        "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+            }
             return null;
         }
     }
