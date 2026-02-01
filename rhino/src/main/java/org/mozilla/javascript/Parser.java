@@ -2916,12 +2916,21 @@ public class Parser {
         Scope block = new Scope(pos);
         block.setLineColumnNumber(lineNumber(), columnNumber());
         pushScope(block);
+        // Per ES6 sec-static-semantics-containsundefinedcontinuetarget:
+        // BlockStatement clears the label set for continue target validation.
+        // This ensures "continue label" inside a block cannot target a label
+        // that is attached to the block (not directly to an iteration statement).
+        // We achieve this by clearing currentLabel so that loops inside this
+        // block don't get associated with labels outside the block.
+        LabeledStatement savedLabel = currentLabel;
+        currentLabel = null;
         try {
             statements(block);
             mustMatchToken(Token.RC, "msg.no.brace.block", true);
             block.setLength(ts.tokenEnd - pos);
             return block;
         } finally {
+            currentLabel = savedLabel;
             popScope();
         }
     }
