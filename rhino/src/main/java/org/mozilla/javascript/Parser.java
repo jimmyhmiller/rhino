@@ -5949,7 +5949,8 @@ public class Parser {
 
             // store it to be transformed later
             if (transformer == null) {
-                currentScriptOrFn.putDestructuringRvalues(cond_inner, right);
+                // Pass the name for function name inference of anonymous classes/functions
+                currentScriptOrFn.putDestructuringRvalues(cond_inner, right, name);
             }
 
             parent.addChildToBack(

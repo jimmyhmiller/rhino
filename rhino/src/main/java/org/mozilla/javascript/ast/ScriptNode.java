@@ -266,7 +266,7 @@ public class ScriptNode extends Scope {
         return null;
     }
 
-    public List<Node[]> getDestructuringRvalues() {
+    public List<Object[]> getDestructuringRvalues() {
         return null;
     }
 
@@ -276,6 +276,9 @@ public class ScriptNode extends Scope {
 
     // Overridden in FunctionNode
     public void putDestructuringRvalues(Node left, Node right) {}
+
+    // Overridden in FunctionNode
+    public void putDestructuringRvalues(Node left, Node right, String targetName) {}
 
     public void addSymbol(Symbol symbol) {
         if (variableNames != null) codeBug();

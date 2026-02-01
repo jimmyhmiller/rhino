@@ -714,13 +714,19 @@ public final class IRFactory {
             }
 
             /* transform nodes used as default parameters */
-            List<Node[]> dfns = fn.getDestructuringRvalues();
+            List<Object[]> dfns = fn.getDestructuringRvalues();
             if (dfns != null) {
                 for (var i : dfns) {
-                    Node a = i[0];
+                    Node a = (Node) i[0];
                     if (i[1] instanceof AstNode) {
                         AstNode b = (AstNode) i[1];
-                        a.replaceChild(b, transform(b));
+                        String targetName = (String) i[2];
+                        Node transformed = transform(b);
+                        a.replaceChild(b, transformed);
+                        // Apply function name inference for anonymous classes/functions
+                        if (targetName != null) {
+                            inferFunctionNameForDefaultParam(transformed, targetName);
+                        }
                     }
                 }
             }
@@ -3163,6 +3169,32 @@ public final class IRFactory {
                 FunctionNode functionNode = parser.currentScriptOrFn.getFunctionNode(fnIndex);
                 // Only set name if not already set (anonymous class expression)
                 if (functionNode.getFunctionName() == null) {
+                    functionNode.setFunctionName(name);
+                }
+            }
+        }
+    }
+
+    /**
+     * Apply function name inference for anonymous functions/classes used as default values in
+     * destructuring parameters. This is called after the transformation when the class constructor
+     * actually exists.
+     */
+    private void inferFunctionNameForDefaultParam(Node transformed, String targetName) {
+        if (transformed.type == Token.FUNCTION) {
+            var fnIndex = transformed.getExistingIntProp(Node.FUNCTION_PROP);
+            FunctionNode functionNode = parser.currentScriptOrFn.getFunctionNode(fnIndex);
+            if (functionNode.getFunctionName() == null) {
+                Name name = new Name(0, targetName);
+                functionNode.setFunctionName(name);
+            }
+        } else if (transformed.type == Token.CLASS) {
+            Node constructorNode = transformed.getFirstChild();
+            if (constructorNode != null && constructorNode.type == Token.FUNCTION) {
+                var fnIndex = constructorNode.getExistingIntProp(Node.FUNCTION_PROP);
+                FunctionNode functionNode = parser.currentScriptOrFn.getFunctionNode(fnIndex);
+                if (functionNode.getFunctionName() == null) {
+                    Name name = new Name(0, targetName);
                     functionNode.setFunctionName(name);
                 }
             }

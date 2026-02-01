@@ -97,20 +97,25 @@ public class FunctionNode extends ScriptNode {
     }
 
     @Override
-    public List<Node[]> getDestructuringRvalues() {
+    public List<Object[]> getDestructuringRvalues() {
         return destructuringRvalues;
     }
 
     @Override
     public void putDestructuringRvalues(Node left, Node right) {
+        putDestructuringRvalues(left, right, null);
+    }
+
+    @Override
+    public void putDestructuringRvalues(Node left, Node right, String targetName) {
         if (destructuringRvalues == null) {
             destructuringRvalues = new ArrayList<>();
         }
-        destructuringRvalues.add(new Node[] {left, right});
+        destructuringRvalues.add(new Object[] {left, right, targetName});
     }
 
     ArrayList<Object> defaultParams;
-    ArrayList<Node[]> destructuringRvalues;
+    ArrayList<Object[]> destructuringRvalues;
 
     // codegen variables
     private int functionType;
