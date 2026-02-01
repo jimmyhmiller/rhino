@@ -623,11 +623,16 @@ public final class IRFactory {
             Node lhs = transform(iter);
             Node obj = transform(loop.getIteratedObject());
             Node body = transform(loop.getBody());
-            // Note: for-in/for-of loops have complex structure with LOCAL_BLOCK wrapper
-            // and we don't add ES6 completion value handling for them to avoid breaking
-            // the existing structure that NodeTransformer expects.
-            return createForIn(
-                    declType, loop, lhs, obj, body, loop, loop.isForEach(), loop.isForOf());
+            Node result =
+                    createForIn(
+                            declType, loop, lhs, obj, body, loop, loop.isForEach(), loop.isForOf());
+            // Add ES6 completion value handling for for-in/for-of loops
+            // The result is a LOCAL_BLOCK containing the loop
+            if (parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                    && result.getType() == Token.LOCAL_BLOCK) {
+                result.addChildToFront(createUndefinedResult(loop.getLineno(), loop.getColumn()));
+            }
+            return result;
         } finally {
             parser.popScope();
         }
