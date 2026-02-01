@@ -483,6 +483,57 @@ public class Parser {
         return false;
     }
 
+    /**
+     * Checks if the given token can be used as an identifier in the current context. In non-strict
+     * mode, 'let' and 'yield' can be used as identifiers. In strict mode, they are reserved.
+     */
+    private boolean isIdentifierToken(int tt) {
+        if (tt == Token.NAME) {
+            return true;
+        }
+        // In ES6 non-strict mode, 'let' and 'yield' can be used as identifiers
+        if (!inUseStrictDirective && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+            if (tt == Token.LET) {
+                return true;
+            }
+            // Yield is only a keyword inside generators
+            if (tt == Token.YIELD && !isCurrentFunctionGenerator()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Match an identifier token. In non-strict mode, this also accepts 'let' and 'yield' as
+     * identifiers (when appropriate).
+     */
+    private boolean matchIdentifier(boolean ignoreComment) throws IOException {
+        int tt = peekToken();
+        while (tt == Token.COMMENT && ignoreComment) {
+            consumeToken();
+            tt = peekToken();
+        }
+        if (!isIdentifierToken(tt)) {
+            return false;
+        }
+        consumeToken();
+        return true;
+    }
+
+    /**
+     * Require an identifier token. In non-strict mode, this also accepts 'let' and 'yield' as
+     * identifiers (when appropriate).
+     */
+    private boolean mustMatchIdentifier(String messageId, boolean ignoreComment)
+            throws IOException {
+        if (matchIdentifier(ignoreComment)) {
+            return true;
+        }
+        reportError(messageId, ts.tokenBeg, ts.tokenEnd - ts.tokenBeg);
+        return false;
+    }
+
     private void mustHaveXML() {
         if (!compilerEnv.isXmlAvailable()) {
             reportError("msg.XML.not.available");
@@ -946,7 +997,8 @@ public class Parser {
                     }
 
                     if (matchToken(Token.UNDEFINED, true)
-                            || mustMatchToken(Token.NAME, "msg.no.parm", true)) {
+                            || matchIdentifier(true)
+                            || mustMatchIdentifier("msg.no.parm", true)) {
 
                         if (!wasRest && fnNode.hasRestParameter()) {
                             // Error: parameter after rest parameter
@@ -2428,9 +2480,45 @@ public class Parser {
                 init = new EmptyExpression(ts.tokenBeg, 1);
                 // We haven't consumed the token, so we need the CURRENT lexer position
                 init.setLineColumnNumber(ts.getLineno(), ts.getTokenColumn());
-            } else if (tt == Token.VAR || tt == Token.LET || tt == Token.CONST) {
+            } else if (tt == Token.VAR || tt == Token.CONST) {
                 consumeToken();
                 init = variables(tt, ts.tokenBeg, false);
+            } else if (tt == Token.LET) {
+                // In ES6 non-strict mode, 'let' might be an identifier, not a declaration
+                // Per ES6: 'let [' is always a declaration; otherwise check if next can start
+                // binding
+                // In pre-ES6 (e.g., JS1.7), 'let' is always a keyword
+                if (inUseStrictDirective
+                        || compilerEnv.getLanguageVersion() < Context.VERSION_ES6) {
+                    consumeToken();
+                    init = variables(tt, ts.tokenBeg, false);
+                } else {
+                    // ES6 non-strict mode: Peek ahead to see what follows 'let'
+                    consumeToken();
+                    int letPos = ts.tokenBeg;
+                    int letLineno = lineNumber();
+                    int letColumn = columnNumber();
+                    int nextTT = peekToken();
+
+                    // 'let [' is always a declaration (lookahead restriction)
+                    if (nextTT == Token.LB) {
+                        init = variables(Token.LET, letPos, false);
+                    } else if (nextTT == Token.NAME
+                            || nextTT == Token.LC
+                            || nextTT == Token.YIELD
+                            || nextTT == Token.LET) {
+                        // Next token can start a binding, so it's a let declaration
+                        init = variables(Token.LET, letPos, false);
+                    } else {
+                        // Next token can't start a binding, so 'let' is an identifier
+                        // Save token info and parse as expression
+                        saveNameTokenData(letPos, "let", letLineno, letColumn);
+                        AstNode letName = createNameNode(true, Token.NAME);
+                        init = memberExprTail(false, letName);
+                        // Continue parsing for assignment operators, etc.
+                        init = assignExprTail(init);
+                    }
+                }
             } else {
                 init = expr(false);
             }
@@ -2438,6 +2526,21 @@ public class Parser {
         } finally {
             inForInit = false;
         }
+    }
+
+    /** Continue parsing assignment expression after we have the left-hand side */
+    private AstNode assignExprTail(AstNode pn) throws IOException {
+        int tt = peekToken();
+        if (Token.FIRST_ASSIGN <= tt && tt <= Token.LAST_ASSIGN) {
+            consumeToken();
+            markDestructuring(pn);
+            int opPos = ts.tokenBeg;
+            if (isNotValidSimpleAssignmentTarget(pn)) {
+                reportError("msg.syntax.invalid.assignment.lhs");
+            }
+            pn = new Assignment(tt, pn, assignExpr(), opPos);
+        }
+        return pn;
     }
 
     private TryStatement tryStatement() throws IOException {
@@ -2508,8 +2611,12 @@ public class Parser {
                                 }
                             } else {
                                 // Simple identifier
-                                if (!matchToken(Token.UNDEFINED, true)) {
-                                    mustMatchToken(Token.NAME, "msg.bad.catchcond", true);
+                                // In non-strict mode, 'let' can be used as an identifier
+                                // Reuse tt from above (line 2601)
+                                if (tt == Token.UNDEFINED || isIdentifierToken(tt)) {
+                                    consumeToken();
+                                } else {
+                                    mustMatchIdentifier("msg.bad.catchcond", true);
                                 }
 
                                 varName = createNameNode();
@@ -2770,8 +2877,8 @@ public class Parser {
     private AstNode letStatementOrIdentifier() throws IOException {
         if (currentToken != Token.LET) codeBug();
 
-        // In strict mode, 'let' is always a keyword
-        if (inUseStrictDirective) {
+        // In strict mode or pre-ES6, 'let' is always a keyword
+        if (inUseStrictDirective || compilerEnv.getLanguageVersion() < Context.VERSION_ES6) {
             return letStatement();
         }
 
@@ -2814,23 +2921,34 @@ public class Parser {
             return letStatementAfterConsume(letPos, letLineno, letColumn);
         }
 
-        // If followed by line break and next token can't start a binding, ASI applies
-        if (hasLineBreak) {
-            return letAsIdentifierExpression(letPos, letLineno, letColumn);
-        }
-
-        // Default: parse as let declaration/expression
-        return letStatementAfterConsume(letPos, letLineno, letColumn);
+        // If next token can't start a binding, treat 'let' as an identifier
+        // This handles cases like: let = 1; let(); let.foo; etc.
+        return letAsIdentifierExpression(letPos, letLineno, letColumn);
     }
 
     /**
-     * Parse 'let' as an identifier in an expression statement. Used in non-strict mode when ASI
-     * applies after 'let'. Called after 'let' token has been consumed.
+     * Parse 'let' as an identifier in an expression statement. Used in non-strict mode when 'let'
+     * is not followed by something that can start a binding. Called after 'let' token has been
+     * consumed.
      */
     private AstNode letAsIdentifierExpression(int pos, int lineno, int column) throws IOException {
-        Name letName = new Name(pos, ts.tokenEnd - pos, "let");
-        letName.setLineColumnNumber(lineno, column);
-        AstNode pn = new ExpressionStatement(letName, !insideFunctionBody());
+        // Save token info so createNameNode can use it
+        saveNameTokenData(pos, "let", lineno, column);
+        AstNode letName = createNameNode(true, Token.NAME);
+
+        // Continue parsing member expressions (property access, calls, etc.)
+        AstNode expr = memberExprTail(false, letName);
+
+        // Continue parsing for assignment operators
+        expr = assignExprTail(expr);
+
+        // Check for comma expressions
+        while (matchToken(Token.COMMA, true)) {
+            int opPos = ts.tokenBeg;
+            expr = new InfixExpression(Token.COMMA, expr, assignExpr(), opPos);
+        }
+
+        AstNode pn = new ExpressionStatement(expr, !insideFunctionBody());
         pn.setLineColumnNumber(lineno, column);
         return pn;
     }
@@ -3171,20 +3289,25 @@ public class Parser {
                 markDestructuring(destructuring);
             } else {
                 // Simple variable name
-                if (tt == Token.UNDEFINED) {
+                // In non-strict mode, 'let' can be used as an identifier
+                if (tt == Token.UNDEFINED || isIdentifierToken(tt)) {
                     consumeToken();
                 } else {
-                    mustMatchToken(Token.NAME, "msg.bad.var", true);
+                    mustMatchIdentifier("msg.bad.var", true);
                 }
                 name = createNameNode();
                 name.setLineColumnNumber(lineNumber(), columnNumber());
+                String id = ts.getString();
+                // ES6: 'let' cannot be used as a bound name in let/const declarations
+                if ((declType == Token.LET || declType == Token.CONST) && "let".equals(id)) {
+                    reportError("msg.let.not.valid.id");
+                }
                 if (inUseStrictDirective) {
-                    String id = ts.getString();
-                    if ("eval".equals(id) || "arguments".equals(ts.getString())) {
+                    if ("eval".equals(id) || "arguments".equals(id)) {
                         reportError("msg.bad.id.strict", id);
                     }
                 }
-                defineSymbol(declType, ts.getString(), inForInit);
+                defineSymbol(declType, id, inForInit);
             }
 
             int lineno = lineNumber(), column = columnNumber();
@@ -4501,6 +4624,22 @@ public class Parser {
                 return objectLiteral();
 
             case Token.LET:
+                // In non-strict mode, 'let' can be an identifier
+                if (!inUseStrictDirective
+                        && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                    consumeToken();
+                    int letPos = ts.tokenBeg;
+                    int letLineno = lineNumber();
+                    int letColumn = columnNumber();
+                    int nextTT = peekToken();
+                    // 'let (' is a let-expression (SpiderMonkey extension)
+                    if (nextTT == Token.LP) {
+                        return let(false, letPos);
+                    }
+                    // Otherwise, treat 'let' as an identifier
+                    saveNameTokenData(letPos, "let", letLineno, letColumn);
+                    return createNameNode(true, Token.NAME);
+                }
                 consumeToken();
                 return let(false, ts.tokenBeg);
 
