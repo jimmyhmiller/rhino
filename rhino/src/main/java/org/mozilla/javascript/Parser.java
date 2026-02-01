@@ -2159,6 +2159,11 @@ public class Parser {
             pn.setCondition(data.condition);
             pn.setParens(data.lp - pos, data.rp - pos);
             AstNode body = getNextStatementAfterInlineComments(pn);
+            // Function declarations are not allowed as while body (ES6 13.7.3)
+            if (body instanceof FunctionNode
+                    && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                reportError("msg.func.decl.not.stmt.position");
+            }
             pn.setLength(getNodeEnd(body) - pos);
             restoreRelativeLoopPosition(pn);
             pn.setBody(body);
@@ -2177,6 +2182,11 @@ public class Parser {
         enterLoop(pn);
         try {
             AstNode body = getNextStatementAfterInlineComments(pn);
+            // Function declarations are not allowed as do-while body (ES6 13.7.2)
+            if (body instanceof FunctionNode
+                    && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                reportError("msg.func.decl.not.stmt.position");
+            }
             mustMatchToken(Token.WHILE, "msg.no.while.do", true);
             pn.setWhilePosition(ts.tokenBeg - pos);
             ConditionData data = condition();
@@ -2387,6 +2397,11 @@ public class Parser {
             enterLoop(pn);
             try {
                 AstNode body = getNextStatementAfterInlineComments(pn);
+                // Function declarations are not allowed as for/for-in/for-of body (ES6 13.7)
+                if (body instanceof FunctionNode
+                        && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                    reportError("msg.func.decl.not.stmt.position");
+                }
                 pn.setLength(getNodeEnd(body) - forPos);
                 restoreRelativeLoopPosition(pn);
                 pn.setBody(body);
