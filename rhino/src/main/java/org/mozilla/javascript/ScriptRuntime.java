@@ -2778,6 +2778,10 @@ public class ScriptRuntime {
         boolean enumNumbers;
 
         Scriptable iterator;
+
+        // For ES6 for-of: tracks if the iterator was exhausted naturally (done=true)
+        // If true, iterator.return() should NOT be called on loop exit
+        boolean done;
     }
 
     public static Scriptable toIterator(Context cx, Scriptable obj, boolean keyOnly) {
@@ -2960,6 +2964,8 @@ public class ScriptRuntime {
         Scriptable iteratorResult = toObject(cx, scope, r);
         Object done = ScriptableObject.getProperty(iteratorResult, ES6Iterator.DONE_PROPERTY);
         if (done != Scriptable.NOT_FOUND && toBoolean(done)) {
+            // Mark that iterator was exhausted naturally - no need to call return()
+            enumObj.done = true;
             return Boolean.FALSE;
         }
         enumObj.currentId =
@@ -3006,6 +3012,54 @@ public class ScriptRuntime {
         }
 
         return result;
+    }
+
+    /**
+     * ES6 IteratorClose operation for for-of loops. Called when a for-of loop is exited via break,
+     * return, or throw. Does nothing if the iterator was naturally exhausted.
+     *
+     * @param enumObj the IdEnumeration object from ENUM_INIT
+     * @param cx the context
+     */
+    public static void enumClose(Object enumObj, Context cx) {
+        // Handle null - can happen if exception occurs before ENUM_INIT runs
+        if (enumObj == null) {
+            return;
+        }
+        IdEnumeration x = (IdEnumeration) enumObj;
+        // Only close ES6 for-of iterators, and only if not exhausted naturally
+        if (x.enumType != ENUMERATE_VALUES_IN_ORDER || x.iterator == null || x.done) {
+            return;
+        }
+
+        // Get the 'return' method from the iterator
+        Object returnMethod = ScriptableObject.getProperty(x.iterator, "return");
+        if (returnMethod == null || returnMethod == Scriptable.NOT_FOUND) {
+            return;
+        }
+        if (!(returnMethod instanceof Callable)) {
+            throw typeErrorById(
+                    "msg.isnt.function.in", "return", toString(x.iterator), typeof(returnMethod));
+        }
+
+        Callable f = (Callable) returnMethod;
+        Scriptable scope;
+        if (f instanceof Function) {
+            scope = ((Function) f).getDeclarationScope();
+        } else {
+            scope = cx.topCallScope;
+        }
+
+        // Call iterator.return()
+        Object result = f.call(cx, scope, x.iterator, emptyArgs);
+
+        // The return value must be an object (per ES6 spec 7.4.6 step 6)
+        if (!isObject(result)) {
+            throw typeErrorById("msg.return.not.object");
+        }
+
+        // Mark as done to prevent double-closing
+        x.done = true;
     }
 
     private static void enumChangeObject(IdEnumeration x) {

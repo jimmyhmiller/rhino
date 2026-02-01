@@ -2364,7 +2364,23 @@ public final class IRFactory {
                 }
             }
 
-            localBlock.addChildToBack(loop);
+            // ES6: for-of loops need iterator closing when exited via break/return/throw
+            if (isForOf) {
+                // Create ENUM_CLOSE for finally block
+                Node enumClose = new Node(Token.ENUM_CLOSE);
+                enumClose.putProp(Node.LOCAL_BLOCK_PROP, localBlock);
+
+                Node finallyBlock = new Node(Token.BLOCK);
+                finallyBlock.addChildToBack(enumClose);
+
+                // Wrap the loop in try-finally with ENUM_CLOSE in finally
+                Node tryFinally =
+                        createIteratorCloseTryFinally(
+                                loop, finallyBlock, localBlock, ast.getLineno(), ast.getColumn());
+                localBlock.addChildToBack(tryFinally);
+            } else {
+                localBlock.addChildToBack(loop);
+            }
 
             return localBlock;
         } finally {
@@ -2555,6 +2571,47 @@ public final class IRFactory {
 
             pn.addChildToBack(finallyEnd);
         }
+        handlerBlock.addChildToBack(pn);
+        return handlerBlock;
+    }
+
+    /**
+     * Creates a try-finally structure for ES6 iterator closing. This is used by for-of loops to
+     * ensure that iterator.return() is called when the loop is exited via break, return, or throw.
+     *
+     * @param tryBlock the try block (the loop)
+     * @param finallyBlock the finally block containing ENUM_CLOSE
+     * @param enumLocalBlock the LOCAL_BLOCK containing the IdEnumeration
+     * @param lineno line number
+     * @param column column number
+     * @return the try-finally structure
+     */
+    private Node createIteratorCloseTryFinally(
+            Node tryBlock, Node finallyBlock, Node enumLocalBlock, int lineno, int column) {
+        // Create a handler block for this try-finally (separate from the enum local block)
+        Node handlerBlock = new Node(Token.LOCAL_BLOCK);
+        Jump pn = new Jump(Token.TRY, tryBlock);
+        pn.setLineColumnNumber(lineno, column);
+        pn.putProp(Node.LOCAL_BLOCK_PROP, handlerBlock);
+
+        // Set up the finally
+        Node finallyTarget = Node.newTarget();
+        pn.setFinally(finallyTarget);
+
+        // Add JSR to finally after try block completes normally
+        pn.addChildToBack(makeJump(Token.JSR, finallyTarget));
+
+        // Jump around finally code
+        Node finallyEnd = Node.newTarget();
+        pn.addChildToBack(makeJump(Token.GOTO, finallyEnd));
+
+        pn.addChildToBack(finallyTarget);
+        Node fBlock = new Node(Token.FINALLY, finallyBlock);
+        fBlock.putProp(Node.LOCAL_BLOCK_PROP, handlerBlock);
+        pn.addChildToBack(fBlock);
+
+        pn.addChildToBack(finallyEnd);
+
         handlerBlock.addChildToBack(pn);
         return handlerBlock;
     }

@@ -568,6 +568,11 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 stackChange(-1);
                 break;
 
+            case Token.ENUM_CLOSE:
+                addIndexOp(type, getLocalBlockRef(node));
+                // No stack change - enumClose doesn't return a value
+                break;
+
             case Icode_GENERATOR:
                 break;
 

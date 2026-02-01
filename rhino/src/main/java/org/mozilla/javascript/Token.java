@@ -110,7 +110,8 @@ public class Token {
             ENUM_INIT_VALUES_IN_ORDER = ENUM_INIT_ARRAY + 1,
             ENUM_NEXT = ENUM_INIT_VALUES_IN_ORDER + 1,
             ENUM_ID = ENUM_NEXT + 1,
-            THISFN = ENUM_ID + 1,
+            ENUM_CLOSE = ENUM_ID + 1, // Close iterator for for-of loops
+            THISFN = ENUM_CLOSE + 1,
             RETURN_RESULT = THISFN + 1, // to return previously stored return result
             ARRAYLIT = RETURN_RESULT + 1, // array literal
             OBJECTLIT = ARRAYLIT + 1, // object literal
@@ -428,6 +429,8 @@ public class Token {
                 return "ENUM_NEXT";
             case ENUM_ID:
                 return "ENUM_ID";
+            case ENUM_CLOSE:
+                return "ENUM_CLOSE";
             case THISFN:
                 return "THISFN";
             case RETURN_RESULT:

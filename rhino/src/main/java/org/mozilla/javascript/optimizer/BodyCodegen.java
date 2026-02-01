@@ -772,8 +772,14 @@ class BodyCodegen {
                 {
                     boolean prevLocal = inLocalBlock;
                     inLocalBlock = true;
-                    // For generators, getNewWordLocal() already initializes the local to null
+                    // For generators, getNewWordLocal() already initializes the local to null.
+                    // For non-generators, we must explicitly initialize to null for bytecode
+                    // verification when try-finally accesses the local in finally blocks.
                     int local = getNewWordLocal();
+                    if (!isGenerator) {
+                        cfw.add(ByteCode.ACONST_NULL);
+                        cfw.addAStore(local);
+                    }
                     node.putIntProp(Node.LOCAL_PROP, local);
                     while (child != null) {
                         generateStatement(child);
@@ -1004,6 +1010,17 @@ class BodyCodegen {
                                 + ")Ljava/lang/Object;");
                 cfw.addAStore(getLocalBlockRegister(node));
                 break;
+
+            case Token.ENUM_CLOSE:
+                {
+                    int local = getLocalBlockRegister(node);
+                    cfw.addALoad(local);
+                    cfw.addALoad(contextLocal);
+                    addScriptRuntimeInvoke(
+                            "enumClose",
+                            "(Ljava/lang/Object;" + "Lorg/mozilla/javascript/Context;" + ")V");
+                    break;
+                }
 
             case Token.EXPR_VOID:
                 if (child.getType() == Token.SETVAR) {
