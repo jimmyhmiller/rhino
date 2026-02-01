@@ -5366,7 +5366,9 @@ public class ScriptRuntime {
                         varScope.put(name, varScope, Undefined.instance);
                     }
                 } else {
-                    ScriptableObject.redefineProperty(scope, name, isConst);
+                    // hasFunctionNamed returns false when there IS a function with that name
+                    boolean isFunction = !desc.hasFunctionNamed(name);
+                    ScriptableObject.redefineProperty(scope, name, isConst, isFunction);
                     // For eval var declarations, if the existing binding is TDZ_VALUE from
                     // a let/const in a nested scope (e.g., function body), we need to allow
                     // the var to coexist. Clear the TDZ state by setting to undefined.

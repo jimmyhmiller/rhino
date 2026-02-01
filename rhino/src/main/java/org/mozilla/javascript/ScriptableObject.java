@@ -504,7 +504,9 @@ public abstract class ScriptableObject extends SlotMapOwner
     }
 
     /**
-     * Returns true if the named property is defined as a const on this object.
+     * Returns true if the named property is defined as a const on this object. This specifically
+     * checks for ES6 const bindings (which have CONST_BINDING flag), not just readonly properties
+     * like global Infinity/NaN/undefined which can be shadowed by var declarations.
      *
      * @param name the name of the property
      * @return true if the named property is defined as a const, false otherwise.
@@ -515,7 +517,7 @@ public abstract class ScriptableObject extends SlotMapOwner
         if (slot == null) {
             return false;
         }
-        return (slot.getAttributes() & (PERMANENT | READONLY)) == (PERMANENT | READONLY);
+        return (slot.getAttributes() & CONST_BINDING) != 0;
     }
 
     /**
@@ -2741,6 +2743,30 @@ public abstract class ScriptableObject extends SlotMapOwner
      * if this one is. They are compatible only if neither was const.
      */
     public static void redefineProperty(Scriptable obj, String name, boolean isConst) {
+        redefineProperty(obj, name, isConst, false);
+    }
+
+    /**
+     * If hasProperty(obj, name) would return true, then if the property that was found is
+     * compatible with the new property, this method just returns. If the property is not
+     * compatible, then an exception is thrown.
+     *
+     * <p>A property redefinition is incompatible if:
+     *
+     * <ul>
+     *   <li>the first definition was a const declaration (ES6 const binding)
+     *   <li>this definition is a const declaration
+     *   <li>this is a function declaration and the existing property is non-configurable (per ES6
+     *       CanDeclareGlobalFunction)
+     * </ul>
+     *
+     * @param obj the object to check
+     * @param name the property name
+     * @param isConst whether this is a const declaration
+     * @param isFunction whether this is a function declaration (not var)
+     */
+    public static void redefineProperty(
+            Scriptable obj, String name, boolean isConst, boolean isFunction) {
         Scriptable base = getBase(obj, name);
         if (base == null) return;
         if (base instanceof ConstProperties) {
@@ -2749,6 +2775,19 @@ public abstract class ScriptableObject extends SlotMapOwner
             if (cp.isConst(name)) throw ScriptRuntime.typeErrorById("msg.const.redecl", name);
         }
         if (isConst) throw ScriptRuntime.typeErrorById("msg.var.redecl", name);
+
+        // ES6 8.1.1.4.16 CanDeclareGlobalFunction: function declarations cannot
+        // shadow non-configurable, non-writable global properties. If writable,
+        // the function value can be assigned even if non-configurable.
+        if (isFunction && base instanceof ScriptableObject) {
+            ScriptableObject so = (ScriptableObject) base;
+            Slot slot = so.getMap().query(name, 0);
+            if (slot != null
+                    && (slot.getAttributes() & PERMANENT) != 0
+                    && (slot.getAttributes() & READONLY) != 0) {
+                throw ScriptRuntime.typeErrorById("msg.const.redecl", name);
+            }
+        }
     }
 
     /**
