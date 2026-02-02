@@ -229,6 +229,11 @@ public class NativeRegExp extends IdScriptableObject {
     }
 
     // ES6 21.2.5.10 get RegExp.prototype.source
+    // ES6 21.2.3.2.4 EscapeRegExpPattern: The result must be a valid pattern that
+    // can be used in a /source/ literal. This requires:
+    // - Empty patterns return "(?:)"
+    // - Line terminators must be escaped
+    // - Forward slashes must be escaped
     private static Object getSourceGetter(NativeRegExp proto, Scriptable thisObj) {
         if (!(thisObj instanceof ScriptableObject)) {
             throw ScriptRuntime.typeErrorById(
@@ -236,13 +241,61 @@ public class NativeRegExp extends IdScriptableObject {
         }
         if (thisObj instanceof NativeRegExp) {
             NativeRegExp re = (NativeRegExp) thisObj;
-            return new String(re.re.source);
+            // Return "(?:)" for empty source per ES6 21.2.3.2.4
+            if (re.re.source.length == 0) {
+                return "(?:)";
+            }
+            return escapeRegExpPattern(new String(re.re.source));
         }
         // If this is RegExp.prototype itself, return "(?:)"
         if (thisObj == proto) {
             return "(?:)";
         }
         throw ScriptRuntime.typeErrorById("msg.incompat.call", "RegExp.prototype.source getter");
+    }
+
+    // ES6 21.2.3.2.4 EscapeRegExpPattern
+    // Escapes characters that would be invalid in a /source/ literal
+    private static String escapeRegExpPattern(String source) {
+        StringBuilder sb = null;
+        int start = 0;
+        for (int i = 0; i < source.length(); i++) {
+            char c = source.charAt(i);
+            String escape = null;
+            switch (c) {
+                case '\n':
+                    escape = "\\n";
+                    break;
+                case '\r':
+                    escape = "\\r";
+                    break;
+                case '\u2028':
+                    escape = "\\u2028";
+                    break;
+                case '\u2029':
+                    escape = "\\u2029";
+                    break;
+                case '/':
+                    // Only escape unescaped forward slashes
+                    if (i == 0 || source.charAt(i - 1) != '\\') {
+                        escape = "\\/";
+                    }
+                    break;
+            }
+            if (escape != null) {
+                if (sb == null) {
+                    sb = new StringBuilder();
+                }
+                sb.append(source, start, i);
+                sb.append(escape);
+                start = i + 1;
+            }
+        }
+        if (sb == null) {
+            return source;
+        }
+        sb.append(source, start, source.length());
+        return sb.toString();
     }
 
     // ES6 21.2.5.3 get RegExp.prototype.flags
