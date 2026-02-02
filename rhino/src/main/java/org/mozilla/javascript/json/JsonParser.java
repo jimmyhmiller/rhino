@@ -311,7 +311,7 @@ public class JsonParser {
         String num = src.substring(numberStart, pos);
         final double dval = Double.parseDouble(num);
         final int ival = (int) dval;
-        if (ival == dval) {
+        if (ival == dval && Double.compare(dval, -0.0) != 0) {
             return Integer.valueOf(ival);
         }
         return Double.valueOf(dval);
