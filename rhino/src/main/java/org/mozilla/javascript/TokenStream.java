@@ -100,7 +100,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
                 Id_delete = Token.DELPROP,
                 Id_do = Token.DO,
                 Id_else = Token.ELSE,
-                Id_export = Token.RESERVED,
+                Id_export = Token.EXPORT,
                 Id_false = Token.FALSE,
                 Id_for = Token.FOR,
                 Id_function = Token.FUNCTION,
@@ -138,7 +138,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
                 Id_float = Token.RESERVED, // ES3 only
                 Id_goto = Token.RESERVED, // ES3 only
                 Id_implements = Token.RESERVED, // ES3, ES5 strict
-                Id_import = Token.RESERVED,
+                Id_import = Token.IMPORT,
                 Id_instanceof = Token.INSTANCEOF,
                 Id_int = Token.RESERVED, // ES3
                 Id_interface = Token.RESERVED, // ES3, ES5 strict
@@ -372,13 +372,13 @@ class TokenStream implements Parser.CurrentPositionReporter {
                 Id_delete = Token.DELPROP,
                 Id_do = Token.DO,
                 Id_else = Token.ELSE,
-                Id_export = Token.RESERVED,
+                Id_export = Token.EXPORT,
                 Id_extends = Token.EXTENDS,
                 Id_finally = Token.FINALLY,
                 Id_for = Token.FOR,
                 Id_function = Token.FUNCTION,
                 Id_if = Token.IF,
-                Id_import = Token.RESERVED,
+                Id_import = Token.IMPORT,
                 Id_in = Token.IN,
                 Id_instanceof = Token.INSTANCEOF,
                 Id_new = Token.NEW,

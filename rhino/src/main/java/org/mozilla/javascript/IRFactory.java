@@ -31,6 +31,7 @@ import org.mozilla.javascript.ast.DestructuringForm;
 import org.mozilla.javascript.ast.DoLoop;
 import org.mozilla.javascript.ast.ElementGet;
 import org.mozilla.javascript.ast.EmptyExpression;
+import org.mozilla.javascript.ast.ExportDeclaration;
 import org.mozilla.javascript.ast.ExpressionStatement;
 import org.mozilla.javascript.ast.ForInLoop;
 import org.mozilla.javascript.ast.ForLoop;
@@ -40,6 +41,7 @@ import org.mozilla.javascript.ast.GeneratorExpression;
 import org.mozilla.javascript.ast.GeneratorExpressionLoop;
 import org.mozilla.javascript.ast.GeneratorMethodDefinition;
 import org.mozilla.javascript.ast.IfStatement;
+import org.mozilla.javascript.ast.ImportDeclaration;
 import org.mozilla.javascript.ast.InfixExpression;
 import org.mozilla.javascript.ast.Jump;
 import org.mozilla.javascript.ast.KeywordLiteral;
@@ -200,6 +202,10 @@ public final class IRFactory {
                 return transformCondExpr((ConditionalExpression) node);
             case Token.IF:
                 return transformIf((IfStatement) node);
+            case Token.IMPORT:
+                return transformImport((ImportDeclaration) node);
+            case Token.EXPORT:
+                return transformExport((ExportDeclaration) node);
 
             case Token.TRUE:
             case Token.FALSE:
@@ -1408,6 +1414,72 @@ public final class IRFactory {
             ifFalse = transform(n.getElsePart());
         }
         return createIf(cond, ifTrue, ifFalse, n.getLineno(), n.getColumn());
+    }
+
+    /**
+     * Transform an import declaration.
+     *
+     * <p>For now, import declarations are transformed to EMPTY nodes since actual module loading
+     * requires the module loader infrastructure. The import bindings are already defined in the
+     * scope by the parser.
+     */
+    private Node transformImport(ImportDeclaration node) {
+        // TODO: Once module loading infrastructure is in place, this should generate
+        // runtime calls to load and link the module. For now, we just return an empty
+        // node since the bindings are already defined.
+        Node result = new Node(Token.EMPTY);
+        result.setLineColumnNumber(node.getLineno(), node.getColumn());
+        return result;
+    }
+
+    /**
+     * Transform an export declaration.
+     *
+     * <p>Export declarations with an underlying declaration (function, class, var/let/const) are
+     * transformed to that declaration. The export metadata is recorded for the module but doesn't
+     * affect the generated code directly.
+     */
+    private Node transformExport(ExportDeclaration node) {
+        // If there's a declaration, transform and return it
+        if (node.getDeclaration() != null) {
+            Node transformed = transform(node.getDeclaration());
+
+            // For default exports with a class/function expression, wrap in EXPR_RESULT
+            // so the value can be captured as the script result for the module's default export.
+            // This is necessary because CLASS nodes aren't handled by visitStatement,
+            // and anonymous function expressions also need to be wrapped.
+            if (node.isDefault()) {
+                int type = transformed.getType();
+                // CLASS nodes need wrapping for statement context
+                // Also wrap FUNCTION nodes that are expressions (anonymous default exports)
+                if (type == Token.CLASS
+                        || (type == Token.FUNCTION
+                                && node.getDeclaration() instanceof FunctionNode
+                                && ((FunctionNode) node.getDeclaration()).getFunctionType()
+                                        == FunctionNode.FUNCTION_EXPRESSION)) {
+                    Node exprStmt = new Node(Token.EXPR_RESULT, transformed);
+                    exprStmt.setLineColumnNumber(node.getLineno(), node.getColumn());
+                    return exprStmt;
+                }
+            }
+
+            return transformed;
+        }
+
+        // For default exports with an expression, return the value so it can be captured
+        if (node.isDefault() && node.getDefaultExpression() != null) {
+            Node expr = transform(node.getDefaultExpression());
+            // Use EXPR_RESULT so the value can be captured as the script result
+            Node exprStmt = new Node(Token.EXPR_RESULT, expr);
+            exprStmt.setLineColumnNumber(node.getLineno(), node.getColumn());
+            return exprStmt;
+        }
+
+        // Named exports without a declaration (e.g., export { a, b }) or re-exports
+        // don't produce any runtime code - they're just metadata
+        Node result = new Node(Token.EMPTY);
+        result.setLineColumnNumber(node.getLineno(), node.getColumn());
+        return result;
     }
 
     private Node transformInfix(InfixExpression node) {

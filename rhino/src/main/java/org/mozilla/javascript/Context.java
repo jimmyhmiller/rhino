@@ -33,6 +33,8 @@ import org.mozilla.javascript.ast.AstRoot;
 import org.mozilla.javascript.ast.ScriptNode;
 import org.mozilla.javascript.debug.DebuggableScript;
 import org.mozilla.javascript.debug.Debugger;
+import org.mozilla.javascript.es6module.ModuleLoader;
+import org.mozilla.javascript.es6module.ModuleRecord;
 import org.mozilla.javascript.lc.type.TypeInfo;
 import org.mozilla.javascript.lc.type.TypeInfoFactory;
 import org.mozilla.javascript.xml.XMLLib;
@@ -1279,6 +1281,274 @@ public class Context implements Closeable {
             return script.exec(this, scope, scope);
         }
         return null;
+    }
+
+    /**
+     * Sets the module loader for this context.
+     *
+     * <p>The module loader is responsible for resolving and loading ES6 modules. If set, module
+     * import/export syntax can be used.
+     *
+     * @param loader the module loader to use, or null to disable module loading
+     * @since 1.8.0
+     */
+    public void setModuleLoader(ModuleLoader loader) {
+        this.moduleLoader = loader;
+    }
+
+    /**
+     * Returns the module loader for this context.
+     *
+     * @return the module loader, or null if none is set
+     * @since 1.8.0
+     */
+    public ModuleLoader getModuleLoader() {
+        return moduleLoader;
+    }
+
+    /**
+     * Compiles source code as an ES6 module.
+     *
+     * <p>Modules are always parsed in strict mode. The returned ModuleRecord contains the compiled
+     * script and metadata about the module's imports and exports.
+     *
+     * @param source the module source code
+     * @param sourceName a string describing the source, such as a filename
+     * @param lineno the starting line number
+     * @param securityDomain an arbitrary object that specifies security information about the
+     *     origin or owner of the module. For implementations that don't care about security, this
+     *     value may be null.
+     * @return the compiled ModuleRecord
+     * @since 1.8.0
+     */
+    public ModuleRecord compileModule(
+            String source, String sourceName, int lineno, Object securityDomain) {
+        if (lineno < 0) {
+            lineno = 0;
+        }
+        if (sourceName == null) {
+            sourceName = "unnamed module";
+        }
+        if (securityDomain != null && getSecurityController() == null) {
+            throw new IllegalArgumentException(
+                    "securityDomain should be null if setSecurityController() was never called");
+        }
+
+        CompilerEnvirons compilerEnv = new CompilerEnvirons();
+        compilerEnv.initFromContext(this);
+        compilerEnv.setSecurityDomain(securityDomain);
+        ErrorReporter errorReporter = compilerEnv.getErrorReporter();
+
+        // Parse as module
+        Parser p = new Parser(compilerEnv, errorReporter);
+        AstRoot ast = p.parseModule(source, sourceName, lineno);
+
+        // Create and populate ModuleRecord from the AST BEFORE transformation
+        // (transformation modifies the AST nodes in place)
+        ModuleRecord moduleRecord = new ModuleRecord(sourceName);
+        ModuleAnalyzer.analyze(ast, moduleRecord);
+
+        // Transform the AST
+        IRFactory irf = new IRFactory(compilerEnv, sourceName, source, errorReporter);
+        ScriptNode tree = irf.transformTree(ast);
+
+        if (compilerEnv.isGeneratingSource()) {
+            tree.setRawSource(source);
+            tree.setRawSourceBounds(0, source.length());
+        }
+
+        // Compile the module
+        Evaluator compiler = createCompiler();
+        Object bytecode;
+        try {
+            bytecode = compiler.compile(compilerEnv, tree, source, false);
+        } catch (ClassFileFormatException e) {
+            // Fall back to interpreter - need to re-parse since AST was modified
+            Parser p2 = new Parser(compilerEnv, errorReporter);
+            AstRoot ast2 = p2.parseModule(source, sourceName, lineno);
+            IRFactory irf2 = new IRFactory(compilerEnv, sourceName, source, errorReporter);
+            tree = irf2.transformTree(ast2);
+            compiler = createInterpreter();
+            bytecode = compiler.compile(compilerEnv, tree, source, false);
+        }
+
+        Script script = (Script) compiler.createScriptObject(bytecode, securityDomain);
+        moduleRecord.setScript(script);
+
+        return moduleRecord;
+    }
+
+    /**
+     * Evaluates an ES6 module and returns the namespace object.
+     *
+     * <p>This method compiles the module, links it (resolving imports), and evaluates it. The
+     * module's namespace object is returned, which provides access to the module's exports.
+     *
+     * @param scope the scope for module evaluation
+     * @param source the module source code
+     * @param sourceName a string describing the source, such as a filename
+     * @return the module's namespace object
+     * @since 1.8.0
+     */
+    public Scriptable evaluateModule(Scriptable scope, String source, String sourceName) {
+        ModuleRecord moduleRecord = compileModule(source, sourceName, 1, null);
+        return linkAndEvaluateModule(scope, moduleRecord);
+    }
+
+    /**
+     * Links and evaluates a compiled module.
+     *
+     * <p>This performs the module linking phase (resolving imports) and evaluation phase (executing
+     * module code). If the module has already been evaluated, this returns the cached namespace.
+     *
+     * @param scope the scope for module evaluation
+     * @param moduleRecord the compiled module
+     * @return the module's namespace object
+     * @since 1.8.0
+     */
+    public Scriptable linkAndEvaluateModule(Scriptable scope, ModuleRecord moduleRecord) {
+        if (moduleRecord.getStatus() == ModuleRecord.Status.EVALUATED) {
+            return moduleRecord.getNamespaceObject();
+        }
+
+        // Link phase - resolve imports (this also creates module environments)
+        linkModule(moduleRecord, scope);
+
+        // Evaluate phase - execute module code (evaluates dependencies first)
+        evaluateModuleInternal(moduleRecord, scope);
+
+        return moduleRecord.getNamespaceObject();
+    }
+
+    /**
+     * Links a module by resolving its imports.
+     *
+     * @param moduleRecord the module to link
+     * @param globalScope the global scope for creating module environments
+     */
+    private void linkModule(ModuleRecord moduleRecord, Scriptable globalScope) {
+        if (moduleRecord.getStatus() != ModuleRecord.Status.UNLINKED) {
+            return;
+        }
+
+        moduleRecord.setStatus(ModuleRecord.Status.LINKING);
+
+        // Create module environment if not already created
+        if (moduleRecord.getModuleEnvironment() == null) {
+            ModuleScope moduleScope = new ModuleScope(globalScope, moduleRecord);
+            moduleRecord.setModuleEnvironment(moduleScope);
+        }
+
+        // For each requested module, load and link it
+        for (String specifier : moduleRecord.getRequestedModules()) {
+            if (moduleLoader == null) {
+                throw ScriptRuntime.constructError(
+                        "Error", "Cannot resolve module '" + specifier + "': no module loader set");
+            }
+
+            try {
+                String resolved = moduleLoader.resolveModule(specifier, moduleRecord);
+                ModuleRecord dep = moduleLoader.getCachedModule(resolved);
+                if (dep == null) {
+                    dep = moduleLoader.loadModule(this, resolved);
+                }
+
+                if (dep.getStatus() == ModuleRecord.Status.UNLINKED) {
+                    linkModule(dep, globalScope);
+                }
+            } catch (ModuleLoader.ModuleResolutionException e) {
+                throw ScriptRuntime.constructError(
+                        "SyntaxError",
+                        "Cannot resolve module '" + specifier + "': " + e.getMessage());
+            } catch (ModuleLoader.ModuleLoadException e) {
+                throw ScriptRuntime.constructError(
+                        "Error", "Cannot load module '" + specifier + "': " + e.getMessage());
+            }
+        }
+
+        moduleRecord.setStatus(ModuleRecord.Status.LINKED);
+    }
+
+    /**
+     * Evaluates a linked module and its dependencies.
+     *
+     * @param moduleRecord the module to evaluate
+     * @param globalScope the global scope
+     */
+    private void evaluateModuleInternal(ModuleRecord moduleRecord, Scriptable globalScope) {
+        ModuleRecord.Status status = moduleRecord.getStatus();
+        if (status == ModuleRecord.Status.EVALUATED
+                || status == ModuleRecord.Status.EVALUATED_ERROR) {
+            if (moduleRecord.getEvaluationError() != null) {
+                throw ScriptRuntime.constructError(
+                        "Error",
+                        "Module evaluation failed: "
+                                + moduleRecord.getEvaluationError().getMessage());
+            }
+            return;
+        }
+
+        // For circular dependencies - if we're already evaluating this module, just return
+        if (status == ModuleRecord.Status.EVALUATING) {
+            return;
+        }
+
+        // Mark as evaluating BEFORE processing dependencies to handle circular imports
+        moduleRecord.setStatus(ModuleRecord.Status.EVALUATING);
+
+        // Evaluate all dependencies first
+        for (String specifier : moduleRecord.getRequestedModules()) {
+            if (moduleLoader != null) {
+                try {
+                    String resolved = moduleLoader.resolveModule(specifier, moduleRecord);
+                    ModuleRecord dep = moduleLoader.getCachedModule(resolved);
+                    if (dep != null) {
+                        ModuleRecord.Status depStatus = dep.getStatus();
+                        // Only evaluate if linked and not already evaluated/evaluating
+                        if (depStatus == ModuleRecord.Status.LINKED) {
+                            evaluateModuleInternal(dep, globalScope);
+                        }
+                    }
+                } catch (ModuleLoader.ModuleResolutionException e) {
+                    // Already handled during linking
+                }
+            }
+        }
+
+        try {
+            // Execute module code
+            Scriptable moduleScope = moduleRecord.getModuleEnvironment();
+            Script script = moduleRecord.getScript();
+            Object scriptResult = script.exec(this, moduleScope, moduleScope);
+
+            // Create namespace object with exports
+            Set<String> exportNames = new java.util.TreeSet<>();
+            for (ModuleRecord.ExportEntry entry : moduleRecord.getLocalExportEntries()) {
+                String exportName = entry.getExportName();
+                String localName = entry.getLocalName();
+                if (exportName != null) {
+                    exportNames.add(exportName);
+                    if ("default".equals(exportName) && "*default*".equals(localName)) {
+                        // Default export with expression - use script result
+                        moduleRecord.setExportBinding("default", scriptResult);
+                    } else {
+                        // Copy value from module scope to export bindings
+                        Object value = ScriptableObject.getProperty(moduleScope, localName);
+                        moduleRecord.setExportBinding(exportName, value);
+                    }
+                }
+            }
+
+            org.mozilla.javascript.es6module.NativeModuleNamespace ns =
+                    new org.mozilla.javascript.es6module.NativeModuleNamespace(
+                            moduleRecord, exportNames);
+            moduleRecord.setNamespaceObject(ns);
+
+            moduleRecord.setStatus(ModuleRecord.Status.EVALUATED);
+        } catch (Throwable t) {
+            moduleRecord.setEvaluationError(t);
+            throw t instanceof RuntimeException ? (RuntimeException) t : new RuntimeException(t);
+        }
     }
 
     /**
@@ -2838,6 +3108,7 @@ public class Context implements Closeable {
     private Map<Object, Object> threadLocalMap;
     private ClassLoader applicationClassLoader;
     private UnaryOperator<Object> javaToJSONConverter;
+    private ModuleLoader moduleLoader;
     private final ArrayDeque<Runnable> microtasks = new ArrayDeque<>();
     private final UnhandledRejectionTracker unhandledPromises = new UnhandledRejectionTracker();
 

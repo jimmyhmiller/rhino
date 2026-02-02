@@ -37,6 +37,8 @@ import org.mozilla.javascript.ast.ElementGet;
 import org.mozilla.javascript.ast.EmptyExpression;
 import org.mozilla.javascript.ast.EmptyStatement;
 import org.mozilla.javascript.ast.ErrorNode;
+import org.mozilla.javascript.ast.ExportDeclaration;
+import org.mozilla.javascript.ast.ExportSpecifier;
 import org.mozilla.javascript.ast.ExpressionStatement;
 import org.mozilla.javascript.ast.ForInLoop;
 import org.mozilla.javascript.ast.ForLoop;
@@ -47,6 +49,8 @@ import org.mozilla.javascript.ast.GeneratorExpressionLoop;
 import org.mozilla.javascript.ast.GeneratorMethodDefinition;
 import org.mozilla.javascript.ast.IdeErrorReporter;
 import org.mozilla.javascript.ast.IfStatement;
+import org.mozilla.javascript.ast.ImportDeclaration;
+import org.mozilla.javascript.ast.ImportSpecifier;
 import org.mozilla.javascript.ast.InfixExpression;
 import org.mozilla.javascript.ast.Jump;
 import org.mozilla.javascript.ast.KeywordLiteral;
@@ -144,6 +148,9 @@ public class Parser {
     // In this context, OBJECT_LITERAL_DESTRUCTURING check should be deferred to parenExpr.
     private boolean inPotentialArrowParams;
     protected boolean inUseStrictDirective;
+
+    // Flag to indicate we're parsing an ES6 module (enables import/export)
+    private boolean parsingModule;
 
     // The following are per function variables and should be saved/restored
     // during function parsing.  See PerFunctionVariables class below.
@@ -636,6 +643,45 @@ public class Parser {
     }
 
     /**
+     * Builds a parse tree from the given source string, treating it as an ES6 module.
+     *
+     * <p>Module code is always in strict mode. Import and export declarations are allowed at the
+     * top level.
+     *
+     * @param sourceString the source text to parse
+     * @param sourceURI a string describing the source, such as a filename
+     * @param lineno the starting line number
+     * @return an {@link AstRoot} object representing the parsed module. If the parse fails, {@code
+     *     null} will be returned.
+     */
+    public AstRoot parseModule(String sourceString, String sourceURI, int lineno) {
+        if (parseFinished) throw new IllegalStateException("parser reused");
+        this.sourceURI = sourceURI;
+        if (compilerEnv.isIdeMode()) {
+            this.sourceChars = sourceString.toCharArray();
+        }
+        this.parsingModule = true;
+        currentPos = ts = new TokenStream(this, null, sourceString, lineno);
+        try {
+            return parse();
+        } catch (IOException iox) {
+            // Should never happen
+            throw new IllegalStateException();
+        } finally {
+            parseFinished = true;
+        }
+    }
+
+    /**
+     * Returns true if we are currently parsing a module.
+     *
+     * @return true if parsing a module
+     */
+    public boolean isParsingModule() {
+        return parsingModule;
+    }
+
+    /**
      * Builds a parse tree from the given sourcereader.
      *
      * @see #parse(String,String,int)
@@ -670,9 +716,13 @@ public class Parser {
         boolean inDirectivePrologue = true;
         boolean savedStrictMode = inUseStrictDirective;
 
-        inUseStrictDirective = compilerEnv.isStrictMode();
+        // Module code is always strict per ES6 spec
+        inUseStrictDirective = compilerEnv.isStrictMode() || parsingModule;
         if (inUseStrictDirective) {
             root.setInStrictMode(true);
+        }
+        if (parsingModule) {
+            root.setIsModule(true);
         }
 
         try {
@@ -1959,6 +2009,18 @@ public class Parser {
                 }
                 return withStatement();
 
+            case Token.IMPORT:
+                if (!parsingModule) {
+                    reportError("msg.import.not.module");
+                }
+                return parseImport();
+
+            case Token.EXPORT:
+                if (!parsingModule) {
+                    reportError("msg.export.not.module");
+                }
+                return parseExport();
+
             case Token.CONST:
             case Token.VAR:
                 consumeToken();
@@ -2867,6 +2929,388 @@ public class Parser {
         }
 
         return pn;
+    }
+
+    /**
+     * Parse an import declaration.
+     *
+     * <pre>
+     * ImportDeclaration:
+     *   import ImportClause FromClause ;
+     *   import ModuleSpecifier ;
+     * ImportClause:
+     *   ImportedDefaultBinding
+     *   NameSpaceImport
+     *   NamedImports
+     *   ImportedDefaultBinding , NameSpaceImport
+     *   ImportedDefaultBinding , NamedImports
+     * NameSpaceImport:
+     *   * as ImportedBinding
+     * NamedImports:
+     *   { }
+     *   { ImportsList }
+     *   { ImportsList , }
+     * FromClause:
+     *   from ModuleSpecifier
+     * </pre>
+     */
+    private ImportDeclaration parseImport() throws IOException {
+        if (currentToken != Token.IMPORT) codeBug();
+        consumeToken();
+
+        int pos = ts.tokenBeg;
+        int lineno = lineNumber();
+        int column = columnNumber();
+
+        ImportDeclaration pn = new ImportDeclaration(pos);
+        pn.setLineColumnNumber(lineno, column);
+
+        int tt = peekToken();
+
+        // import "module" (side-effect only import)
+        if (tt == Token.STRING) {
+            consumeToken();
+            pn.setModuleSpecifier(ts.getString());
+            pn.setLength(ts.tokenEnd - pos);
+            autoInsertSemicolon(pn);
+            return pn;
+        }
+
+        // Parse import bindings
+        boolean hasDefault = false;
+
+        // import x from "module" (default import)
+        if (tt == Token.NAME) {
+            Name defaultName = createNameNode();
+            consumeToken();
+            pn.setDefaultImport(defaultName);
+            // Note: Don't call defineSymbol for import bindings.
+            // Import bindings are handled by ModuleScope at runtime, not as regular variables.
+            hasDefault = true;
+            tt = peekToken();
+
+            // Check for comma (default + named/namespace)
+            if (tt == Token.COMMA) {
+                consumeToken();
+                tt = peekToken();
+            } else if (tt != Token.NAME || !"from".equals(ts.getString())) {
+                reportError("msg.import.expected.from");
+            }
+        }
+
+        // import * as ns from "module" (namespace import)
+        if (tt == Token.MUL) {
+            consumeToken();
+            if (!matchToken(Token.NAME, true) || !"as".equals(ts.getString())) {
+                reportError("msg.import.expected.as");
+            }
+            if (!matchToken(Token.NAME, true)) {
+                reportError("msg.import.expected.binding");
+            }
+            Name nsName = createNameNode(true, Token.NAME);
+            pn.setNamespaceImport(nsName);
+            // Note: Don't call defineSymbol for import bindings.
+        }
+        // import { a, b as c } from "module" (named imports)
+        else if (tt == Token.LC) {
+            consumeToken();
+            parseImportSpecifiers(pn);
+        }
+        // If no namespace or named imports but we had a default, we're done with bindings
+        else if (!hasDefault) {
+            reportError("msg.import.expected.clause");
+        }
+
+        // Parse "from"
+        if (!matchToken(Token.NAME, true) || !"from".equals(ts.getString())) {
+            reportError("msg.import.expected.from");
+        }
+
+        // Parse module specifier
+        if (!matchToken(Token.STRING, true)) {
+            reportError("msg.import.expected.module");
+        }
+        pn.setModuleSpecifier(ts.getString());
+
+        pn.setLength(ts.tokenEnd - pos);
+        autoInsertSemicolon(pn);
+        return pn;
+    }
+
+    /**
+     * Parse import specifiers: { a, b as c, ... }
+     *
+     * <p>Called after the opening brace has been consumed.
+     */
+    private void parseImportSpecifiers(ImportDeclaration importDecl) throws IOException {
+        while (true) {
+            int tt = peekToken();
+            if (tt == Token.RC) {
+                consumeToken();
+                break;
+            }
+
+            // Expect an identifier (imported name)
+            if (tt != Token.NAME
+                    && !TokenStream.isKeyword(
+                            ts.getString(), compilerEnv.getLanguageVersion(), false)) {
+                reportError("msg.import.expected.binding");
+                break;
+            }
+
+            int specPos = ts.tokenBeg;
+            String importedName = ts.getString();
+            consumeToken();
+            Name importedNameNode = new Name(specPos, importedName);
+            importedNameNode.setLineColumnNumber(lineNumber(), columnNumber());
+
+            ImportSpecifier spec = new ImportSpecifier(specPos);
+            spec.setImportedName(importedNameNode);
+
+            // Check for "as localName"
+            if (matchToken(Token.NAME, true) && "as".equals(ts.getString())) {
+                if (!matchToken(Token.NAME, true)) {
+                    reportError("msg.import.expected.binding");
+                }
+                Name localNameNode = createNameNode(true, Token.NAME);
+                spec.setLocalName(localNameNode);
+                // Note: Don't call defineSymbol for import bindings.
+            } else {
+                // Use imported name as local name
+                Name localNameNode = new Name(specPos, importedName);
+                localNameNode.setLineColumnNumber(lineNumber(), columnNumber());
+                spec.setLocalName(localNameNode);
+                // Note: Don't call defineSymbol for import bindings.
+            }
+
+            spec.setLength(ts.tokenEnd - specPos);
+            importDecl.addNamedImport(spec);
+
+            // Expect comma or closing brace
+            tt = peekToken();
+            if (tt == Token.COMMA) {
+                consumeToken();
+            } else if (tt != Token.RC) {
+                reportError("msg.import.expected.comma.or.brace");
+                break;
+            }
+        }
+    }
+
+    /**
+     * Parse an export declaration.
+     *
+     * <pre>
+     * ExportDeclaration:
+     *   export ExportFromClause FromClause ;
+     *   export NamedExports ;
+     *   export VariableStatement
+     *   export Declaration
+     *   export default HoistableDeclaration
+     *   export default ClassDeclaration
+     *   export default AssignmentExpression ;
+     * ExportFromClause:
+     *   *
+     *   * as IdentifierName
+     *   NamedExports
+     * NamedExports:
+     *   { }
+     *   { ExportsList }
+     *   { ExportsList , }
+     * </pre>
+     */
+    private ExportDeclaration parseExport() throws IOException {
+        if (currentToken != Token.EXPORT) codeBug();
+        consumeToken();
+
+        int pos = ts.tokenBeg;
+        int lineno = lineNumber();
+        int column = columnNumber();
+
+        ExportDeclaration pn = new ExportDeclaration(pos);
+        pn.setLineColumnNumber(lineno, column);
+
+        int tt = peekToken();
+
+        // export default ...
+        if (tt == Token.DEFAULT) {
+            consumeToken();
+            pn.setDefault(true);
+            return parseExportDefault(pn, pos);
+        }
+
+        // export * from "module" or export * as ns from "module"
+        if (tt == Token.MUL) {
+            consumeToken();
+            pn.setStarExport(true);
+
+            // Peek to check for "as" without consuming
+            tt = peekToken();
+            if (tt == Token.NAME && "as".equals(ts.getString())) {
+                consumeToken(); // consume "as"
+                if (!matchToken(Token.NAME, true)) {
+                    reportError("msg.export.expected.binding");
+                }
+                Name aliasName = createNameNode(true, Token.NAME);
+                pn.setStarExportAlias(aliasName);
+            }
+
+            // Require "from"
+            if (!matchToken(Token.NAME, true) || !"from".equals(ts.getString())) {
+                reportError("msg.export.expected.from");
+            }
+
+            // Parse module specifier
+            if (!matchToken(Token.STRING, true)) {
+                reportError("msg.export.expected.module");
+            }
+            pn.setFromModuleSpecifier(ts.getString());
+
+            pn.setLength(ts.tokenEnd - pos);
+            autoInsertSemicolon(pn);
+            return pn;
+        }
+
+        // export { a, b as c } or export { a, b } from "module"
+        if (tt == Token.LC) {
+            consumeToken();
+            parseExportSpecifiers(pn);
+
+            // Check for re-export: from "module"
+            if (matchToken(Token.NAME, true) && "from".equals(ts.getString())) {
+                if (!matchToken(Token.STRING, true)) {
+                    reportError("msg.export.expected.module");
+                }
+                pn.setFromModuleSpecifier(ts.getString());
+            }
+
+            pn.setLength(ts.tokenEnd - pos);
+            autoInsertSemicolon(pn);
+            return pn;
+        }
+
+        // export function ...
+        if (tt == Token.FUNCTION) {
+            consumeToken();
+            FunctionNode fn = function(FunctionNode.FUNCTION_STATEMENT);
+            pn.setDeclaration(fn);
+            pn.setLength(getNodeEnd(fn) - pos);
+            return pn;
+        }
+
+        // export class ...
+        if (tt == Token.CLASS) {
+            consumeToken();
+            ClassNode cn = classDeclaration(ClassNode.CLASS_STATEMENT);
+            pn.setDeclaration(cn);
+            pn.setLength(getNodeEnd(cn) - pos);
+            return pn;
+        }
+
+        // export var/let/const ...
+        if (tt == Token.VAR || tt == Token.LET || tt == Token.CONST) {
+            consumeToken();
+            VariableDeclaration vars = variables(currentToken, ts.tokenBeg, true);
+            pn.setDeclaration(vars);
+            pn.setLength(ts.tokenEnd - pos);
+            autoInsertSemicolon(pn);
+            return pn;
+        }
+
+        reportError("msg.export.expected.declaration");
+        return pn;
+    }
+
+    /**
+     * Parse export default declaration.
+     *
+     * <p>Called after "export default" has been consumed.
+     */
+    private ExportDeclaration parseExportDefault(ExportDeclaration pn, int pos) throws IOException {
+        int tt = peekToken();
+
+        // export default function ...
+        if (tt == Token.FUNCTION) {
+            consumeToken();
+            FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION);
+            pn.setDeclaration(fn);
+            pn.setLength(getNodeEnd(fn) - pos);
+            return pn;
+        }
+
+        // export default class ...
+        if (tt == Token.CLASS) {
+            consumeToken();
+            ClassNode cn = classDeclaration(ClassNode.CLASS_EXPRESSION);
+            pn.setDeclaration(cn);
+            pn.setLength(getNodeEnd(cn) - pos);
+            return pn;
+        }
+
+        // export default <expression>
+        AstNode expr = assignExpr();
+        pn.setDefaultExpression(expr);
+        pn.setLength(ts.tokenEnd - pos);
+        autoInsertSemicolon(pn);
+        return pn;
+    }
+
+    /**
+     * Parse export specifiers: { a, b as c, ... }
+     *
+     * <p>Called after the opening brace has been consumed.
+     */
+    private void parseExportSpecifiers(ExportDeclaration exportDecl) throws IOException {
+        while (true) {
+            int tt = peekToken();
+            if (tt == Token.RC) {
+                consumeToken();
+                break;
+            }
+
+            // Expect an identifier (local name)
+            if (tt != Token.NAME
+                    && !TokenStream.isKeyword(
+                            ts.getString(), compilerEnv.getLanguageVersion(), false)) {
+                reportError("msg.export.expected.binding");
+                break;
+            }
+
+            int specPos = ts.tokenBeg;
+            String localName = ts.getString();
+            consumeToken();
+            Name localNameNode = new Name(specPos, localName);
+            localNameNode.setLineColumnNumber(lineNumber(), columnNumber());
+
+            ExportSpecifier spec = new ExportSpecifier(specPos);
+            spec.setLocalName(localNameNode);
+
+            // Check for "as exportedName"
+            if (matchToken(Token.NAME, true) && "as".equals(ts.getString())) {
+                if (!matchToken(Token.NAME, true)) {
+                    reportError("msg.export.expected.binding");
+                }
+                Name exportedNameNode = createNameNode(true, Token.NAME);
+                spec.setExportedName(exportedNameNode);
+            } else {
+                // Use local name as exported name
+                Name exportedNameNode = new Name(specPos, localName);
+                exportedNameNode.setLineColumnNumber(lineNumber(), columnNumber());
+                spec.setExportedName(exportedNameNode);
+            }
+
+            spec.setLength(ts.tokenEnd - specPos);
+            exportDecl.addNamedExport(spec);
+
+            // Expect comma or closing brace
+            tt = peekToken();
+            if (tt == Token.COMMA) {
+                consumeToken();
+            } else if (tt != Token.RC) {
+                reportError("msg.export.expected.comma.or.brace");
+                break;
+            }
+        }
     }
 
     /**

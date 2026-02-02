@@ -6,6 +6,22 @@
 
 The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-negotiable - keep fixing tests until there are zero failures.
 
+### Current Work In Progress
+
+**ES6 Modules** - Parser complete, runtime execution not yet implemented (~672 skipped tests).
+- ✅ Parser supports all import/export syntax
+- ✅ AST nodes, IRFactory stubs, runtime infrastructure classes
+- ❌ Module loading, linking, and evaluation (requires `ModuleLoader` implementation)
+- See **[docs/ES6_MODULES.md](docs/ES6_MODULES.md)** for full implementation details
+- **IMPORTANT**: Keep `docs/ES6_MODULES.md` updated as you make progress on module execution
+
+**new.target** - Completely skipped (14 tests in `language/expressions/new.target`). This is an ES6 meta-property for detecting constructor calls.
+
+**Other major ES6 gaps:**
+- `built-ins/Promise` - 71/114 failing (62%)
+- `language/statements` - 504/2885 failing (17.5%)
+- `language/expressions` - 410/2833 failing (14.5%)
+
 ### Check Current Test Status
 
 Use the test status script to see conformance by ECMAScript edition:

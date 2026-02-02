@@ -774,8 +774,12 @@ public class Token {
                 return "const";
             case Token.DEBUGGER:
                 return "debugger";
+            case Token.EXPORT:
+                return "export";
             case Token.FINALLY:
                 return "finally";
+            case Token.IMPORT:
+                return "import";
             case Token.INSTANCEOF:
                 return "instanceof";
             case Token.THROW:

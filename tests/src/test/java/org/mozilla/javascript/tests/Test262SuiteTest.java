@@ -364,7 +364,9 @@ public class Test262SuiteTest {
             boolean useStrict,
             Test262Case testCase,
             boolean markedAsFailing) {
-        String testId = testFilePath + " " + testMode + " strict=" + useStrict;
+        boolean isModule = testCase.hasFlag("module");
+        String testId =
+                testFilePath + " " + testMode + " strict=" + useStrict + " module=" + isModule;
         logProgress("START " + testId);
         try (Context cx = Context.enter()) {
             cx.setInterpretedMode(testMode == TestMode.INTERPRETED);
@@ -377,16 +379,42 @@ public class Test262SuiteTest {
                 Scriptable scope = buildScope(cx, testCase, testMode == TestMode.INTERPRETED);
                 String str = testCase.source;
                 int line = 1;
-                if (useStrict) {
+
+                // Modules are always strict, don't prepend "use strict"
+                if (useStrict && !isModule) {
                     str = "\"use strict\";\n" + str;
                     line--;
                 }
 
                 failedEarly = true;
-                Script caseScript = cx.compileString(str, testFilePath, line, null);
 
-                failedEarly = false; // not after this line
-                caseScript.exec(cx, scope, scope);
+                if (isModule) {
+                    // Set up module loader for resolving imports
+                    File testFile = testCase.file;
+                    File testDir = testFile.getParentFile();
+                    Test262ModuleLoader moduleLoader = new Test262ModuleLoader(testDir);
+                    cx.setModuleLoader(moduleLoader);
+
+                    // Use the actual file path as the module specifier
+                    String moduleSpecifier = testFile.getAbsolutePath();
+
+                    // Parse and compile as a module
+                    org.mozilla.javascript.es6module.ModuleRecord moduleRecord =
+                            cx.compileModule(str, moduleSpecifier, line, null);
+
+                    // Cache the module so self-referential imports work
+                    moduleLoader.cacheModule(moduleSpecifier, moduleRecord);
+
+                    failedEarly = false; // not after this line
+
+                    // Execute the module
+                    cx.linkAndEvaluateModule(scope, moduleRecord);
+                } else {
+                    Script caseScript = cx.compileString(str, testFilePath, line, null);
+
+                    failedEarly = false; // not after this line
+                    caseScript.exec(cx, scope, scope);
+                }
 
                 if (testCase.isNegative()) {
                     fail(
@@ -691,8 +719,8 @@ public class Test262SuiteTest {
                     continue fileLoop;
                 }
             }
-            // 2. it runs in an unsupported environment
-            if (testCase.hasFlag("module") || testCase.hasFlag("async")) {
+            // 2. it runs in an unsupported environment (async only - modules are now supported)
+            if (testCase.hasFlag("async")) {
                 if (includeUnsupported) {
                     TestResultTracker tracker =
                             RESULT_TRACKERS.computeIfAbsent(
@@ -711,8 +739,13 @@ public class Test262SuiteTest {
             // In raw mode, ignore expected failures and show actual results
             boolean effectiveMarkedAsFailing = rawTestMode ? false : markedAsFailing;
 
+            // Modules are always strict and only need to run once (in strict mode)
+            boolean isModule = testCase.hasFlag("module");
+
             for (TestMode testMode : new TestMode[] {TestMode.INTERPRETED, TestMode.COMPILED}) {
-                if (!testCase.hasFlag(FLAG_ONLY_STRICT) || testCase.hasFlag(FLAG_RAW)) {
+                // Non-strict mode: skip for modules (always strict) and only-strict tests
+                if (!isModule
+                        && (!testCase.hasFlag(FLAG_ONLY_STRICT) || testCase.hasFlag(FLAG_RAW))) {
                     result.add(
                             new Object[] {
                                 caseShortPath, testMode, false, testCase, effectiveMarkedAsFailing
@@ -728,7 +761,9 @@ public class Test262SuiteTest {
                             effectiveMarkedAsFailing);
                 }
 
-                if (!testCase.hasFlag(FLAG_NO_STRICT) && !testCase.hasFlag(FLAG_RAW)) {
+                // Strict mode: run for modules (always strict) and non-raw, non-noStrict tests
+                if (isModule
+                        || (!testCase.hasFlag(FLAG_NO_STRICT) && !testCase.hasFlag(FLAG_RAW))) {
                     result.add(
                             new Object[] {
                                 caseShortPath, testMode, true, testCase, effectiveMarkedAsFailing

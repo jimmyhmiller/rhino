@@ -39,6 +39,7 @@ public class ScriptNode extends Scope {
     private Object compilerData;
     private int tempNumber = 0;
     private boolean inStrictMode;
+    private boolean isModule;
     private boolean isMethodDefinition;
     private boolean isDerivedClassConstructor;
     private boolean isClassConstructor;
@@ -351,6 +352,14 @@ public class ScriptNode extends Scope {
 
     public boolean isInStrictMode() {
         return inStrictMode;
+    }
+
+    public void setIsModule(boolean isModule) {
+        this.isModule = isModule;
+    }
+
+    public boolean isModule() {
+        return isModule;
     }
 
     public boolean isMethodDefinition() {
