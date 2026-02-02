@@ -76,6 +76,19 @@ public class BoundFunction extends BaseFunction {
     }
 
     @Override
+    public boolean isConstructor() {
+        // Per ES6 spec, a bound function has [[Construct]] internal method
+        // only if the target function has [[Construct]].
+        // Arrow functions don't have [[Construct]], so binding an arrow
+        // function should result in a non-constructor.
+        if (targetFunction instanceof Function) {
+            return ((Function) targetFunction).isConstructor();
+        }
+        // Non-Function Callable objects are not constructors
+        return false;
+    }
+
+    @Override
     public boolean hasInstance(Scriptable instance) {
         if (targetFunction instanceof Function) {
             return ((Function) targetFunction).hasInstance(instance);

@@ -153,9 +153,11 @@ abstract class Icode {
             // Call to GetTemplateLiteralCallSite
             Icode_TEMPLATE_LITERAL_CALLSITE = Icode_REG_BIGINT4 - 1,
             Icode_LITERAL_KEY_SET = Icode_TEMPLATE_LITERAL_CALLSITE - 1,
+            // Same as LITERAL_KEY_SET but marks key as computed (for runtime name inference)
+            Icode_LITERAL_KEY_SET_COMPUTED = Icode_LITERAL_KEY_SET - 1,
 
             // Jump if stack head is null or undefined
-            Icode_IF_NULL_UNDEF = Icode_LITERAL_KEY_SET - 1,
+            Icode_IF_NULL_UNDEF = Icode_LITERAL_KEY_SET_COMPUTED - 1,
             Icode_IF_NOT_NULL_UNDEF = Icode_IF_NULL_UNDEF - 1,
 
             // Call a method on the super object, i.e. super.foo()
@@ -404,6 +406,8 @@ abstract class Icode {
                 return "TEMPLATE_LITERAL_CALLSITE";
             case Icode_LITERAL_KEY_SET:
                 return "LITERAL_KEY_SET";
+            case Icode_LITERAL_KEY_SET_COMPUTED:
+                return "LITERAL_KEY_SET_COMPUTED";
             case Icode_IF_NULL_UNDEF:
                 return "IF_NULL_UNDEF";
             case Icode_IF_NOT_NULL_UNDEF:

@@ -986,19 +986,6 @@ public class BaseFunction extends ScriptableObject implements Function {
         // However, derived class constructors also have homeObject set (for super property access)
         // but ARE constructors. We distinguish them by checking superConstructor or extendsNull.
         Context cx = Context.getCurrentContext();
-        System.out.println(
-                "DEBUG isConstructor: cx="
-                        + (cx != null)
-                        + " langVersion="
-                        + (cx != null ? cx.getLanguageVersion() : -1)
-                        + " homeObject="
-                        + this.getHomeObject()
-                        + " superCtor="
-                        + this.superConstructor
-                        + " extendsNull="
-                        + this.extendsNull
-                        + " this="
-                        + this.getClass().getSimpleName());
         if (cx != null
                 && cx.getLanguageVersion() >= Context.VERSION_ES6
                 && this.getHomeObject() != null) {

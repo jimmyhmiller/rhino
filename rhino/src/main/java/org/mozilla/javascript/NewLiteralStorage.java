@@ -23,6 +23,11 @@ public abstract class NewLiteralStorage {
     protected int[] skipIndexes = null;
     protected int[] spreadAdjustments = null; // [sourcePosition] = adjustment
 
+    // Track which key positions are computed keys (vs static keys known at compile time).
+    // For computed keys, runtime name inference is needed. For static keys, compile-time
+    // already handled name inference, so runtime should not infer names.
+    protected boolean[] computedKeys = null;
+
     protected NewLiteralStorage(Object[] ids, int length, boolean createKeys) {
         int l;
         if (ids != null) {
@@ -58,6 +63,19 @@ public abstract class NewLiteralStorage {
         } else {
             keys[index] = ScriptRuntime.toString(key);
         }
+    }
+
+    /**
+     * Push a computed key (evaluated at runtime). For computed keys, runtime name inference is
+     * needed because the key value is not known at compile time.
+     */
+    public void pushKeyComputed(Object key) {
+        pushKey(key);
+        // Mark this position as having a computed key
+        if (computedKeys == null) {
+            computedKeys = new boolean[keys.length];
+        }
+        computedKeys[index] = true;
     }
 
     public void spread(Context cx, Scriptable scope, Object source, int sourcePosition) {
@@ -175,6 +193,10 @@ public abstract class NewLiteralStorage {
         return values;
     }
 
+    public boolean[] getComputedKeys() {
+        return computedKeys;
+    }
+
     public void setSkipIndexes(int[] skipIndexes) {
         this.skipIndexes = skipIndexes;
         // length is the number of children + skips
@@ -273,6 +295,21 @@ public abstract class NewLiteralStorage {
                 return;
             }
 
+            Object propKey = this.keys[index];
+
+            // For static (non-computed) string keys, compile-time handles name inference.
+            // Runtime should only infer names for:
+            // 1. Computed keys (where the key value wasn't known at compile time)
+            // 2. Symbol keys (always computed at runtime)
+            // Per ES6 12.2.6.9, name inference only happens for anonymous function definitions,
+            // which is determined at compile time. For expressions like (0, function() {}),
+            // compile-time correctly doesn't set the name, and we shouldn't infer it at runtime.
+            boolean isComputedKey = computedKeys != null && computedKeys[index];
+            boolean isSymbolKey = propKey instanceof Symbol;
+            if (!isComputedKey && !isSymbolKey) {
+                return;
+            }
+
             String prefix = "";
             if (getterSetters[index] == -1) {
                 prefix = "get ";
@@ -280,8 +317,7 @@ public abstract class NewLiteralStorage {
                 prefix = "set ";
             }
 
-            Object propKey = this.keys[index];
-            if (propKey instanceof Symbol) {
+            if (isSymbolKey) {
                 // For symbol keys, valid names are: `[foo]`, `get [foo]`
                 // However `[]` or `get []` aren't, and become `` and `get `
                 String symbolName = ((Symbol) propKey).getName();

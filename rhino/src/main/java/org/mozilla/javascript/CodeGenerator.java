@@ -1814,7 +1814,7 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             if (propertyId instanceof Node) {
                 Node computedPropertyNode = (Node) propertyId;
                 visitExpression(computedPropertyNode.first, 0);
-                addIcode(Icode_LITERAL_KEY_SET);
+                addIcode(Icode_LITERAL_KEY_SET_COMPUTED);
                 stackChange(-1);
             }
             visitLiteralValue(protoChild);
@@ -1839,7 +1839,7 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             if (propertyId instanceof Node) {
                 Node computedPropertyNode = (Node) propertyId;
                 visitExpression(computedPropertyNode.first, 0);
-                addIcode(Icode_LITERAL_KEY_SET);
+                addIcode(Icode_LITERAL_KEY_SET_COMPUTED);
                 stackChange(-1);
             }
             visitLiteralValue(staticChild);
@@ -1865,7 +1865,7 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             if (propertyId instanceof Node) {
                 Node computedPropertyNode = (Node) propertyId;
                 visitExpression(computedPropertyNode.first, 0);
-                addIcode(Icode_LITERAL_KEY_SET);
+                addIcode(Icode_LITERAL_KEY_SET_COMPUTED);
                 stackChange(-1);
             }
             // For fields, we push the initializer expression value
@@ -1894,7 +1894,7 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             if (propertyId instanceof Node) {
                 Node computedPropertyNode = (Node) propertyId;
                 visitExpression(computedPropertyNode.first, 0);
-                addIcode(Icode_LITERAL_KEY_SET);
+                addIcode(Icode_LITERAL_KEY_SET_COMPUTED);
                 stackChange(-1);
             }
             // For fields, we push the initializer expression value
@@ -2009,12 +2009,14 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         int i = 0;
         while (child != null) {
             Object propertyId = propertyIds == null ? null : propertyIds[i];
+            boolean isComputedKey = false;
 
             if (propertyId instanceof Node) {
                 // Might be a node of type Token.COMPUTED_PROPERTY wrapping the actual expression,
                 // or a spread node.
                 Node propNode = (Node) propertyId;
                 visitExpression(propNode.getFirstChild(), 0);
+                isComputedKey = true;
 
                 if (((Node) propertyId).type == Token.DOTDOTDOT) {
                     // It's actually a spread! We need to do a "continue" to avoid setting it as key
@@ -2032,7 +2034,9 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             } else {
                 throw badTree(node);
             }
-            addIcode(Icode_LITERAL_KEY_SET);
+            // Use LITERAL_KEY_SET_COMPUTED for computed keys (need runtime name inference)
+            // Use LITERAL_KEY_SET for static keys (compile-time already handled inference)
+            addIcode(isComputedKey ? Icode_LITERAL_KEY_SET_COMPUTED : Icode_LITERAL_KEY_SET);
             stackChange(-1);
             // Value
             visitLiteralValue(child);
@@ -2072,7 +2076,7 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 // Will be a node of type Token.COMPUTED_PROPERTY wrapping the actual expression
                 Node computedPropertyNode = (Node) propertyId;
                 visitExpression(computedPropertyNode.first, 0);
-                addIcode(Icode_LITERAL_KEY_SET);
+                addIcode(Icode_LITERAL_KEY_SET_COMPUTED);
                 stackChange(-1);
             }
 

@@ -1813,6 +1813,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_LITERAL_GETTER] = new DoLiteralGetter();
         instructionObjs[base + Icode_LITERAL_SETTER] = new DoLiteralSetter();
         instructionObjs[base + Icode_LITERAL_KEY_SET] = new DoLiteralKeySet();
+        instructionObjs[base + Icode_LITERAL_KEY_SET_COMPUTED] = new DoLiteralKeySetComputed();
         instructionObjs[base + Token.OBJECTLIT] = new DoObjectLit();
         instructionObjs[base + Token.ARRAYLIT] = new DoArrayLiteral();
         instructionObjs[base + Icode_SPARE_ARRAYLIT] = new DoArrayLiteral();
@@ -5061,6 +5062,18 @@ public final class Interpreter extends Icode implements Evaluator {
         }
     }
 
+    private static class DoLiteralKeySetComputed extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            Object key = frame.stack[state.stackTop];
+            if (key == DOUBLE_MARK) key = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            --state.stackTop;
+            var store = (NewLiteralStorage) frame.stack[state.stackTop];
+            store.pushKeyComputed(key);
+            return null;
+        }
+    }
+
     private static class DoSpread extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
@@ -5091,6 +5104,7 @@ public final class Interpreter extends Icode implements Evaluator {
                     store.getKeys(),
                     store.getValues(),
                     store.getGetterSetters(),
+                    store.getComputedKeys(),
                     cx,
                     frame.scope);
             return null;

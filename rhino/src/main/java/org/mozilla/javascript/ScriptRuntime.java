@@ -6160,6 +6160,17 @@ public class ScriptRuntime {
             int[] getterSetters,
             Context cx,
             Scriptable scope) {
+        fillObjectLiteral(object, propertyIds, propertyValues, getterSetters, null, cx, scope);
+    }
+
+    public static void fillObjectLiteral(
+            Scriptable object,
+            Object[] propertyIds,
+            Object[] propertyValues,
+            int[] getterSetters,
+            boolean[] computedKeys,
+            Context cx,
+            Scriptable scope) {
         int end = propertyIds == null ? 0 : propertyIds.length;
         for (int i = 0; i != end; ++i) {
             Object id = propertyIds[i];
@@ -6167,6 +6178,7 @@ public class ScriptRuntime {
             // -1 for property getter, 1 for property setter, 0 for a regular value property
             int getterSetter = getterSetters == null ? 0 : getterSetters[i];
             Object value = propertyValues[i];
+            boolean isComputedKey = computedKeys != null && computedKeys[i];
 
             if (getterSetter == 0) {
                 if (id instanceof Symbol) {
@@ -6187,7 +6199,10 @@ public class ScriptRuntime {
                             Ref ref = specialRef(object, stringId, cx, scope);
                             ref.set(cx, scope, value);
                         } else if (cx.getLanguageVersion() >= Context.VERSION_ES6
-                                && NativeObject.PROTO_PROPERTY.equals(stringId)) {
+                                && NativeObject.PROTO_PROPERTY.equals(stringId)
+                                && !isComputedKey) {
+                            // Per ES6, only literal __proto__ sets the prototype.
+                            // Computed ['__proto__'] is a regular property.
                             if (value == null) {
                                 object.setPrototype(null);
                             } else if (value instanceof JSFunction) {

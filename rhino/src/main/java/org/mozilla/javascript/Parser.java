@@ -140,6 +140,9 @@ public class Parser {
     protected int nestingOfFunctionParams;
     private LabeledStatement currentLabel;
     private boolean inDestructuringAssignment;
+    // Flag to indicate we're inside a parenthesized expression that could become arrow parameters.
+    // In this context, OBJECT_LITERAL_DESTRUCTURING check should be deferred to parenExpr.
+    private boolean inPotentialArrowParams;
     protected boolean inUseStrictDirective;
 
     // The following are per function variables and should be saved/restored
@@ -3725,7 +3728,11 @@ public class Parser {
             consumeToken();
             pn = arrowFunction(pn, startLine, startColumn);
         } else if (pn.getIntProp(Node.OBJECT_LITERAL_DESTRUCTURING, 0) == 1
-                && !inDestructuringAssignment) {
+                && !inDestructuringAssignment
+                && !inPotentialArrowParams) {
+            // Report error for destructuring-style object literals outside of valid contexts.
+            // When inPotentialArrowParams is true, defer the check to parenExpr which can
+            // properly detect if => follows.
             reportError("msg.syntax");
         }
         return pn;
@@ -4751,7 +4758,9 @@ public class Parser {
 
     private AstNode parenExpr() throws IOException {
         boolean wasInForInit = inForInit;
+        boolean wasInPotentialArrowParams = inPotentialArrowParams;
         inForInit = false;
+        inPotentialArrowParams = true;
         try {
             Comment jsdocNode = getAndResetJsDoc();
             int lineno = lineNumber(), column = columnNumber();
@@ -4787,6 +4796,7 @@ public class Parser {
             return pn;
         } finally {
             inForInit = wasInForInit;
+            inPotentialArrowParams = wasInPotentialArrowParams;
         }
     }
 

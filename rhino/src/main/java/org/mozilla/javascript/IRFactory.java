@@ -1090,6 +1090,16 @@ public final class IRFactory {
                     protoMethods.addChildToBack(methodNode);
                 }
             } else {
+                // Static key - infer name at compile time
+                String keyString = Objects.toString(propKey);
+                Node inferrableName = parser.createName(keyString);
+                inferrableName.setLineColumnNumber(
+                        propNameAst.getLineno(), propNameAst.getColumn());
+                // The methodNode is wrapped in GET/SET/METHOD - get the inner function
+                Node funcNode = methodNode.getFirstChild();
+                String prefix = element.isGetter() ? "get " : element.isSetter() ? "set " : null;
+                inferNameIfMissing(inferrableName, funcNode, prefix);
+
                 if (element.isStatic()) {
                     staticProps.add(propKey);
                     staticMethods.addChildToBack(methodNode);
@@ -3197,15 +3207,19 @@ public final class IRFactory {
         }
 
         Name name = (Name) left;
-        if (name.getIdentifier().equals(NativeObject.PROTO_PROPERTY)) {
-            // Ignore weird edge case
-            return;
-        }
 
         // Handle anonymous function expressions
         if (right.type == Token.FUNCTION) {
             var fnIndex = right.getExistingIntProp(Node.FUNCTION_PROP);
             FunctionNode functionNode = parser.currentScriptOrFn.getFunctionNode(fnIndex);
+
+            // __proto__ is special: shorthand methods get the name, but regular property
+            // values do not (because __proto__ has special property semantics)
+            if (name.getIdentifier().equals(NativeObject.PROTO_PROPERTY)
+                    && !functionNode.isShorthand()) {
+                return;
+            }
+
             if (functionNode.getType() != 0 && functionNode.getFunctionName() == null) {
                 if (prefix != null) {
                     functionNode.setFunctionName(name.withPrefix(prefix));

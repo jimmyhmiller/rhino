@@ -2721,7 +2721,7 @@ class BodyCodegen {
                     cfw.addInvoke(
                             ByteCode.INVOKEVIRTUAL,
                             "org/mozilla/javascript/NewLiteralStorage",
-                            "pushKey",
+                            getPushKeyMethodName(properties, i),
                             "(Ljava/lang/Object;)V"); // stack: []
 
                     addLoadPropertyValue(node, child);
@@ -2768,7 +2768,7 @@ class BodyCodegen {
                     cfw.addInvoke(
                             ByteCode.INVOKEVIRTUAL,
                             "org/mozilla/javascript/NewLiteralStorage",
-                            "pushKey",
+                            getPushKeyMethodName(properties, i),
                             "(Ljava/lang/Object;)V"); // Stack: [store]
 
                     cfw.add(ByteCode.DUP); // Stack: [store, store]
@@ -2824,6 +2824,16 @@ class BodyCodegen {
         }
     }
 
+    /** Check if a property key is computed (vs static). */
+    private boolean isComputedPropertyKey(Object[] properties, int i) {
+        return properties != null && i < properties.length && properties[i] instanceof Node;
+    }
+
+    /** Get the pushKey method name based on whether the key is computed. */
+    private String getPushKeyMethodName(Object[] properties, int i) {
+        return isComputedPropertyKey(properties, i) ? "pushKeyComputed" : "pushKey";
+    }
+
     private void visitObjectLiteral(Node node, Node child, boolean topLevel) {
         Object[] properties = (Object[]) node.getProp(Node.OBJECT_IDS_PROP);
         int count = properties == null ? 0 : properties.length;
@@ -2875,25 +2885,36 @@ class BodyCodegen {
         addLoadProperty(node, child, properties, count);
 
         // stack: [store]
-        cfw.add(ByteCode.DUP); // stack: [store, store]
+        // Store NewLiteralStorage in a local variable for multiple accesses
+        short storageLocal = getNewWordLocal();
+        cfw.addAStore(storageLocal);
+
+        cfw.addALoad(storageLocal);
         cfw.addInvoke(
                 ByteCode.INVOKEVIRTUAL,
                 "org/mozilla/javascript/NewLiteralStorage",
                 "getKeys",
-                "()[Ljava/lang/Object;"); // stack: [store, keys]
-        cfw.add(ByteCode.SWAP); // stack: [keys, store]
-        cfw.add(ByteCode.DUP); // stack: [keys, store, store]
+                "()[Ljava/lang/Object;"); // stack: [keys]
+        cfw.addALoad(storageLocal);
         cfw.addInvoke(
                 ByteCode.INVOKEVIRTUAL,
                 "org/mozilla/javascript/NewLiteralStorage",
                 "getValues",
-                "()[Ljava/lang/Object;"); // stack: [keys, store, values]
-        cfw.add(ByteCode.SWAP); // stack: [keys, values, store]
+                "()[Ljava/lang/Object;"); // stack: [keys, values]
+        cfw.addALoad(storageLocal);
         cfw.addInvoke(
                 ByteCode.INVOKEVIRTUAL,
                 "org/mozilla/javascript/NewLiteralStorage",
                 "getGetterSetters",
                 "()[I"); // stack: [keys, values, getterSetters]
+        cfw.addALoad(storageLocal);
+        cfw.addInvoke(
+                ByteCode.INVOKEVIRTUAL,
+                "org/mozilla/javascript/NewLiteralStorage",
+                "getComputedKeys",
+                "()[Z"); // stack: [keys, values, getterSetters, computedKeys]
+
+        releaseWordLocal(storageLocal);
 
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
@@ -2904,6 +2925,7 @@ class BodyCodegen {
                         + "[Ljava/lang/Object;"
                         + "[Ljava/lang/Object;"
                         + "[I"
+                        + "[Z"
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + ")V");
@@ -2990,7 +3012,7 @@ class BodyCodegen {
             cfw.addInvoke(
                     ByteCode.INVOKEVIRTUAL,
                     "org/mozilla/javascript/NewLiteralStorage",
-                    "pushKey",
+                    getPushKeyMethodName(protoProperties, protoIdx),
                     "(Ljava/lang/Object;)V");
             // Stack: [constructor, protoStorage]
 
@@ -3029,7 +3051,7 @@ class BodyCodegen {
             cfw.addInvoke(
                     ByteCode.INVOKEVIRTUAL,
                     "org/mozilla/javascript/NewLiteralStorage",
-                    "pushKey",
+                    getPushKeyMethodName(staticProperties, staticIdx),
                     "(Ljava/lang/Object;)V");
             // Stack: [constructor, protoStorage, staticStorage]
 
