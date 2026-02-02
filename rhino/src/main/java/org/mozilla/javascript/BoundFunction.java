@@ -18,7 +18,7 @@ public class BoundFunction extends BaseFunction {
     private final Callable targetFunction;
     private final Scriptable boundThis;
     private final Object[] boundArgs;
-    private final int length;
+    private final double length; // Use double to handle Infinity
     private final String boundName;
 
     public BoundFunction(
@@ -30,11 +30,41 @@ public class BoundFunction extends BaseFunction {
         this.targetFunction = targetFunction;
         this.boundThis = boundThis;
         this.boundArgs = boundArgs;
-        if (targetFunction instanceof BaseFunction) {
-            length = Math.max(0, ((BaseFunction) targetFunction).getLength() - boundArgs.length);
-        } else {
-            length = 0;
+
+        // Per ES6 spec 19.2.3.2 (Function.prototype.bind):
+        // 5. Let targetHasLength be ? HasOwnProperty(Target, "length").
+        // 6. If targetHasLength is true, then
+        //    a. Let targetLen be ? Get(Target, "length").
+        //    b. If Type(targetLen) is not Number, let L be 0.
+        //    c. Else, ...
+        // 7. Else, let L be 0.
+        double computedLength = 0;
+        if (targetFunction instanceof ScriptableObject) {
+            ScriptableObject targetObj = (ScriptableObject) targetFunction;
+            // Check for OWN "length" property (not inherited)
+            // has() on ScriptableObject checks the object's own map, not prototype chain
+            if (targetObj.has("length", targetObj)) {
+                Object lengthVal = ScriptableObject.getProperty(targetObj, "length");
+                // Only primitive Number values count - NativeNumber (Scriptable) is type "object"
+                // In JS terms: typeof value === "number", not typeof value === "object"
+                if (lengthVal instanceof Number && !(lengthVal instanceof Scriptable)) {
+                    double targetLen = ((Number) lengthVal).doubleValue();
+                    if (targetLen == Double.POSITIVE_INFINITY) {
+                        // Infinity - any finite number is still Infinity
+                        computedLength = Double.POSITIVE_INFINITY;
+                    } else if (Double.isNaN(targetLen) || targetLen == Double.NEGATIVE_INFINITY) {
+                        // NaN or -Infinity -> 0 after max(0, ...)
+                        computedLength = 0;
+                    } else {
+                        // ToIntegerOrInfinity: truncate toward zero, then subtract bound args
+                        double targetLenInt =
+                                targetLen >= 0 ? Math.floor(targetLen) : Math.ceil(targetLen);
+                        computedLength = Math.max(0, targetLenInt - boundArgs.length);
+                    }
+                }
+            }
         }
+        this.length = computedLength;
 
         // Per spec: Get targetName from Target's "name" property
         // 12. Let targetName be Get(Target, "name").
@@ -98,7 +128,31 @@ public class BoundFunction extends BaseFunction {
 
     @Override
     public int getLength() {
-        return length;
+        // For getLength(), we need to return an int
+        // Infinity becomes Integer.MAX_VALUE for practical purposes
+        if (Double.isInfinite(length)) {
+            return Integer.MAX_VALUE;
+        }
+        return (int) length;
+    }
+
+    @Override
+    protected void createProperties() {
+        // Use custom length getter that handles Infinity properly
+        ScriptableObject.defineBuiltInProperty(
+                this, "length", DONTENUM | READONLY, BoundFunction::boundLengthGetter);
+        // Name property - handled by getFunctionName() which returns boundName
+        ScriptableObject.defineBuiltInProperty(
+                this, "name", DONTENUM | READONLY, BoundFunction::boundNameGetter);
+    }
+
+    private static Object boundLengthGetter(BoundFunction function, Scriptable start) {
+        // Return the actual double value, which handles Infinity properly
+        return function.length;
+    }
+
+    private static Object boundNameGetter(BoundFunction function, Scriptable start) {
+        return function.getFunctionName();
     }
 
     @Override
