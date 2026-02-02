@@ -206,7 +206,8 @@ public abstract class NativeTypedArrayView<T> extends NativeArrayBufferView
                             proto,
                             null,
                             (lcx, ls, largs) -> {
-                                throw ScriptRuntime.typeError("Fuck");
+                                // TypedArray is not constructable per ES6 spec
+                                throw ScriptRuntime.typeError("TypedArray is abstract");
                             });
             proto.defineProperty("constructor", ta, DONTENUM);
             defineProtoProperty(ta, cx, "buffer", NativeTypedArrayView::js_buffer, null);
@@ -246,7 +247,8 @@ public abstract class NativeTypedArrayView<T> extends NativeArrayBufferView
             defineMethod(ta, s, "toString", 0, NativeTypedArrayView::js_toString);
             defineMethod(ta, s, "values", 0, NativeTypedArrayView::js_values);
             defineMethod(ta, s, "with", 2, NativeTypedArrayView::js_with);
-            defineMethod(ta, s, SymbolKey.ITERATOR, 0, NativeTypedArrayView::js_iterator);
+            // Symbol.iterator should be the same function object as values per ES6 spec
+            ta.definePrototypeAlias("values", SymbolKey.ITERATOR, DONTENUM);
 
             ta.defineConstructorMethod(scope, "from", 1, NativeTypedArrayView::js_from);
             ta.defineConstructorMethod(scope, "of", 0, NativeTypedArrayView::js_of);
