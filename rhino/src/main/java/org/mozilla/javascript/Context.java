@@ -1466,6 +1466,9 @@ public class Context implements Closeable {
             }
         }
 
+        // Validate indirect exports can be resolved (ES6 16.2.1.5.3.1 step 9)
+        moduleRecord.validateIndirectExports();
+
         moduleRecord.setStatus(ModuleRecord.Status.LINKED);
     }
 

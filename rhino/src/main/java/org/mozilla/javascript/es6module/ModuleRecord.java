@@ -249,6 +249,65 @@ public class ModuleRecord implements Serializable {
     }
 
     /**
+     * Validates that all indirect exports and import bindings can be resolved. This implements: -
+     * ES6 16.2.1.5.3.1 step 9: For each IndirectExportEntry, ResolveExport must succeed - ES6
+     * 16.2.1.5.3.1 step 12: For each ImportEntry, ResolveExport must succeed
+     *
+     * @throws RuntimeException with SyntaxError if any binding cannot be resolved
+     */
+    public void validateIndirectExports() {
+        // Step 9: Validate indirect exports
+        for (ExportEntry entry : indirectExportEntries) {
+            ResolvedBinding resolution = resolveExport(entry.getExportName(), new HashSet<>());
+            if (resolution == null) {
+                throw org.mozilla.javascript.ScriptRuntime.constructError(
+                        "SyntaxError",
+                        "The requested module '"
+                                + entry.getModuleRequest()
+                                + "' does not provide an export named '"
+                                + entry.getImportName()
+                                + "'");
+            }
+            if (resolution == ResolvedBinding.AMBIGUOUS) {
+                throw org.mozilla.javascript.ScriptRuntime.constructError(
+                        "SyntaxError", "Export '" + entry.getExportName() + "' is ambiguous");
+            }
+        }
+
+        // Step 12: Validate import bindings (non-namespace imports)
+        for (ImportEntry entry : importEntries) {
+            // Skip namespace imports (import * as x)
+            if (entry.isNamespaceImport()) {
+                continue;
+            }
+            String importName = entry.getImportName();
+            ModuleRecord importedModule = getRequiredModule(entry.getModuleRequest());
+            if (importedModule != null) {
+                ResolvedBinding resolution =
+                        importedModule.resolveExport(importName, new HashSet<>());
+                if (resolution == null) {
+                    throw org.mozilla.javascript.ScriptRuntime.constructError(
+                            "SyntaxError",
+                            "The requested module '"
+                                    + entry.getModuleRequest()
+                                    + "' does not provide an export named '"
+                                    + importName
+                                    + "'");
+                }
+                if (resolution == ResolvedBinding.AMBIGUOUS) {
+                    throw org.mozilla.javascript.ScriptRuntime.constructError(
+                            "SyntaxError",
+                            "The requested module '"
+                                    + entry.getModuleRequest()
+                                    + "' contains ambiguous export '"
+                                    + importName
+                                    + "'");
+                }
+            }
+        }
+    }
+
+    /**
      * Gets a required module from the module loader.
      *
      * @param moduleRequest the module specifier
@@ -348,12 +407,14 @@ public class ModuleRecord implements Serializable {
             if (!(obj instanceof ResolvedBinding)) return false;
             ResolvedBinding other = (ResolvedBinding) obj;
             return this.module == other.module
+                    && this.isNamespace == other.isNamespace
                     && java.util.Objects.equals(this.bindingName, other.bindingName);
         }
 
         @Override
         public int hashCode() {
-            return java.util.Objects.hash(System.identityHashCode(module), bindingName);
+            return java.util.Objects.hash(
+                    System.identityHashCode(module), bindingName, isNamespace);
         }
     }
 

@@ -152,6 +152,10 @@ public class Parser {
     // Flag to indicate we're parsing an ES6 module (enables import/export)
     private boolean parsingModule;
 
+    // Tracks nesting inside statement bodies (while, for, if, etc.)
+    // Import/export are only allowed when this is 0 (at module top level)
+    private int nestingOfStatement;
+
     // The following are per function variables and should be saved/restored
     // during function parsing.  See PerFunctionVariables class below.
     ScriptNode currentScriptOrFn;
@@ -1876,12 +1880,17 @@ public class Parser {
         AstNode block = parent != null ? parent : new Block(pos);
         block.setLineColumnNumber(lineNumber(), columnNumber());
 
-        int tt;
-        while ((tt = peekToken()) > Token.EOF && tt != Token.RC) {
-            block.addChild(statement());
+        ++nestingOfStatement;
+        try {
+            int tt;
+            while ((tt = peekToken()) > Token.EOF && tt != Token.RC) {
+                block.addChild(statement());
+            }
+            block.setLength(ts.tokenBeg - pos);
+            return block;
+        } finally {
+            --nestingOfStatement;
         }
-        block.setLength(ts.tokenBeg - pos);
-        return block;
     }
 
     private AstNode statements() throws IOException {
@@ -2013,11 +2022,17 @@ public class Parser {
                 if (!parsingModule) {
                     reportError("msg.import.not.module");
                 }
+                if (nestingOfStatement > 0 || nestingOfFunction > 0) {
+                    reportError("msg.import.decl.at.top.level");
+                }
                 return parseImport();
 
             case Token.EXPORT:
                 if (!parsingModule) {
                     reportError("msg.export.not.module");
+                }
+                if (nestingOfStatement > 0 || nestingOfFunction > 0) {
+                    reportError("msg.export.decl.at.top.level");
                 }
                 return parseExport();
 
@@ -2236,23 +2251,29 @@ public class Parser {
                     caseNode.setLength(ts.tokenEnd - pos); // include colon
                     caseNode.setLineColumnNumber(caseLineno, caseColumn);
 
-                    while ((tt = peekToken()) != Token.RC
-                            && tt != Token.CASE
-                            && tt != Token.DEFAULT
-                            && tt != Token.EOF) {
-                        if (tt == Token.COMMENT) {
-                            Comment inlineComment = scannedComments.get(scannedComments.size() - 1);
-                            if (caseNode.getInlineComment() == null
-                                    && inlineComment.getLineno() == caseNode.getLineno()) {
-                                caseNode.setInlineComment(inlineComment);
-                            } else {
-                                caseNode.addStatement(inlineComment);
+                    ++nestingOfStatement;
+                    try {
+                        while ((tt = peekToken()) != Token.RC
+                                && tt != Token.CASE
+                                && tt != Token.DEFAULT
+                                && tt != Token.EOF) {
+                            if (tt == Token.COMMENT) {
+                                Comment inlineComment =
+                                        scannedComments.get(scannedComments.size() - 1);
+                                if (caseNode.getInlineComment() == null
+                                        && inlineComment.getLineno() == caseNode.getLineno()) {
+                                    caseNode.setInlineComment(inlineComment);
+                                } else {
+                                    caseNode.addStatement(inlineComment);
+                                }
+                                consumeToken();
+                                continue;
                             }
-                            consumeToken();
-                            continue;
+                            AstNode nextStmt = statement();
+                            caseNode.addStatement(nextStmt); // updates length
                         }
-                        AstNode nextStmt = statement();
-                        caseNode.addStatement(nextStmt); // updates length
+                    } finally {
+                        --nestingOfStatement;
                     }
                     pn.addCase(caseNode);
                 }
@@ -2337,6 +2358,7 @@ public class Parser {
     private AstNode getNextStatementAfterInlineComments(AstNode pn) throws IOException {
         boolean savedSingleStatementContext = inSingleStatementContext;
         inSingleStatementContext = true;
+        ++nestingOfStatement;
         try {
             AstNode body = statement();
             if (Token.COMMENT == body.getType()) {
@@ -2379,6 +2401,7 @@ public class Parser {
             }
             return body;
         } finally {
+            --nestingOfStatement;
             inSingleStatementContext = savedSingleStatementContext;
         }
     }
@@ -3644,6 +3667,7 @@ public class Parser {
         }
 
         // no more labels; now parse the labeled statement
+        ++nestingOfStatement;
         try {
             currentLabel = bundle;
             if (stmt == null) {
@@ -3681,6 +3705,7 @@ public class Parser {
                 }
             }
         } finally {
+            --nestingOfStatement;
             currentLabel = null;
             // remove the labels for this statement from the global set
             for (Label lb : bundle.getLabels()) {
