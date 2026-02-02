@@ -2375,7 +2375,9 @@ public final class IRFactory {
             }
 
             // ES6: for-of loops need iterator closing when exited via break/return/throw
-            if (isForOf) {
+            // Skip iterator closing for array comprehensions - they are a legacy Mozilla extension
+            // and the try-finally wrapper causes issues with their nested structure.
+            if (isForOf && !(ast instanceof ArrayComprehensionLoop)) {
                 // Create ENUM_CLOSE for finally block
                 Node enumClose = new Node(Token.ENUM_CLOSE);
                 enumClose.putProp(Node.LOCAL_BLOCK_PROP, localBlock);
