@@ -39,9 +39,10 @@ AddTestCase(
   "[object RegExp]",
   re.getClassProperty() );
 
+// ES6: source for empty pattern returns "(?:)" to ensure valid /source/ literal
 AddTestCase(
   "(new RegExp()).source",
-  "",
+  "(?:)",
   re.source );
 
 AddTestCase(

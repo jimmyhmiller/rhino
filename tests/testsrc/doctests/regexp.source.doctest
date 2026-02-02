@@ -5,7 +5,7 @@
 js> x = RegExp('')
 /(?:)/
 js> x.source
-
+(?:)
 js> RegExp('a').source
 a
 js> RegExp('\\\\').source

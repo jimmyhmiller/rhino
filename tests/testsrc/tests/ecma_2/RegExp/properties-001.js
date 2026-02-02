@@ -20,7 +20,8 @@ var BUGNUMBER ="";
 
 startTest();
 
-AddRegExpCases( new RegExp, "",   false, false, false, 0 );
+// ES6: source for empty pattern returns "(?:)" to ensure valid /source/ literal
+AddRegExpCases( new RegExp, "(?:)",   false, false, false, 0 );
 AddRegExpCases( /.*/,       ".*", false, false, false, 0 );
 AddRegExpCases( /[\d]{5}/g, "[\\d]{5}", true, false, false, 0 );
 AddRegExpCases( /[\S]?$/i,  "[\\S]?$", false, true, false, 0 );
