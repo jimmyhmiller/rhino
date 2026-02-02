@@ -409,4 +409,152 @@ public class ES6ModulesTest {
             // If we get here without error, the basic import worked
         }
     }
+
+    @Test
+    public void testCircularDependencyWithConstExport() {
+        // Test circular dependency with const (TDZ semantics)
+        // This mirrors the test262 instn-iee-bndng-const.js test
+        try (Context cx = Context.enter()) {
+            cx.setLanguageVersion(Context.VERSION_ES6);
+            org.mozilla.javascript.Scriptable scope = cx.initStandardObjects();
+
+            // Set up module loader
+            final java.util.Map<String, org.mozilla.javascript.es6module.ModuleRecord> cache =
+                    new java.util.HashMap<>();
+            final java.util.Map<String, String> sources = new java.util.HashMap<>();
+
+            // Main module exports const A and imports B from fixture
+            // Accessing B before A is initialized should throw ReferenceError
+            sources.put(
+                    "main.js",
+                    "var caught = false;\n"
+                            + "var errorName = '';\n"
+                            + "try { typeof B; } catch (e) { caught = true; errorName = e.name; }\n"
+                            + "import { B } from 'fixture.js';\n"
+                            + "export const A = 42;\n"
+                            + "export { caught, errorName };");
+            // Fixture re-exports A as B
+            sources.put("fixture.js", "export { A as B } from 'main.js';");
+
+            cx.setModuleLoader(
+                    new org.mozilla.javascript.es6module.ModuleLoader() {
+                        @Override
+                        public String resolveModule(
+                                String specifier,
+                                org.mozilla.javascript.es6module.ModuleRecord referrer)
+                                throws ModuleResolutionException {
+                            return specifier;
+                        }
+
+                        @Override
+                        public org.mozilla.javascript.es6module.ModuleRecord loadModule(
+                                Context cx, String resolvedSpecifier) throws ModuleLoadException {
+                            if (!cache.containsKey(resolvedSpecifier)) {
+                                String source = sources.get(resolvedSpecifier);
+                                if (source != null) {
+                                    org.mozilla.javascript.es6module.ModuleRecord record =
+                                            cx.compileModule(source, resolvedSpecifier, 1, null);
+                                    cache.put(resolvedSpecifier, record);
+                                }
+                            }
+                            return cache.get(resolvedSpecifier);
+                        }
+
+                        @Override
+                        public org.mozilla.javascript.es6module.ModuleRecord getCachedModule(
+                                String resolvedSpecifier) {
+                            return cache.get(resolvedSpecifier);
+                        }
+                    });
+
+            // Compile and cache main module
+            org.mozilla.javascript.es6module.ModuleRecord mainModule =
+                    cx.compileModule(sources.get("main.js"), "main.js", 1, null);
+            cache.put("main.js", mainModule);
+
+            // Evaluate
+            org.mozilla.javascript.Scriptable ns = cx.linkAndEvaluateModule(scope, mainModule);
+
+            // Check that ReferenceError was caught
+            Object caught = ns.get("caught", ns);
+            Object errorName = ns.get("errorName", ns);
+            assertTrue(
+                    "Accessing B before A is initialized should throw an error",
+                    Boolean.TRUE.equals(caught));
+            assertEquals(
+                    "Should be a ReferenceError, not " + errorName, "ReferenceError", errorName);
+
+            // After evaluation, A should be available
+            Object a = ns.get("A", ns);
+            assertEquals(42, ((Number) a).intValue());
+        }
+    }
+
+    @Test
+    public void testCircularDependencyWithFunctionExport() {
+        // Test circular dependency - a re-exports from b, b re-exports from a
+        // This tests ES6 live binding semantics with hoisted function
+        try (Context cx = Context.enter()) {
+            cx.setLanguageVersion(Context.VERSION_ES6);
+            org.mozilla.javascript.Scriptable scope = cx.initStandardObjects();
+
+            // Set up module loader
+            final java.util.Map<String, org.mozilla.javascript.es6module.ModuleRecord> cache =
+                    new java.util.HashMap<>();
+            final java.util.Map<String, String> sources = new java.util.HashMap<>();
+
+            // Module a exports function A and imports B from b
+            sources.put("a.js", "export function A() { return 77; }\nimport { B } from 'b.js';");
+            // Module b re-exports A as B from a
+            sources.put("b.js", "export { A as B } from 'a.js';");
+
+            cx.setModuleLoader(
+                    new org.mozilla.javascript.es6module.ModuleLoader() {
+                        @Override
+                        public String resolveModule(
+                                String specifier,
+                                org.mozilla.javascript.es6module.ModuleRecord referrer)
+                                throws ModuleResolutionException {
+                            return specifier;
+                        }
+
+                        @Override
+                        public org.mozilla.javascript.es6module.ModuleRecord loadModule(
+                                Context cx, String resolvedSpecifier) throws ModuleLoadException {
+                            if (!cache.containsKey(resolvedSpecifier)) {
+                                String source = sources.get(resolvedSpecifier);
+                                if (source != null) {
+                                    org.mozilla.javascript.es6module.ModuleRecord record =
+                                            cx.compileModule(source, resolvedSpecifier, 1, null);
+                                    cache.put(resolvedSpecifier, record);
+                                }
+                            }
+                            return cache.get(resolvedSpecifier);
+                        }
+
+                        @Override
+                        public org.mozilla.javascript.es6module.ModuleRecord getCachedModule(
+                                String resolvedSpecifier) {
+                            return cache.get(resolvedSpecifier);
+                        }
+                    });
+
+            // Compile and cache main module
+            org.mozilla.javascript.es6module.ModuleRecord mainModule =
+                    cx.compileModule(sources.get("a.js"), "a.js", 1, null);
+            cache.put("a.js", mainModule);
+
+            // Evaluate - this should work due to function hoisting
+            org.mozilla.javascript.Scriptable ns = cx.linkAndEvaluateModule(scope, mainModule);
+
+            // The function A should be available
+            Object aFn = ns.get("A", ns);
+            assertTrue("A should be a function", aFn instanceof org.mozilla.javascript.Function);
+
+            // Call A() and check result
+            org.mozilla.javascript.Function fn = (org.mozilla.javascript.Function) aFn;
+            Object result = fn.call(cx, scope, scope, new Object[0]);
+            assertEquals(77, ((Number) result).intValue());
+        }
+    }
 }

@@ -9,8 +9,10 @@ package org.mozilla.javascript.es6module;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.mozilla.javascript.Script;
 import org.mozilla.javascript.Scriptable;
 
@@ -147,13 +149,212 @@ public class ModuleRecord implements Serializable {
     }
 
     /**
-     * Gets an export binding.
+     * Gets an export binding value. This is a convenience wrapper around resolveExport that
+     * retrieves the actual value from the resolved binding.
      *
      * @param exportName the export name
-     * @return the exported value, or null if not found
+     * @return the exported value
+     * @throws RuntimeException if the binding is not found, ambiguous, or in the TDZ
      */
     public Object getExportBinding(String exportName) {
-        return exportBindings.get(exportName);
+        ResolvedBinding resolution = resolveExport(exportName, new HashSet<>());
+        if (resolution == null) {
+            // Not found - check cached bindings as fallback
+            Object cached = exportBindings.get(exportName);
+            if (cached != null) {
+                return cached;
+            }
+            throw org.mozilla.javascript.ScriptRuntime.constructError(
+                    "SyntaxError", "Export '" + exportName + "' is not defined");
+        }
+        if (resolution == ResolvedBinding.AMBIGUOUS) {
+            throw org.mozilla.javascript.ScriptRuntime.constructError(
+                    "SyntaxError", "Export '" + exportName + "' is ambiguous");
+        }
+        return resolution.getBindingValue();
+    }
+
+    /**
+     * Resolves an export name to its source module and binding name, following the ES6 spec
+     * ResolveExport algorithm (ECMA-262 16.2.1.7.2.2).
+     *
+     * <p>This implements cycle detection via resolveSet, handles local exports, indirect exports
+     * (re-exports), and star exports with ambiguity detection.
+     *
+     * @param exportName the export name to resolve
+     * @param resolveSet set of (module, exportName) pairs for cycle detection
+     * @return the resolved binding, null if not found, or AMBIGUOUS if ambiguous
+     */
+    public ResolvedBinding resolveExport(String exportName, Set<String> resolveSet) {
+        // 1. Cycle detection: if we've already visited this (module, exportName) pair, return null
+        String resolveKey = System.identityHashCode(this) + ":" + exportName;
+        if (resolveSet.contains(resolveKey)) {
+            // Circular reference - return null per spec
+            return null;
+        }
+        resolveSet.add(resolveKey);
+
+        // 2. Check local exports first
+        for (ExportEntry entry : localExportEntries) {
+            if (exportName.equals(entry.getExportName())) {
+                // Found a local export - return binding to this module
+                return new ResolvedBinding(this, entry.getLocalName());
+            }
+        }
+
+        // 3. Check indirect exports (re-exports like: export { x } from 'module')
+        for (ExportEntry entry : indirectExportEntries) {
+            if (exportName.equals(entry.getExportName())) {
+                String moduleRequest = entry.getModuleRequest();
+                String importName = entry.getImportName();
+                if (moduleRequest != null && importName != null) {
+                    ModuleRecord sourceModule = getRequiredModule(moduleRequest);
+                    if (sourceModule != null) {
+                        // Handle namespace re-export: export * as ns from 'module'
+                        if ("*".equals(importName)) {
+                            return new ResolvedBinding(sourceModule, null, true);
+                        }
+                        // Recursively resolve from the source module
+                        return sourceModule.resolveExport(importName, resolveSet);
+                    }
+                }
+                return null;
+            }
+        }
+
+        // 4. Check star exports (export * from 'module')
+        ResolvedBinding starResolution = null;
+        for (ExportEntry entry : starExportEntries) {
+            String moduleRequest = entry.getModuleRequest();
+            if (moduleRequest != null) {
+                ModuleRecord sourceModule = getRequiredModule(moduleRequest);
+                if (sourceModule != null) {
+                    ResolvedBinding resolution = sourceModule.resolveExport(exportName, resolveSet);
+                    if (resolution == ResolvedBinding.AMBIGUOUS) {
+                        return ResolvedBinding.AMBIGUOUS;
+                    }
+                    if (resolution != null) {
+                        if (starResolution == null) {
+                            starResolution = resolution;
+                        } else if (!starResolution.equals(resolution)) {
+                            // Ambiguous: found in multiple star exports with different bindings
+                            return ResolvedBinding.AMBIGUOUS;
+                        }
+                    }
+                }
+            }
+        }
+
+        return starResolution;
+    }
+
+    /**
+     * Gets a required module from the module loader.
+     *
+     * @param moduleRequest the module specifier
+     * @return the module record, or null if not found
+     */
+    private ModuleRecord getRequiredModule(String moduleRequest) {
+        org.mozilla.javascript.Context cx = org.mozilla.javascript.Context.getCurrentContext();
+        if (cx == null || cx.getModuleLoader() == null) {
+            return null;
+        }
+        ModuleLoader loader = cx.getModuleLoader();
+        try {
+            String resolved = loader.resolveModule(moduleRequest, this);
+            return loader.getCachedModule(resolved);
+        } catch (ModuleLoader.ModuleResolutionException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Represents a resolved export binding per the ES6 spec. A binding points to a specific module
+     * and binding name within that module's environment.
+     */
+    public static class ResolvedBinding {
+        /** Sentinel value indicating an ambiguous export resolution. */
+        public static final ResolvedBinding AMBIGUOUS = new ResolvedBinding(null, null);
+
+        private final ModuleRecord module;
+        private final String bindingName;
+        private final boolean isNamespace;
+
+        public ResolvedBinding(ModuleRecord module, String bindingName) {
+            this(module, bindingName, false);
+        }
+
+        public ResolvedBinding(ModuleRecord module, String bindingName, boolean isNamespace) {
+            this.module = module;
+            this.bindingName = bindingName;
+            this.isNamespace = isNamespace;
+        }
+
+        public ModuleRecord getModule() {
+            return module;
+        }
+
+        public String getBindingName() {
+            return bindingName;
+        }
+
+        public boolean isNamespace() {
+            return isNamespace;
+        }
+
+        /**
+         * Gets the actual value of this binding from the source module's environment.
+         *
+         * @return the binding value
+         */
+        public Object getBindingValue() {
+            if (this == AMBIGUOUS || module == null) {
+                return null;
+            }
+
+            // Namespace export: return the module's namespace object
+            if (isNamespace) {
+                return module.getNamespaceObject();
+            }
+
+            // Special case: *default* is the script result for default expression exports
+            if ("*default*".equals(bindingName)) {
+                return module.exportBindings.get("default");
+            }
+
+            // Live binding: look up from module scope
+            Scriptable env = module.getModuleEnvironment();
+            if (env != null && bindingName != null) {
+                Object value =
+                        org.mozilla.javascript.ScriptableObject.getProperty(env, bindingName);
+                if (value == org.mozilla.javascript.Scriptable.NOT_FOUND) {
+                    // Binding doesn't exist yet - this is a TDZ error
+                    throw org.mozilla.javascript.ScriptRuntime.constructError(
+                            "ReferenceError",
+                            "Cannot access '" + bindingName + "' before initialization");
+                }
+                // Check for TDZ - Rhino uses a special TDZ sentinel value for let/const
+                org.mozilla.javascript.Undefined.checkTDZ(value, bindingName);
+                return value;
+            }
+
+            // Fall back to cached value
+            return module.exportBindings.get(bindingName);
+        }
+
+        @Override
+        public boolean equals(Object obj) {
+            if (this == obj) return true;
+            if (!(obj instanceof ResolvedBinding)) return false;
+            ResolvedBinding other = (ResolvedBinding) obj;
+            return this.module == other.module
+                    && java.util.Objects.equals(this.bindingName, other.bindingName);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(System.identityHashCode(module), bindingName);
+        }
     }
 
     /** Returns the list of requested module specifiers. */
