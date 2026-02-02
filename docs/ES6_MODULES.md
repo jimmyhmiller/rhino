@@ -1,6 +1,6 @@
 # ES6 Modules Implementation
 
-**Status**: Multi-module imports working with ModuleLoader; self-referential circular imports need enhancement
+**Status**: Core module linking and validation working; ~38% of test262 module tests passing
 
 This document tracks the implementation status of ES6 modules in Rhino. **Keep this document updated as progress is made.**
 
@@ -14,6 +14,7 @@ ES6 modules provide static `import`/`export` syntax for JavaScript. This impleme
 - ModuleScope for module environment records with live import binding resolution
 - ModuleAnalyzer for extracting import/export metadata from AST
 - Test262ModuleLoader for running module tests
+- Linking-phase validation per ES6 spec 16.2.1.5.3.1
 
 ## Implementation Status
 
@@ -22,32 +23,91 @@ ES6 modules provide static `import`/`export` syntax for JavaScript. This impleme
 | Component | Status | Files |
 |-----------|--------|-------|
 | AST Nodes | ✅ Complete | `ast/ImportDeclaration.java`, `ast/ImportSpecifier.java`, `ast/ExportDeclaration.java`, `ast/ExportSpecifier.java` |
-| Parser | ✅ Complete | `Parser.java` |
+| Parser | ✅ Complete | `Parser.java` - includes top-level enforcement for import/export |
 | TokenStream | ✅ Complete | `TokenStream.java`, `Token.java` |
 | IRFactory | ✅ Complete | `IRFactory.java` - exports transform to declarations/EMPTY, imports transform to EMPTY |
 | Runtime Classes | ✅ Complete | `es6module/ModuleRecord.java`, `es6module/ModuleLoader.java`, `es6module/NativeModuleNamespace.java` |
 | Module Scope | ✅ Complete | `ModuleScope.java` - live import binding resolution |
 | Module Analyzer | ✅ Complete | `ModuleAnalyzer.java` |
 | Context Integration | ✅ Complete | `Context.java` - `compileModule()`, `evaluateModule()`, `linkAndEvaluateModule()` |
+| Linking Validation | ✅ Complete | Validates indirect exports and import bindings during linking (ES6 16.2.1.5.3.1 steps 9, 12) |
+| ResolveExport | ✅ Complete | Full algorithm with ambiguity detection and cycle handling |
 | Error Messages | ✅ Complete | `Messages.properties` |
 | Unit Tests | ✅ Complete | `tests/.../es6/ES6ModulesTest.java` |
-| Test262 Support | ✅ Enabled | Module tests are now run with Test262ModuleLoader |
+| Test262 Support | ✅ Enabled | Module tests run with Test262ModuleLoader |
 | Multi-Module Imports | ✅ Working | Import bindings resolve through ModuleScope at runtime |
-| Circular Dependencies | ⚠️ Partial | Basic circular imports work; self-referential imports need enhancement |
+| Circular Dependencies | ⚠️ Partial | Basic circular imports work; some edge cases need work |
 
 ### Test262 Results
 
 | Category | Pass Rate | Notes |
 |----------|-----------|-------|
-| `language/module-code` | 210/1086 (~19%) | Many tests pass; self-referential imports and complex patterns need work |
+| `language/module-code` | **220/584 (37.67%)** | Up from ~19%; linking validation and parser fixes added 130+ passing tests |
 
 ### Current Limitations
 
 | Limitation | Status | Notes |
 |------------|--------|-------|
-| Self-referential imports | ⚠️ Partial | Module importing itself has timing issues with export bindings |
+| Module namespace object internals | ❌ Incomplete | 34 tests in `namespace/internals/*` - need proper exotic object behavior |
+| Local binding initialization | ❌ Incomplete | `instn-local-bndng-*` tests - let/const/class bindings in modules |
+| Default export bindings | ❌ Incomplete | `instn-named-bndng-dflt-*` tests - default export evaluation |
+| Star export ambiguity | ⚠️ Partial | `instn-star-*` edge cases with multiple star exports |
 | Dynamic import() | ❌ Not started | Requires async support |
+| Top-level await | ❌ Not started | Requires async support |
 | Keyword escape sequences | ❌ Not supported | Parser doesn't reject `\u0065xport` etc. |
+
+## Next Steps (Priority Order)
+
+### 1. Fix Module Namespace Object Internals (34 tests)
+The `namespace/internals/*` tests require proper exotic object behavior for module namespaces:
+- `[[GetOwnProperty]]` must return correct property descriptors
+- `[[HasProperty]]` must check exports correctly
+- `[[Get]]` must return live bindings
+- `[[Set]]` must always return false (immutable)
+- `[[Delete]]` behavior for exported vs non-exported names
+- `[[OwnPropertyKeys]]` must return sorted export names
+
+**Files to modify**: `NativeModuleNamespace.java`
+
+### 2. Fix Local Binding Initialization (6 tests)
+Tests like `instn-local-bndng-cls.js`, `instn-local-bndng-const.js`, `instn-local-bndng-let.js`:
+- Module-local let/const/class declarations need proper TDZ (temporal dead zone) handling
+- Export bindings for local declarations need to track initialization state
+
+**Files to modify**: `ModuleScope.java`, possibly `Interpreter.java`
+
+### 3. Fix Default Export Binding Resolution (8 tests)
+Tests like `instn-named-bndng-dflt-cls.js`, `instn-named-bndng-dflt-star.js`:
+- Default exports through star re-exports have edge cases
+- Anonymous default exports need proper binding names
+
+**Files to modify**: `ModuleRecord.java`, `ModuleAnalyzer.java`
+
+### 4. Fix Star Export Edge Cases (10 tests)
+Tests like `instn-star-ambiguous.js`, `instn-star-props-*.js`:
+- Star exports with overlapping names from multiple modules
+- Proper property enumeration on namespace objects from star exports
+
+**Files to modify**: `ModuleRecord.java`, `NativeModuleNamespace.java`
+
+### 5. Eval in Module Context (remaining eval-* tests)
+Several `eval-*` tests that check module behavior in eval contexts.
+
+## Running Module Tests
+
+```bash
+# Run all module tests
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
+  -Dtest262filter="language/module-code/*" --rerun-tasks
+
+# Run with raw output (see actual pass/fail)
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
+  -Dtest262filter="language/module-code/*" -Dtest262raw --rerun-tasks
+
+# Run specific test category
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
+  -Dtest262filter="language/module-code/namespace/internals/*" -Dtest262raw --rerun-tasks
+```
 
 ## Supported Syntax
 
