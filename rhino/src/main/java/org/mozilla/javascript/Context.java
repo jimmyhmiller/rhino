@@ -1438,14 +1438,15 @@ public class Context implements Closeable {
             ModuleScope moduleScope = new ModuleScope(globalScope, moduleRecord);
             moduleRecord.setModuleEnvironment(moduleScope);
 
-            // Check if module has a default expression export and pre-define *default*
-            // This is needed because modules are strict mode and we can't assign to
-            // undeclared variables
+            // Pre-create bindings only for *default* expression exports
+            // Normal let/const exports get their TDZ handling from Rhino's normal
+            // let/const declaration handling - we should NOT pre-create them here
+            // as that would cause "redeclaration" errors
             for (ModuleRecord.ExportEntry entry : moduleRecord.getLocalExportEntries()) {
-                if ("*default*".equals(entry.getLocalName())) {
-                    // Pre-define *default* as undefined (will be assigned during evaluation)
-                    moduleScope.put("*default*", moduleScope, Undefined.instance);
-                    break;
+                String localName = entry.getLocalName();
+                if ("*default*".equals(localName) && entry.isTDZBinding()) {
+                    // Pre-define *default* binding with TDZ value for expression exports
+                    moduleScope.put(localName, moduleScope, Undefined.TDZ_VALUE);
                 }
             }
         }
@@ -1557,6 +1558,12 @@ public class Context implements Closeable {
                     // For default expression exports, localName is "*default*" and the
                     // value was stored in the scope via IRFactory transformation
                     Object value = ScriptableObject.getProperty(moduleScope, localName);
+                    // Check for TDZ - if binding is still TDZ, that's an error
+                    if (value == Undefined.TDZ_VALUE) {
+                        throw ScriptRuntime.constructError(
+                                "ReferenceError",
+                                "Cannot access '" + localName + "' before initialization");
+                    }
                     moduleRecord.setExportBinding(exportName, value);
                 }
             }
@@ -3102,6 +3109,10 @@ public class Context implements Closeable {
     Set<Object> iterating;
 
     Object interpreterSecurityDomain;
+
+    // Used to propagate new.target through super() calls
+    // When non-null, JSFunction.construct uses this instead of the function itself
+    Object newTargetOverride;
 
     int version;
 

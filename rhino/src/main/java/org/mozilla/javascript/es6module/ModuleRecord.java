@@ -585,6 +585,7 @@ public class ModuleRecord implements Serializable {
         private final String moduleRequest; // null for local exports
         private final String importName; // null for local exports
         private final String localName; // null for re-exports
+        private final boolean isTDZBinding; // true for let/const exports (need TDZ)
 
         /**
          * Creates an export entry.
@@ -596,10 +597,29 @@ public class ModuleRecord implements Serializable {
          */
         public ExportEntry(
                 String exportName, String moduleRequest, String importName, String localName) {
+            this(exportName, moduleRequest, importName, localName, false);
+        }
+
+        /**
+         * Creates an export entry with TDZ flag.
+         *
+         * @param exportName the export name (null for star exports)
+         * @param moduleRequest the module specifier (null for local exports)
+         * @param importName the import name for re-exports (null for local exports)
+         * @param localName the local binding name (null for re-exports)
+         * @param isTDZBinding true if this is a let/const binding that needs TDZ handling
+         */
+        public ExportEntry(
+                String exportName,
+                String moduleRequest,
+                String importName,
+                String localName,
+                boolean isTDZBinding) {
             this.exportName = exportName;
             this.moduleRequest = moduleRequest;
             this.importName = importName;
             this.localName = localName;
+            this.isTDZBinding = isTDZBinding;
         }
 
         public String getExportName() {
@@ -626,6 +646,11 @@ public class ModuleRecord implements Serializable {
         /** Returns true if this is a star export. */
         public boolean isStarExport() {
             return importName != null && importName.equals("*") && exportName == null;
+        }
+
+        /** Returns true if this is a let/const binding that needs TDZ handling. */
+        public boolean isTDZBinding() {
+            return isTDZBinding;
         }
     }
 }

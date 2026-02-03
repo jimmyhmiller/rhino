@@ -618,6 +618,25 @@ function showEditionDetails(testsByEdition, edition, showAll) {
         // Sort by failure count descending
         const sortedCats = Object.entries(catFail).sort((a, b) => b[1] - a[1]);
 
+        // Build subcategory data for categories with >100 failures
+        const subCatFail = {};
+        const subCatTotal = {};
+        for (const test of data.failing) {
+            const parts = test.path.split('/');
+            if (parts.length >= 3) {
+                const subCat = parts.slice(0, 3).join('/');
+                subCatFail[subCat] = (subCatFail[subCat] || 0) + 1;
+                subCatTotal[subCat] = (subCatTotal[subCat] || 0) + 1;
+            }
+        }
+        for (const test of data.passing) {
+            const parts = test.path.split('/');
+            if (parts.length >= 3) {
+                const subCat = parts.slice(0, 3).join('/');
+                subCatTotal[subCat] = (subCatTotal[subCat] || 0) + 1;
+            }
+        }
+
         for (const [cat, failCount] of sortedCats) {
             const totalCount = catTotal[cat];
             const pct = ((failCount / totalCount) * 100).toFixed(1);
@@ -626,6 +645,24 @@ function showEditionDetails(testsByEdition, edition, showAll) {
                 ' / ' + String(totalCount).padStart(4) +
                 '   ' + pct.padStart(4) + '%   ' + cat
             );
+
+            // Show subcategory breakdown for categories with >100 failures
+            if (failCount > 100) {
+                const subCats = Object.entries(subCatFail)
+                    .filter(([subCat]) => subCat.startsWith(cat + '/'))
+                    .sort((a, b) => b[1] - a[1]);
+
+                for (const [subCat, subFailCount] of subCats) {
+                    const subTotalCount = subCatTotal[subCat];
+                    const subPct = ((subFailCount / subTotalCount) * 100).toFixed(1);
+                    const subName = subCat.split('/').slice(2).join('/'); // Just the subcategory name
+                    console.log(
+                        '        ' + String(subFailCount).padStart(4) +
+                        ' / ' + String(subTotalCount).padStart(4) +
+                        '   ' + subPct.padStart(4) + '%     └─ ' + subName
+                    );
+                }
+            }
 
             if (showAll) {
                 const testsInCat = data.failing

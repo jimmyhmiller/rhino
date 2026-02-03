@@ -3720,8 +3720,11 @@ class BodyCodegen {
             cfw.addPush(0); // false - super not called yet
         }
 
+        // Push new.target to propagate through the super() call
+        cfw.addALoad(newTargetLocal);
+
         // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope,
-        // superAlreadyCalled)
+        // superAlreadyCalled, newTarget)
         // Returns the new instance created by the super constructor
         // The method checks if super was already called and throws ReferenceError if so
         addScriptRuntimeInvoke(
@@ -3732,6 +3735,7 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + "Z"
+                        + "Ljava/lang/Object;"
                         + ")Lorg/mozilla/javascript/Scriptable;");
 
         // Store the result as the new 'this' for this constructor
@@ -3778,8 +3782,11 @@ class BodyCodegen {
             cfw.addPush(0); // false - super not called yet
         }
 
+        // Push new.target to propagate through the super() call
+        cfw.addALoad(newTargetLocal);
+
         // Call ScriptRuntime.callSuperConstructor(callee, thisObj, args, cx, scope,
-        // superAlreadyCalled)
+        // superAlreadyCalled, newTarget)
         // Returns the new instance created by the super constructor
         // The method checks if super was already called and throws ReferenceError if so
         addScriptRuntimeInvoke(
@@ -3790,6 +3797,7 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Context;"
                         + "Lorg/mozilla/javascript/Scriptable;"
                         + "Z"
+                        + "Ljava/lang/Object;"
                         + ")Lorg/mozilla/javascript/Scriptable;");
 
         // Store the result as the new 'this' for this constructor

@@ -166,8 +166,12 @@ public class ModuleAnalyzer {
             }
         }
 
+        // *default* bindings need TDZ handling because the value isn't available
+        // until the export default statement is evaluated. Named function/class
+        // exports are hoisted and don't need TDZ.
+        boolean isTDZ = "*default*".equals(localName);
         moduleRecord.addLocalExportEntry(
-                new ModuleRecord.ExportEntry("default", null, null, localName));
+                new ModuleRecord.ExportEntry("default", null, null, localName, isTDZ));
     }
 
     /**
@@ -252,13 +256,16 @@ public class ModuleAnalyzer {
             moduleRecord.addLocalExportEntry(new ModuleRecord.ExportEntry(name, null, null, name));
         } else if (decl instanceof VariableDeclaration) {
             VariableDeclaration vars = (VariableDeclaration) decl;
+            // Check if this is a let/const declaration (needs TDZ handling)
+            int declType = vars.getType();
+            boolean isTDZ = (declType == Token.LET || declType == Token.CONST);
             for (VariableInitializer vi : vars.getVariables()) {
                 AstNode target = vi.getTarget();
                 if (target instanceof Name) {
                     String name = ((Name) target).getIdentifier();
                     checkDuplicateExport(name, exportedNames);
                     moduleRecord.addLocalExportEntry(
-                            new ModuleRecord.ExportEntry(name, null, null, name));
+                            new ModuleRecord.ExportEntry(name, null, null, name, isTDZ));
                 }
                 // TODO: Handle destructuring patterns
             }

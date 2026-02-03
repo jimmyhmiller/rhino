@@ -7063,6 +7063,7 @@ public class ScriptRuntime {
      * @param cx The context
      * @param scope The scope
      * @param superAlreadyCalled Whether super() has already been called in this constructor
+     * @param newTarget The new.target value to propagate to the super constructor
      * @return The thisObj after the super constructor has initialized it
      */
     public static Scriptable callSuperConstructor(
@@ -7071,7 +7072,8 @@ public class ScriptRuntime {
             Object[] args,
             Context cx,
             Scriptable scope,
-            boolean superAlreadyCalled) {
+            boolean superAlreadyCalled,
+            Object newTarget) {
         Callable superConstructor = null;
         boolean extendsNull = false;
         if (callee instanceof BaseFunction) {
@@ -7095,7 +7097,14 @@ public class ScriptRuntime {
         // BindThisValue throws ReferenceError if 'this' is already bound.
         Scriptable newInstance;
         if (superConstructor instanceof Function) {
-            newInstance = ((Function) superConstructor).construct(cx, scope, args);
+            // ES6: Propagate new.target through the super() call
+            Object savedNewTarget = cx.newTargetOverride;
+            cx.newTargetOverride = newTarget;
+            try {
+                newInstance = ((Function) superConstructor).construct(cx, scope, args);
+            } finally {
+                cx.newTargetOverride = savedNewTarget;
+            }
         } else {
             throw typeErrorById("msg.not.ctor");
         }

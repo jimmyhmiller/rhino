@@ -1447,6 +1447,7 @@ public final class Interpreter extends Icode implements Evaluator {
             Context cx,
             Scriptable scope,
             Scriptable thisObj,
+            Object newTarget,
             Object[] args) {
         if (!ScriptRuntime.hasTopCall(cx)) Kit.codeBug();
 
@@ -1496,6 +1497,7 @@ public final class Interpreter extends Icode implements Evaluator {
                         ifun,
                         idata,
                         null);
+        frame.newTarget = newTarget;
         frame.isContinuationsTopFrame = cx.isContinuationsTopCall;
         cx.isContinuationsTopCall = false;
 
@@ -5288,7 +5290,15 @@ public final class Interpreter extends Icode implements Evaluator {
             // Per ES6 spec, this call happens BEFORE checking if 'this' is already bound.
             Scriptable newInstance;
             if (superConstructor instanceof Function) {
-                newInstance = ((Function) superConstructor).construct(cx, frame.scope, args);
+                // ES6: Propagate new.target through the super() call
+                // Store the current new.target in Context so that JSFunction.construct can use it
+                Object savedNewTarget = cx.newTargetOverride;
+                cx.newTargetOverride = frame.newTarget;
+                try {
+                    newInstance = ((Function) superConstructor).construct(cx, frame.scope, args);
+                } finally {
+                    cx.newTargetOverride = savedNewTarget;
+                }
             } else {
                 throw ScriptRuntime.typeErrorById("msg.not.ctor");
             }

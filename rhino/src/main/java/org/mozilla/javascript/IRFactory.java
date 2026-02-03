@@ -1446,20 +1446,22 @@ public final class IRFactory {
         if (node.getDeclaration() != null) {
             Node transformed = transform(node.getDeclaration());
 
-            // For default exports with a class/function expression, wrap in EXPR_RESULT
-            // so the value can be captured as the script result for the module's default export.
-            // This is necessary because CLASS nodes aren't handled by visitStatement,
-            // and anonymous function expressions also need to be wrapped.
+            // For default exports with an anonymous class/function, we need to assign
+            // the value to *default* so it can be retrieved via the module's exports.
+            // Named declarations don't need this because they create their own binding.
             if (node.isDefault()) {
                 int type = transformed.getType();
-                // CLASS nodes need wrapping for statement context
-                // Also wrap FUNCTION nodes that are expressions (anonymous default exports)
-                if (type == Token.CLASS
-                        || (type == Token.FUNCTION
+                boolean isAnonymousClass = type == Token.CLASS;
+                boolean isAnonymousFunction =
+                        type == Token.FUNCTION
                                 && node.getDeclaration() instanceof FunctionNode
-                                && ((FunctionNode) node.getDeclaration()).getFunctionType()
-                                        == FunctionNode.FUNCTION_EXPRESSION)) {
-                    Node exprStmt = new Node(Token.EXPR_RESULT, transformed);
+                                && ((FunctionNode) node.getDeclaration()).getFunctionName() == null;
+
+                if (isAnonymousClass || isAnonymousFunction) {
+                    // Create: *default* = <class/function> using SETLETINIT
+                    Node bindName = Node.newString(Token.BINDNAME, "*default*");
+                    Node assignment = new Node(Token.SETLETINIT, bindName, transformed);
+                    Node exprStmt = new Node(Token.EXPR_VOID, assignment);
                     exprStmt.setLineColumnNumber(node.getLineno(), node.getColumn());
                     return exprStmt;
                 }
@@ -1472,11 +1474,11 @@ public final class IRFactory {
         // so it can be accessed via the module's export bindings
         if (node.isDefault() && node.getDefaultExpression() != null) {
             Node expr = transform(node.getDefaultExpression());
-            // Create: *default* = <expression>
-            // This stores the value in the module scope so it can be retrieved later
-            Node name = parser.createName("*default*");
-            Node assignment = createAssignment(Token.ASSIGN, name, expr);
-            Node exprStmt = new Node(Token.EXPR_RESULT, assignment);
+            // Create: *default* = <expression> using SETLETINIT to bypass TDZ check
+            // (since this IS the initialization of the binding)
+            Node bindName = Node.newString(Token.BINDNAME, "*default*");
+            Node assignment = new Node(Token.SETLETINIT, bindName, expr);
+            Node exprStmt = new Node(Token.EXPR_VOID, assignment);
             exprStmt.setLineColumnNumber(node.getLineno(), node.getColumn());
             return exprStmt;
         }

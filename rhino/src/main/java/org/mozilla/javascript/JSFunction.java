@@ -219,9 +219,9 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
             initializeInstanceFields(thisObj);
         }
 
-        // Pass `this` in as new.target for now. This can change when
-        // the public `construct` signature changes.
-        var res = descriptor.getConstructor().execute(cx, this, this, scope, thisObj, args);
+        // Determine new.target: use override if set (for super() calls), otherwise use this
+        Object newTarget = (cx.newTargetOverride != null) ? cx.newTargetOverride : this;
+        var res = descriptor.getConstructor().execute(cx, this, newTarget, scope, thisObj, args);
         if (res instanceof Scriptable) {
             thisObj = (Scriptable) res;
         }

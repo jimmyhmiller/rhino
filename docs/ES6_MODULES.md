@@ -1,8 +1,12 @@
 # ES6 Modules Implementation
 
-**Status**: Core module linking and validation working; ~49% of test262 module tests passing (532/1086)
+**Status**: ES6 module support is **87.8% complete** (43/49 ES6 tests passing)
 
 This document tracks the implementation status of ES6 modules in Rhino. **Keep this document updated as progress is made.**
+
+> **Note**: The `language/module-code` directory in test262 contains 584 tests total, but only 49 are pure ES6.
+> The rest test post-ES6 features: top-level await (ES2022), private fields (ES2022), async functions (ES2017),
+> string export names (ES2020), and import attributes (ES2023+).
 
 ## Overview
 
@@ -36,59 +40,77 @@ ES6 modules provide static `import`/`export` syntax for JavaScript. This impleme
 | Unit Tests | ✅ Complete | `tests/.../es6/ES6ModulesTest.java` |
 | Test262 Support | ✅ Enabled | Module tests run with Test262ModuleLoader |
 | Multi-Module Imports | ✅ Working | Import bindings resolve through ModuleScope at runtime |
-| Circular Dependencies | ⚠️ Partial | Basic circular imports work; some edge cases need work |
+| Circular Dependencies | ✅ Working | Basic circular imports work |
 
 ### Test262 Results
 
-| Category | Pass Rate | Notes |
-|----------|-----------|-------|
-| `language/module-code` | **265/584 (45.38%)** | 319 failing; improved from ~43% with recent fixes |
+| Category | ES6 Tests | Pass Rate | Notes |
+|----------|-----------|-----------|-------|
+| `language/module-code` | 49 | **43/49 (87.8%)** | Only 6 ES6 tests failing |
 
-### Current Limitations
+### Remaining ES6 Failures (6 tests)
 
-| Limitation | Status | Notes |
-|------------|--------|-------|
-| Module namespace object internals | ✅ Mostly fixed | `Object.freeze`, `Reflect.set`, `defineProperty` working; TDZ tests remaining |
-| Star exports (export * from) | ✅ Fixed | `getExportedNames()` now includes star re-exports; `default` excluded per spec |
-| Duplicate export detection | ✅ Fixed | ModuleAnalyzer now validates no duplicate export names |
-| Local binding initialization | ❌ Incomplete | `instn-local-bndng-*` tests - let/const/class bindings in modules |
-| Function hoisting in modules | ❌ Incomplete | Named default function exports need proper hoisting |
-| TDZ for uninitialized bindings | ❌ Incomplete | `*-uninit.js` tests need ReferenceError before initialization |
-| Dynamic import() | ❌ Not started | Requires async support |
-| Top-level await | ❌ Not started | Requires async support |
-| Keyword escape sequences | ❌ Not supported | Parser doesn't reject `\u0065xport` etc. |
+| Test | Category | Issue |
+|------|----------|-------|
+| `namespace/internals/delete-exported-uninit.js` | TDZ | Delete on uninitialized binding should throw |
+| `namespace/internals/get-own-property-str-found-uninit.js` | TDZ | GetOwnProperty on uninitialized binding |
+| `namespace/internals/get-str-found-uninit.js` | TDZ | Get on uninitialized binding should throw |
+| `eval-export-dflt-expr-gen-anon.js` | Eval | Eval with default generator export |
+| `instn-named-bndng-dflt-gen-anon.js` | Default binding | Anonymous generator default export binding |
+| `parse-err-hoist-lex-gen.js` | Early error | Generator hoisting with lexical binding |
+
+### Post-ES6 Features (Not in Scope)
+
+These features are tested in `language/module-code` but are **not ES6**:
+
+| Feature | ECMAScript Version | Test Count |
+|---------|-------------------|------------|
+| Top-level await | ES2022 | ~215 tests |
+| Private fields (#field) | ES2022 | ~15 tests |
+| Async functions/generators | ES2017/ES2018 | ~5 tests |
+| String literal export names | ES2020 | ~10 tests |
+| `export * as ns from` | ES2020 | ~2 tests |
+| Import attributes | ES2023+ | ~5 tests |
 
 ## Next Steps (Priority Order)
 
-### 1. Fix TDZ (Temporal Dead Zone) for Uninitialized Bindings (~7 tests)
-The remaining `*-uninit.js` tests require proper TDZ handling:
-- Accessing uninitialized let/const bindings should throw ReferenceError
-- `Object.keys`, `Object.freeze`, etc. on namespace with uninitialized bindings
+### 1. Fix TDZ (Temporal Dead Zone) for Uninitialized Bindings (3 tests)
 
-**Files to modify**: `ModuleScope.java`, `NativeModuleNamespace.java`, `ModuleRecord.java`
+The `*-uninit.js` tests require proper TDZ handling for namespace object access:
 
-### 2. Fix Function Hoisting in Modules (~4 tests)
-Named default function exports need proper hoisting:
-- `export default function fName() {}` should hoist `fName`
-- Function declarations in modules should be hoisted like regular scripts
+```javascript
+// dep.js
+export let x;  // uninitialized
 
-**Files to modify**: `Context.java` (evaluateModuleInternal), possibly `IRFactory.java`
+// main.js
+import * as ns from './dep.js';
+ns.x;  // Should throw ReferenceError (TDZ)
+Object.getOwnPropertyDescriptor(ns, 'x');  // Should throw ReferenceError
+delete ns.x;  // Should throw ReferenceError
+```
 
-### 3. Fix Local Binding Initialization (~6 tests)
-Tests like `instn-local-bndng-cls.js`, `instn-local-bndng-const.js`, `instn-local-bndng-let.js`:
-- Module-local let/const/class declarations need proper TDZ handling
+**Files to modify**: `NativeModuleNamespace.java`, `ModuleScope.java`
 
-**Files to modify**: `ModuleScope.java`, possibly `Interpreter.java`
+### 2. Fix Default Generator Binding (2 tests)
 
-### 4. Fix Anonymous Default Export Function/Class Names (~4 tests)
-Anonymous default exports should have `.name` property set to "default":
-- `export default function() {}` should have `name === "default"`
-- `export default class {}` should have `name === "default"`
+Anonymous generator default exports need proper binding:
+
+```javascript
+export default function* () {}  // Should create binding for default
+```
 
 **Files to modify**: `IRFactory.java`, `ModuleAnalyzer.java`
 
-### 5. Eval in Module Context (remaining eval-* tests)
-Several `eval-*` tests that check module behavior in eval contexts.
+### 3. Fix Early Error for Generator Hoisting (1 test)
+
+Parser should reject generator declarations that conflict with lexical bindings:
+
+```javascript
+let f;
+function* f() {}  // Should be early SyntaxError in module
+```
+
+**Files to modify**: `Parser.java`
 
 ## Running Module Tests
 
