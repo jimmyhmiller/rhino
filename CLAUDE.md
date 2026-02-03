@@ -6,7 +6,7 @@
 
 The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-negotiable - keep fixing tests until there are zero failures.
 
-### Current ES6 Status: 89.8% passing (939 failures remaining)
+### Current ES6 Status: 90.8% passing (851 failures remaining)
 
 ```bash
 node scripts/test-status.js 6  # See current status
@@ -16,26 +16,29 @@ node scripts/test-status.js 6  # See current status
 
 - **ES6 Modules**: All 49/49 tests passing
 - **Generator Method Destructuring**: Fixed 359 tests (destructuring now runs before generator creation)
+- **For-of Destructuring**: Fixed ~90 tests (iterator protocol, empty arrays, object patterns)
+- **Yield-as-Identifier**: Fixed 8 tests (yield in nested destructuring patterns in non-strict mode)
 
 ---
 
-### NEXT PRIORITY: for-of Statement Tests (139 failures)
+### NEXT PRIORITY: for-of Statement Tests (56 failures)
 
-**Total for-of failures: 139/619 (22.5%)**
+**Total for-of failures: 56/619 (9.0%)**
 
-These are the highest-value ES6 fixes remaining. Run: `node scripts/test-status.js 6 --all | grep for-of`
+Run: `node scripts/test-status.js 6 --all | grep for-of`
 
 #### Breakdown by Issue Type
 
 | Issue | Count | Description |
 |-------|-------|-------------|
-| **Iterator Close** | ~80 | `IteratorClose` not called properly |
-| **Function Name Inference** | 5 | `obj-id-init-fn-name-*` tests |
-| **Iterator Protocol** | 4 | `iterator-next-*` edge cases |
-| **Computed Property Eval** | 2 | `obj-prop-name-evaluation*` |
-| **Other Destructuring** | ~48 | Various initialization/assignment issues |
+| **Iterator Close** | ~25 | `*-close-*` tests (return() not called or wrong) |
+| **Init Evaluation** | 3 | `array-elem-init-evaluation.js` etc |
+| **Simple Strict** | 4 | `*-simple-no-strict.js`, `*-simple-strict.js` |
+| **Property Eval** | 4 | `obj-prop-name-evaluation*`, `*-prop-eval-err*` |
+| **Object Literal Prop Ref** | 4 | `*-obj-literal-prop-ref-init*.js` |
+| **Lref/Rest** | 4 | `array-rest-lref*.js`, rest handling |
 
-#### Priority 1: Iterator Close Behavior (~80 tests)
+#### Priority 1: Iterator Close Behavior (~25 tests)
 
 The biggest issue: Rhino doesn't properly call `IteratorClose` (the iterator's `return()` method) when:
 - Array destructuring doesn't exhaust the iterator
