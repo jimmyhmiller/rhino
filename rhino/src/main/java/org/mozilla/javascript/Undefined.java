@@ -49,7 +49,8 @@ public class Undefined implements Serializable {
      * @param name the variable name for the error message
      */
     public static void checkTDZ(Object value, String name) {
-        if (value == TDZ_VALUE) {
+        // Skip TDZ check for internal temp variables (used by destructuring)
+        if (value == TDZ_VALUE && !name.startsWith("$")) {
             throw ScriptRuntime.constructError(
                     "ReferenceError", "Cannot access '" + name + "' before initialization");
         }

@@ -2701,8 +2701,9 @@ public class ScriptRuntime {
             Scriptable bound, Object value, Context cx, Scriptable scope, String id) {
         if (bound != null) {
             // TDZ write check: cannot assign to a let/const variable before initialization
+            // Skip for internal temp variables (used by destructuring)
             Object currentValue = ScriptableObject.getProperty(bound, id);
-            if (currentValue == Undefined.TDZ_VALUE) {
+            if (currentValue == Undefined.TDZ_VALUE && !id.startsWith("$")) {
                 throw constructError(
                         "ReferenceError", "Cannot access '" + id + "' before initialization");
             }
@@ -3067,6 +3068,39 @@ public class ScriptRuntime {
 
         // Mark as done to prevent double-closing
         x.done = true;
+    }
+
+    /**
+     * Call iterator.return() and verify the result is an object per ES6 7.4.6. This is used by
+     * destructuring assignment to close iterators when the pattern doesn't exhaust them.
+     *
+     * @param returnMethod the return method (iterator.return)
+     * @param iterator the iterator object
+     * @param cx the context
+     * @param scope the scope
+     * @return the result of calling return(), or undefined if returnMethod is not callable
+     */
+    public static Object callIteratorReturn(
+            Object returnMethod, Scriptable iterator, Context cx, Scriptable scope) {
+        if (returnMethod == null
+                || returnMethod == Scriptable.NOT_FOUND
+                || Undefined.isUndefined(returnMethod)) {
+            return Undefined.instance;
+        }
+        if (!(returnMethod instanceof Callable)) {
+            throw typeErrorById(
+                    "msg.isnt.function.in", "return", toString(iterator), typeof(returnMethod));
+        }
+
+        Callable f = (Callable) returnMethod;
+        Object result = f.call(cx, scope, iterator, emptyArgs);
+
+        // ES6 7.4.6 step 9: If Type(innerResult.[[value]]) is not Object, throw TypeError
+        if (!isObject(result)) {
+            throw typeErrorById("msg.return.not.object");
+        }
+
+        return result;
     }
 
     private static void enumChangeObject(IdEnumeration x) {

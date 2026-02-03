@@ -219,7 +219,7 @@ function mergeDirectoryJson(engines, relativePath) {
 
             for (const engine of engines) {
                 const data = readJsonSafe(path.join(engine.dir, relativePath));
-                if (data && data.files && data.files[subdir]) {
+                if (data && data.files && data.files[subdir] && data.files[subdir].engines) {
                     merged.files[subdir].engines[engine.name] =
                         Object.values(data.files[subdir].engines)[0] || 0;
                 }

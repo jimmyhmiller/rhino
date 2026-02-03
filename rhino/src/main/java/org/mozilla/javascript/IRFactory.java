@@ -2451,11 +2451,21 @@ public final class IRFactory {
             Node newBody = new Node(Token.BLOCK);
             Node assign;
             if (destructuring != -1) {
-                assign =
-                        parser.createDestructuringAssignment(declType, lvalue, id, this::transform);
                 // ES6: for-in/for-of with destructuring is valid. The iterated value
                 // (key string for for-in, value for for-of) is destructured directly.
-                // The old Rhino-specific restriction (array length 2 for key/value) is removed.
+                if (isForOf && destructuring == Token.ARRAYLIT) {
+                    // For for-of with array destructuring, use iterator protocol with proper
+                    // closing
+                    // ES6 12.15.5.3: IteratorDestructuringAssignmentEvaluation must close iterator
+                    assign =
+                            parser.createDestructuringAssignmentWithIteratorProtocol(
+                                    declType, lvalue, id, this::transform);
+                } else {
+                    // For for-in (iterates strings) or object destructuring
+                    assign =
+                            parser.createDestructuringAssignment(
+                                    declType, lvalue, id, this::transform);
+                }
             } else {
                 assign = parser.simpleAssignment(lvalue, id, this::transform, declType);
             }

@@ -67,7 +67,8 @@ public class NativeWith
         }
         // Use ScriptableObject.getProperty to walk the prototype chain
         Object value = ScriptableObject.getProperty(prototype, id);
-        if (value == Undefined.TDZ_VALUE) {
+        // Skip TDZ check for internal temp variables (used by destructuring)
+        if (value == Undefined.TDZ_VALUE && !id.startsWith("$")) {
             throw ScriptRuntime.constructError(
                     "ReferenceError", "Cannot access '" + id + "' before initialization");
         }

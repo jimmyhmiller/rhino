@@ -4463,8 +4463,11 @@ public final class Interpreter extends Icode implements Evaluator {
             Object value = vars[state.indexReg];
             if (value == Undefined.TDZ_VALUE) {
                 String name = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
-                throw ScriptRuntime.constructError(
-                        "ReferenceError", "Cannot access '" + name + "' before initialization");
+                // Skip TDZ check for internal temp variables (used by destructuring)
+                if (!name.startsWith("$")) {
+                    throw ScriptRuntime.constructError(
+                            "ReferenceError", "Cannot access '" + name + "' before initialization");
+                }
             }
             ++state.stackTop;
             frame.stack[state.stackTop] = value;
@@ -4481,8 +4484,11 @@ public final class Interpreter extends Icode implements Evaluator {
             Object value = vars[state.indexReg];
             if (value == Undefined.TDZ_VALUE) {
                 String name = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
-                throw ScriptRuntime.constructError(
-                        "ReferenceError", "Cannot access '" + name + "' before initialization");
+                // Skip TDZ check for internal temp variables (used by destructuring)
+                if (!name.startsWith("$")) {
+                    throw ScriptRuntime.constructError(
+                            "ReferenceError", "Cannot access '" + name + "' before initialization");
+                }
             }
             ++state.stackTop;
             frame.stack[state.stackTop] = value;

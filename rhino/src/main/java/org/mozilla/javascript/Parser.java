@@ -4248,10 +4248,13 @@ public class Parser {
             pn = arrowFunction(pn, startLine, startColumn);
         } else if (pn.getIntProp(Node.OBJECT_LITERAL_DESTRUCTURING, 0) == 1
                 && !inDestructuringAssignment
-                && !inPotentialArrowParams) {
+                && !inPotentialArrowParams
+                && !inForInit) {
             // Report error for destructuring-style object literals outside of valid contexts.
             // When inPotentialArrowParams is true, defer the check to parenExpr which can
             // properly detect if => follows.
+            // When inForInit is true, we're parsing the init part of a for loop - destructuring
+            // is valid for for-in/for-of loops; the check is deferred until we know the loop type.
             reportError("msg.syntax");
         }
         return pn;
@@ -5369,65 +5372,73 @@ public class Parser {
         boolean after_lb_or_comma = true;
         int afterComma = -1;
         int skipCount = 0;
-        for (; ; ) {
-            int tt = peekToken();
-            if (tt == Token.COMMA) {
-                consumeToken();
-                afterComma = ts.tokenEnd;
-                if (!after_lb_or_comma) {
-                    after_lb_or_comma = true;
-                } else {
-                    elements.add(new EmptyExpression(ts.tokenBeg, 1));
-                    skipCount++;
-                }
-            } else if (tt == Token.COMMENT) {
-                consumeToken();
-            } else if (tt == Token.RB) {
-                consumeToken();
-                // for ([a,] in obj) is legal, but for ([a] in obj) is
-                // not since we have both key and value supplied. The
-                // trick is that [a,] and [a] are equivalent in other
-                // array literal contexts. So we calculate a special
-                // length value just for destructuring assignment.
-                end = ts.tokenEnd;
-                pn.setDestructuringLength(elements.size() + (after_lb_or_comma ? 1 : 0));
-                pn.setSkipCount(skipCount);
-                if (afterComma != -1) warnTrailingComma(pos, elements, afterComma);
-                break;
-            } else if (tt == Token.FOR && !after_lb_or_comma && elements.size() == 1) {
-                return arrayComprehension(elements.get(0), pos);
-            } else if (tt == Token.EOF) {
-                reportError("msg.no.bracket.arg");
-                break;
-            } else {
-                if (!after_lb_or_comma) {
-                    reportError("msg.no.bracket.arg");
-                }
-                AstNode element;
-                if (tt == Token.DOTDOTDOT
-                        && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+        // Reset inForInit to allow `in` operator in array element expressions
+        // e.g., for ([x = 'y' in z] of ...) - the `in` is valid in the default value
+        boolean wasInForInit = inForInit;
+        inForInit = false;
+        try {
+            for (; ; ) {
+                int tt = peekToken();
+                if (tt == Token.COMMA) {
                     consumeToken();
-                    int spreadPos = ts.tokenBeg;
-                    int spreadLineno = lineNumber();
-                    int spreadColumn = columnNumber();
-                    AstNode exprNode = assignExpr();
-                    element = new Spread(spreadPos, ts.tokenEnd - spreadPos);
-                    element.setLineColumnNumber(spreadLineno, spreadColumn);
-                    ((Spread) element).setExpression(exprNode);
+                    afterComma = ts.tokenEnd;
+                    if (!after_lb_or_comma) {
+                        after_lb_or_comma = true;
+                    } else {
+                        elements.add(new EmptyExpression(ts.tokenBeg, 1));
+                        skipCount++;
+                    }
+                } else if (tt == Token.COMMENT) {
+                    consumeToken();
+                } else if (tt == Token.RB) {
+                    consumeToken();
+                    // for ([a,] in obj) is legal, but for ([a] in obj) is
+                    // not since we have both key and value supplied. The
+                    // trick is that [a,] and [a] are equivalent in other
+                    // array literal contexts. So we calculate a special
+                    // length value just for destructuring assignment.
+                    end = ts.tokenEnd;
+                    pn.setDestructuringLength(elements.size() + (after_lb_or_comma ? 1 : 0));
+                    pn.setSkipCount(skipCount);
+                    if (afterComma != -1) warnTrailingComma(pos, elements, afterComma);
+                    break;
+                } else if (tt == Token.FOR && !after_lb_or_comma && elements.size() == 1) {
+                    return arrayComprehension(elements.get(0), pos);
+                } else if (tt == Token.EOF) {
+                    reportError("msg.no.bracket.arg");
+                    break;
                 } else {
-                    element = assignExpr();
+                    if (!after_lb_or_comma) {
+                        reportError("msg.no.bracket.arg");
+                    }
+                    AstNode element;
+                    if (tt == Token.DOTDOTDOT
+                            && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                        consumeToken();
+                        int spreadPos = ts.tokenBeg;
+                        int spreadLineno = lineNumber();
+                        int spreadColumn = columnNumber();
+                        AstNode exprNode = assignExpr();
+                        element = new Spread(spreadPos, ts.tokenEnd - spreadPos);
+                        element.setLineColumnNumber(spreadLineno, spreadColumn);
+                        ((Spread) element).setExpression(exprNode);
+                    } else {
+                        element = assignExpr();
+                    }
+                    elements.add(element);
+                    after_lb_or_comma = false;
+                    afterComma = -1;
                 }
-                elements.add(element);
-                after_lb_or_comma = false;
-                afterComma = -1;
             }
+            for (AstNode e : elements) {
+                pn.addElement(e);
+            }
+            pn.setLength(end - pos);
+            pn.setLineColumnNumber(lineno, column);
+            return pn;
+        } finally {
+            inForInit = wasInForInit;
         }
-        for (AstNode e : elements) {
-            pn.addElement(e);
-        }
-        pn.setLength(end - pos);
-        pn.setLineColumnNumber(lineno, column);
-        return pn;
     }
 
     /**
@@ -5899,9 +5910,17 @@ public class Parser {
             /* we're in destructuring with defaults in a object literal; treat defaults as values */
             ObjectProperty pn = new ObjectProperty();
             consumeToken(); // consume the `=`
-            Assignment defaultValue = new Assignment(property, assignExpr());
-            defaultValue.setType(Token.ASSIGN);
-            pn.setKeyAndValue(property, defaultValue);
+            // Reset inForInit to allow `in` operator in default value
+            // e.g., for ({ x = 'y' in z } of ...) - the `in` is valid in the default value
+            boolean wasInForInit = inForInit;
+            inForInit = false;
+            try {
+                Assignment defaultValue = new Assignment(property, assignExpr());
+                defaultValue.setType(Token.ASSIGN);
+                pn.setKeyAndValue(property, defaultValue);
+            } finally {
+                inForInit = wasInForInit;
+            }
             return pn;
         }
         mustMatchToken(Token.COLON, "msg.no.colon.prop", true);
@@ -6324,6 +6343,16 @@ public class Parser {
         return createDestructuringAssignment(type, left, right, null, transformer, false);
     }
 
+    /**
+     * Creates a destructuring assignment that uses ES6 iterator protocol. This should be used for
+     * for-of loop destructuring where the iterated value needs to be destructured using iterators
+     * and properly closed.
+     */
+    Node createDestructuringAssignmentWithIteratorProtocol(
+            int type, Node left, Node right, Transformer transformer) {
+        return createDestructuringAssignment(type, left, right, null, transformer, true);
+    }
+
     Node createDestructuringAssignment(int type, Node left, Node right, AstNode defaultValue) {
         return createDestructuringAssignment(type, left, right, defaultValue, null, true);
     }
@@ -6400,8 +6429,10 @@ public class Parser {
         }
 
         // Add iterator closing to the comma sequence if needed
+        // ES6 7.4.6 IteratorClose: Call iterator.return() if iterator is not done
         // Generate: !lastResult.done ? ((f = iterator.return) !== undefined ? f.call(iterator) :
         // undefined) : undefined
+        // TODO: Add check that return() result is an object per ES6 7.4.6 step 9
         if (isFunctionParameter && iteratorName != null && lastResultName != null) {
             // Allocate temp for return method
             String returnMethodName = currentScriptOrFn.getNextTempName();
