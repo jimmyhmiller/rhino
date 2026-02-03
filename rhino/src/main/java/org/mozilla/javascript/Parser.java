@@ -6319,6 +6319,18 @@ public class Parser {
             AstNode defaultValue,
             Transformer transformer,
             boolean isFunctionParameter) {
+        return createDestructuringAssignment(
+                type, left, right, defaultValue, transformer, isFunctionParameter, false);
+    }
+
+    Node createDestructuringAssignment(
+            int type,
+            Node left,
+            Node right,
+            AstNode defaultValue,
+            Transformer transformer,
+            boolean isFunctionParameter,
+            boolean isForOfDestructuring) {
         String tempName = currentScriptOrFn.getNextTempName();
         Node result =
                 destructuringAssignmentHelper(
@@ -6328,7 +6340,8 @@ public class Parser {
                         tempName,
                         defaultValue,
                         transformer,
-                        isFunctionParameter);
+                        isFunctionParameter,
+                        isForOfDestructuring);
         Node comma = result.getLastChild();
         comma.addChildToBack(createName(tempName));
         return result;
@@ -6350,7 +6363,8 @@ public class Parser {
      */
     Node createDestructuringAssignmentWithIteratorProtocol(
             int type, Node left, Node right, Transformer transformer) {
-        return createDestructuringAssignment(type, left, right, null, transformer, true);
+        // For for-of, we need iterator protocol AND special handling for empty arrays
+        return createDestructuringAssignment(type, left, right, null, transformer, true, true);
     }
 
     Node createDestructuringAssignment(int type, Node left, Node right, AstNode defaultValue) {
@@ -6365,6 +6379,26 @@ public class Parser {
             AstNode defaultValue,
             Transformer transformer,
             boolean isFunctionParameter) {
+        return destructuringAssignmentHelper(
+                variableType,
+                left,
+                right,
+                tempName,
+                defaultValue,
+                transformer,
+                isFunctionParameter,
+                false);
+    }
+
+    Node destructuringAssignmentHelper(
+            int variableType,
+            Node left,
+            Node right,
+            String tempName,
+            AstNode defaultValue,
+            Transformer transformer,
+            boolean isFunctionParameter,
+            boolean isForOfDestructuring) {
         Scope result = createScopeNode(Token.LETEXPR, left.getLineno(), left.getColumn());
         result.addChildToFront(new Node(Token.LET, createName(Token.NAME, tempName, right)));
         try {
@@ -6389,7 +6423,8 @@ public class Parser {
                             destructuringNames,
                             defaultValue,
                             transformer,
-                            isFunctionParameter);
+                            isFunctionParameter,
+                            isForOfDestructuring);
             empty = arrayResult.empty;
             iteratorName = arrayResult.iteratorName;
             lastResultName = arrayResult.lastResultName;
@@ -6496,7 +6531,8 @@ public class Parser {
             List<String> destructuringNames,
             AstNode defaultValue,
             Transformer transformer,
-            boolean isFunctionParameter) {
+            boolean isFunctionParameter,
+            boolean isForOfDestructuring) {
         boolean empty = true;
         int setOp;
         if (variableType == Token.CONST) {
@@ -6740,6 +6776,48 @@ public class Parser {
                                 isFunctionParameter));
             }
             index++;
+            empty = false;
+        }
+
+        // For for-of with empty array patterns, we still need to call GetIterator and IteratorClose
+        // ES6 12.15.5.2: ArrayAssignmentPattern : [ ]
+        //   1. Let iterator be GetIterator(value).
+        //   2. ReturnIfAbrupt(iterator).
+        //   3. Return IteratorClose(iterator, NormalCompletion(empty)).
+        if (empty
+                && isForOfDestructuring
+                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+            // Set up iterator to verify the value is iterable (throws TypeError if not)
+            iteratorName = currentScriptOrFn.getNextTempName();
+            lastResultName = currentScriptOrFn.getNextTempName();
+            defineSymbol(Token.LET, iteratorName, true);
+            defineSymbol(Token.LET, lastResultName, true);
+
+            // Generate: iterator = tempName[Symbol.iterator]()
+            Node symbolName = createName("Symbol");
+            Node getIteratorProp = new Node(Token.GETPROP, symbolName, Node.newString("iterator"));
+            Node getIteratorMethod = new Node(Token.GETELEM, createName(tempName));
+            getIteratorMethod.addChildToBack(getIteratorProp);
+            Node callIterator = new Node(Token.CALL, getIteratorMethod);
+            Node iteratorAssign =
+                    new Node(
+                            Token.SETNAME,
+                            createName(Token.BINDNAME, iteratorName, null),
+                            callIterator);
+            parent.addChildToBack(iteratorAssign);
+
+            // Create a placeholder result with done=false so IteratorClose will be called
+            // Since we didn't call next(), iterator is not done and should be closed
+            Node doneFalse = new Node(Token.OBJECTLIT);
+            doneFalse.putProp(Node.OBJECT_IDS_PROP, new Object[] {"done"});
+            doneFalse.addChildToBack(new Node(Token.FALSE));
+            Node resultAssign =
+                    new Node(
+                            Token.SETNAME,
+                            createName(Token.BINDNAME, lastResultName, null),
+                            doneFalse);
+            parent.addChildToBack(resultAssign);
+
             empty = false;
         }
 
