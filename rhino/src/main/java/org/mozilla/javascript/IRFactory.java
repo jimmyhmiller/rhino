@@ -1466,11 +1466,15 @@ public final class IRFactory {
             return transformed;
         }
 
-        // For default exports with an expression, return the value so it can be captured
+        // For default exports with an expression, assign to *default* binding
+        // so it can be accessed via the module's export bindings
         if (node.isDefault() && node.getDefaultExpression() != null) {
             Node expr = transform(node.getDefaultExpression());
-            // Use EXPR_RESULT so the value can be captured as the script result
-            Node exprStmt = new Node(Token.EXPR_RESULT, expr);
+            // Create: *default* = <expression>
+            // This stores the value in the module scope so it can be retrieved later
+            Node name = parser.createName("*default*");
+            Node assignment = createAssignment(Token.ASSIGN, name, expr);
+            Node exprStmt = new Node(Token.EXPR_RESULT, assignment);
             exprStmt.setLineColumnNumber(node.getLineno(), node.getColumn());
             return exprStmt;
         }

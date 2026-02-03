@@ -617,7 +617,15 @@ public class NativeObject extends ScriptableObject implements Map {
         Object descArg = args.length < 3 ? Undefined.instance : args[2];
         var desc = new DescriptorInfo(ensureScriptableObject(descArg));
         ScriptableObject.checkPropertyDefinition(desc);
-        obj.defineOwnProperty(cx, name, desc);
+        // Per ES6 spec, Object.defineProperty throws TypeError if [[DefineOwnProperty]] returns
+        // false
+        boolean success = obj.defineOwnProperty(cx, name, desc);
+        if (!success) {
+            String propName =
+                    ScriptRuntime.isSymbol(name) ? name.toString() : ScriptRuntime.toString(name);
+            throw ScriptRuntime.typeError(
+                    "Cannot define property \"" + propName + "\", object is not extensible");
+        }
         return obj;
     }
 

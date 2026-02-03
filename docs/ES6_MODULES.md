@@ -1,6 +1,6 @@
 # ES6 Modules Implementation
 
-**Status**: Core module linking and validation working; ~38% of test262 module tests passing
+**Status**: Core module linking and validation working; ~43% of test262 module tests passing
 
 This document tracks the implementation status of ES6 modules in Rhino. **Keep this document updated as progress is made.**
 
@@ -42,15 +42,15 @@ ES6 modules provide static `import`/`export` syntax for JavaScript. This impleme
 
 | Category | Pass Rate | Notes |
 |----------|-----------|-------|
-| `language/module-code` | **220/584 (37.67%)** | Up from ~19%; linking validation and parser fixes added 130+ passing tests |
+| `language/module-code` | **251/584 (42.98%)** | Up from ~38%; namespace object improvements added 31 passing tests |
 
 ### Current Limitations
 
 | Limitation | Status | Notes |
 |------------|--------|-------|
-| Module namespace object internals | ❌ Incomplete | 34 tests in `namespace/internals/*` - need proper exotic object behavior |
+| Module namespace object internals | ⚠️ Partial | Most tests passing; remaining: `Object.freeze`, TDZ for uninitialized bindings |
 | Local binding initialization | ❌ Incomplete | `instn-local-bndng-*` tests - let/const/class bindings in modules |
-| Default export bindings | ❌ Incomplete | `instn-named-bndng-dflt-*` tests - default export evaluation |
+| Default export bindings | ✅ Fixed | Default expression exports now properly captured during evaluation |
 | Star export ambiguity | ⚠️ Partial | `instn-star-*` edge cases with multiple star exports |
 | Dynamic import() | ❌ Not started | Requires async support |
 | Top-level await | ❌ Not started | Requires async support |
@@ -58,26 +58,26 @@ ES6 modules provide static `import`/`export` syntax for JavaScript. This impleme
 
 ## Next Steps (Priority Order)
 
-### 1. Fix Module Namespace Object Internals (34 tests)
-The `namespace/internals/*` tests require proper exotic object behavior for module namespaces:
-- `[[GetOwnProperty]]` must return correct property descriptors
-- `[[HasProperty]]` must check exports correctly
-- `[[Get]]` must return live bindings
-- `[[Set]]` must always return false (immutable)
-- `[[Delete]]` behavior for exported vs non-exported names
-- `[[OwnPropertyKeys]]` must return sorted export names
+### 1. Fix TDZ (Temporal Dead Zone) for Uninitialized Bindings (~12 tests)
+The remaining `*-uninit.js` tests require proper TDZ handling:
+- Accessing uninitialized let/const bindings should throw ReferenceError
+- `Object.keys`, `Object.freeze`, etc. on namespace with uninitialized bindings
 
-**Files to modify**: `NativeModuleNamespace.java`
+**Files to modify**: `ModuleScope.java`, `NativeModuleNamespace.java`, `ModuleRecord.java`
 
-### 2. Fix Local Binding Initialization (6 tests)
+### 2. Fix Object.freeze on Module Namespaces (1 test)
+`Object.freeze(namespace)` should throw TypeError because export bindings are writable but not configurable.
+
+**Files to modify**: `NativeObject.java` (js_freeze), `NativeModuleNamespace.java`
+
+### 3. Fix Local Binding Initialization (6 tests)
 Tests like `instn-local-bndng-cls.js`, `instn-local-bndng-const.js`, `instn-local-bndng-let.js`:
-- Module-local let/const/class declarations need proper TDZ (temporal dead zone) handling
-- Export bindings for local declarations need to track initialization state
+- Module-local let/const/class declarations need proper TDZ handling
 
 **Files to modify**: `ModuleScope.java`, possibly `Interpreter.java`
 
-### 3. Fix Default Export Binding Resolution (8 tests)
-Tests like `instn-named-bndng-dflt-cls.js`, `instn-named-bndng-dflt-star.js`:
+### 4. Fix Default Export Binding Resolution (remaining tests)
+Some edge cases with default exports through star re-exports:
 - Default exports through star re-exports have edge cases
 - Anonymous default exports need proper binding names
 

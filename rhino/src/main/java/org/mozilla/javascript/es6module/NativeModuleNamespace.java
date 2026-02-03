@@ -9,6 +9,7 @@ package org.mozilla.javascript.es6module;
 import java.util.Collections;
 import java.util.Set;
 import java.util.TreeSet;
+import org.mozilla.javascript.CompoundOperationMap;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.ScriptableObject;
@@ -132,6 +133,150 @@ public class NativeModuleNamespace extends ScriptableObject implements SymbolScr
     @Override
     public Object[] getIds() {
         return exports.toArray(new Object[0]);
+    }
+
+    @Override
+    public Object[] getAllIds() {
+        return exports.toArray(new Object[0]);
+    }
+
+    /**
+     * Module namespace [[OwnPropertyKeys]] returns sorted export names followed by symbol keys.
+     *
+     * @see <a
+     *     href="https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-ownpropertykeys">[[OwnPropertyKeys]]</a>
+     */
+    @Override
+    protected Object[] getIds(
+            CompoundOperationMap map, boolean getNonEnumerable, boolean getSymbols) {
+        if (getSymbols) {
+            // Return sorted exports plus Symbol.toStringTag
+            Object[] result = new Object[exports.size() + 1];
+            int i = 0;
+            for (String name : exports) {
+                result[i++] = name;
+            }
+            result[i] = SymbolKey.TO_STRING_TAG;
+            return result;
+        } else {
+            return exports.toArray(new Object[0]);
+        }
+    }
+
+    /**
+     * Module namespace [[GetOwnProperty]] returns property descriptors for exports.
+     *
+     * @see <a
+     *     href="https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-getownproperty-p">[[GetOwnProperty]]</a>
+     */
+    @Override
+    protected DescriptorInfo getOwnPropertyDescriptor(Context cx, Object id) {
+        // 1. If Type(P) is Symbol, return OrdinaryGetOwnProperty(O, P)
+        if (id instanceof Symbol) {
+            Symbol sym = (Symbol) id;
+            if (SymbolKey.TO_STRING_TAG.equals(sym)) {
+                // Symbol.toStringTag: { [[Value]]: "Module", [[Writable]]: false,
+                // [[Enumerable]]: false, [[Configurable]]: false }
+                return new DescriptorInfo(false, false, false, CLASS_NAME);
+            }
+            return null;
+        }
+
+        String name = ScriptRuntime.toString(id);
+
+        // 2-3. If P is not an element of exports, return undefined
+        if (!exports.contains(name)) {
+            return null;
+        }
+
+        // 4-5. Return PropertyDescriptor { [[Value]]: value, [[Writable]]: true,
+        //      [[Enumerable]]: true, [[Configurable]]: false }
+        Object value = module.getExportBinding(name);
+        return new DescriptorInfo(true, true, false, value);
+    }
+
+    /**
+     * Module namespace [[DefineOwnProperty]] - returns true only if no change is requested.
+     *
+     * @see <a
+     *     href="https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-defineownproperty-p-desc">[[DefineOwnProperty]]</a>
+     */
+    @Override
+    protected boolean defineOwnProperty(
+            Context cx, Object id, DescriptorInfo desc, boolean checkValid) {
+        // 1. If Type(P) is Symbol, return OrdinaryDefineOwnProperty(O, P, Desc)
+        if (id instanceof Symbol) {
+            Symbol sym = (Symbol) id;
+            if (SymbolKey.TO_STRING_TAG.equals(sym)) {
+                // Symbol.toStringTag exists but is non-configurable
+                // Check if desc would make any change
+                return isNoOpDescriptor(desc, CLASS_NAME, false, false, false);
+            }
+            // Other symbols don't exist
+            return false;
+        }
+
+        String name = ScriptRuntime.toString(id);
+
+        // 2. Let current be O.[[GetOwnProperty]](P)
+        // 3. If current is undefined, return false
+        if (!exports.contains(name)) {
+            return false;
+        }
+
+        // 4. If Desc has [[Configurable]] field and Desc.[[Configurable]] is true, return false
+        if (desc.hasConfigurable() && desc.isConfigurable()) {
+            return false;
+        }
+
+        // 5. If Desc has [[Enumerable]] field and Desc.[[Enumerable]] is false, return false
+        if (desc.hasEnumerable() && !desc.isEnumerable()) {
+            return false;
+        }
+
+        // 6. If IsAccessorDescriptor(Desc) is true, return false
+        if (desc.isAccessorDescriptor()) {
+            return false;
+        }
+
+        // 7. If Desc has [[Writable]] field and Desc.[[Writable]] is false, return false
+        if (desc.hasWritable() && !desc.isWritable()) {
+            return false;
+        }
+
+        // 8. If Desc has [[Value]] field, return SameValue(Desc.[[Value]], current.[[Value]])
+        if (desc.hasValue()) {
+            Object currentValue = module.getExportBinding(name);
+            return ScriptRuntime.shallowEq(desc.value, currentValue);
+        }
+
+        // 9. Return true
+        return true;
+    }
+
+    /** Helper to check if a descriptor makes no changes to an existing property. */
+    private boolean isNoOpDescriptor(
+            DescriptorInfo desc,
+            Object currentValue,
+            boolean currentWritable,
+            boolean currentEnumerable,
+            boolean currentConfigurable) {
+        if (desc.hasConfigurable() && desc.isConfigurable() != currentConfigurable) {
+            return false;
+        }
+        if (desc.hasEnumerable() && desc.isEnumerable() != currentEnumerable) {
+            return false;
+        }
+        if (desc.isAccessorDescriptor()) {
+            return false;
+        }
+        if (desc.hasWritable() && desc.isWritable() != currentWritable) {
+            return false;
+        }
+        if (desc.hasValue() && !ScriptRuntime.shallowEq(desc.value, currentValue)) {
+            return false;
+        }
+        return true;
     }
 
     // Module namespace objects are not extensible

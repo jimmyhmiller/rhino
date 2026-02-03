@@ -376,17 +376,18 @@ public class ModuleRecord implements Serializable {
                 return module.getNamespaceObject();
             }
 
-            // Special case: *default* is the script result for default expression exports
-            if ("*default*".equals(bindingName)) {
-                return module.exportBindings.get("default");
-            }
-
             // Live binding: look up from module scope
             Scriptable env = module.getModuleEnvironment();
             if (env != null && bindingName != null) {
                 Object value =
                         org.mozilla.javascript.ScriptableObject.getProperty(env, bindingName);
                 if (value == org.mozilla.javascript.Scriptable.NOT_FOUND) {
+                    // For TDZ checking, look at cached export bindings as fallback
+                    // (they might have been set during evaluation)
+                    Object cachedValue = module.exportBindings.get(bindingName);
+                    if (cachedValue != null) {
+                        return cachedValue;
+                    }
                     // Binding doesn't exist yet - this is a TDZ error
                     throw org.mozilla.javascript.ScriptRuntime.constructError(
                             "ReferenceError",

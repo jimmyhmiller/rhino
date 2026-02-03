@@ -1437,6 +1437,17 @@ public class Context implements Closeable {
         if (moduleRecord.getModuleEnvironment() == null) {
             ModuleScope moduleScope = new ModuleScope(globalScope, moduleRecord);
             moduleRecord.setModuleEnvironment(moduleScope);
+
+            // Check if module has a default expression export and pre-define *default*
+            // This is needed because modules are strict mode and we can't assign to
+            // undeclared variables
+            for (ModuleRecord.ExportEntry entry : moduleRecord.getLocalExportEntries()) {
+                if ("*default*".equals(entry.getLocalName())) {
+                    // Pre-define *default* as undefined (will be assigned during evaluation)
+                    moduleScope.put("*default*", moduleScope, Undefined.instance);
+                    break;
+                }
+            }
         }
 
         // For each requested module, load and link it
@@ -1468,6 +1479,32 @@ public class Context implements Closeable {
 
         // Validate indirect exports can be resolved (ES6 16.2.1.5.3.1 step 9)
         moduleRecord.validateIndirectExports();
+
+        // Create namespace object during linking (before evaluation)
+        // The namespace needs to exist for self-referencing imports like `import * as ns from
+        // './self'`
+        if (moduleRecord.getNamespaceObject() == null) {
+            Set<String> exportNames = new java.util.TreeSet<>();
+            // Gather export names from local exports
+            for (ModuleRecord.ExportEntry entry : moduleRecord.getLocalExportEntries()) {
+                if (entry.getExportName() != null) {
+                    exportNames.add(entry.getExportName());
+                }
+            }
+            // Gather export names from indirect exports
+            for (ModuleRecord.ExportEntry entry : moduleRecord.getIndirectExportEntries()) {
+                if (entry.getExportName() != null) {
+                    exportNames.add(entry.getExportName());
+                }
+            }
+            // Star exports need to be resolved by looking at the source module's exports
+            // but we handle that in getExportBinding via resolveExport
+
+            org.mozilla.javascript.es6module.NativeModuleNamespace ns =
+                    new org.mozilla.javascript.es6module.NativeModuleNamespace(
+                            moduleRecord, exportNames);
+            moduleRecord.setNamespaceObject(ns);
+        }
 
         moduleRecord.setStatus(ModuleRecord.Status.LINKED);
     }
@@ -1522,31 +1559,22 @@ public class Context implements Closeable {
             // Execute module code
             Scriptable moduleScope = moduleRecord.getModuleEnvironment();
             Script script = moduleRecord.getScript();
-            Object scriptResult = script.exec(this, moduleScope, moduleScope);
+            script.exec(this, moduleScope, moduleScope);
 
-            // Create namespace object with exports
-            Set<String> exportNames = new java.util.TreeSet<>();
+            // Populate export bindings after evaluation
             for (ModuleRecord.ExportEntry entry : moduleRecord.getLocalExportEntries()) {
                 String exportName = entry.getExportName();
                 String localName = entry.getLocalName();
                 if (exportName != null) {
-                    exportNames.add(exportName);
-                    if ("default".equals(exportName) && "*default*".equals(localName)) {
-                        // Default export with expression - use script result
-                        moduleRecord.setExportBinding("default", scriptResult);
-                    } else {
-                        // Copy value from module scope to export bindings
-                        Object value = ScriptableObject.getProperty(moduleScope, localName);
-                        moduleRecord.setExportBinding(exportName, value);
-                    }
+                    // Copy value from module scope to export bindings
+                    // For default expression exports, localName is "*default*" and the
+                    // value was stored in the scope via IRFactory transformation
+                    Object value = ScriptableObject.getProperty(moduleScope, localName);
+                    moduleRecord.setExportBinding(exportName, value);
                 }
             }
 
-            org.mozilla.javascript.es6module.NativeModuleNamespace ns =
-                    new org.mozilla.javascript.es6module.NativeModuleNamespace(
-                            moduleRecord, exportNames);
-            moduleRecord.setNamespaceObject(ns);
-
+            // Namespace object was already created during linking
             moduleRecord.setStatus(ModuleRecord.Status.EVALUATED);
         } catch (Throwable t) {
             moduleRecord.setEvaluationError(t);

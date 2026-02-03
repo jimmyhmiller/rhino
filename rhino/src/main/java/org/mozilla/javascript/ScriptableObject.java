@@ -3290,7 +3290,8 @@ public abstract class ScriptableObject extends SlotMapOwner
         return slot;
     }
 
-    Object[] getIds(CompoundOperationMap map, boolean getNonEnumerable, boolean getSymbols) {
+    protected Object[] getIds(
+            CompoundOperationMap map, boolean getNonEnumerable, boolean getSymbols) {
         Object[] a;
         int externalLen = (externalData == null ? 0 : externalData.getArrayLength());
 
