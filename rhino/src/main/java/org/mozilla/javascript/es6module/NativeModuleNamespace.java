@@ -100,6 +100,21 @@ public class NativeModuleNamespace extends ScriptableObject implements SymbolScr
         // Silently ignore in non-strict mode
     }
 
+    /**
+     * Module namespace [[Set]] always returns false per ES6 spec 10.4.6.9.
+     *
+     * @see <a href="https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-set-p-v-receiver">
+     *     [[Set]]</a>
+     */
+    @Override
+    public boolean putReturningBoolean(
+            String name, org.mozilla.javascript.Scriptable start, Object value) {
+        if (isStrictMode()) {
+            throw ScriptRuntime.typeErrorById("msg.modify.readonly", name);
+        }
+        return false;
+    }
+
     // Cannot delete properties from module namespace objects
     @Override
     public void delete(String name) {

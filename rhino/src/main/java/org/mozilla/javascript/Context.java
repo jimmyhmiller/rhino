@@ -1484,21 +1484,8 @@ public class Context implements Closeable {
         // The namespace needs to exist for self-referencing imports like `import * as ns from
         // './self'`
         if (moduleRecord.getNamespaceObject() == null) {
-            Set<String> exportNames = new java.util.TreeSet<>();
-            // Gather export names from local exports
-            for (ModuleRecord.ExportEntry entry : moduleRecord.getLocalExportEntries()) {
-                if (entry.getExportName() != null) {
-                    exportNames.add(entry.getExportName());
-                }
-            }
-            // Gather export names from indirect exports
-            for (ModuleRecord.ExportEntry entry : moduleRecord.getIndirectExportEntries()) {
-                if (entry.getExportName() != null) {
-                    exportNames.add(entry.getExportName());
-                }
-            }
-            // Star exports need to be resolved by looking at the source module's exports
-            // but we handle that in getExportBinding via resolveExport
+            // Get all exported names including star exports (via GetExportedNames algorithm)
+            Set<String> exportNames = moduleRecord.getExportedNames();
 
             org.mozilla.javascript.es6module.NativeModuleNamespace ns =
                     new org.mozilla.javascript.es6module.NativeModuleNamespace(

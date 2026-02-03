@@ -169,11 +169,11 @@ public class AbstractEcmaObjectOperations {
                                         Scriptable.NOT_FOUND,
                                         Scriptable.NOT_FOUND,
                                         Scriptable.NOT_FOUND);
-                        obj.defineOwnProperty(cx, key, sealDesc, false);
+                        definePropertyOrThrow(cx, obj, key, sealDesc);
                     } else {
                         // For ordinary objects, modify the existing descriptor
                         desc.configurable = false;
-                        obj.defineOwnProperty(cx, key, desc, false);
+                        definePropertyOrThrow(cx, obj, key, desc);
                     }
                 }
             } else {
@@ -191,7 +191,7 @@ public class AbstractEcmaObjectOperations {
                                     Scriptable.NOT_FOUND,
                                     Scriptable.NOT_FOUND,
                                     Scriptable.NOT_FOUND);
-                    obj.defineOwnProperty(cx, key, freezeDesc, false);
+                    definePropertyOrThrow(cx, obj, key, freezeDesc);
                 } else {
                     // For ordinary objects, modify the existing descriptor
                     if (desc.isDataDescriptor() && desc.isWritable()) {
@@ -200,12 +200,29 @@ public class AbstractEcmaObjectOperations {
                     if (desc.isConfigurable()) {
                         desc.configurable = false;
                     }
-                    obj.defineOwnProperty(cx, key, desc, false);
+                    definePropertyOrThrow(cx, obj, key, desc);
                 }
             }
         }
 
         return true;
+    }
+
+    /**
+     * Implementation of Abstract Object operation DefinePropertyOrThrow as defined by EcmaScript.
+     * Calls [[DefineOwnProperty]] and throws a TypeError if it returns false.
+     *
+     * @see <a href="https://tc39.es/ecma262/#sec-definepropertyorthrow">DefinePropertyOrThrow</a>
+     */
+    private static void definePropertyOrThrow(
+            Context cx, ScriptableObject obj, Object key, ScriptableObject.DescriptorInfo desc) {
+        boolean success = obj.defineOwnProperty(cx, key, desc, false);
+        if (!success) {
+            String propName =
+                    ScriptRuntime.isSymbol(key) ? key.toString() : ScriptRuntime.toString(key);
+            throw ScriptRuntime.typeError(
+                    "Cannot define property \"" + propName + "\", object is not extensible");
+        }
     }
 
     /**

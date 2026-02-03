@@ -6,6 +6,8 @@
 
 package org.mozilla.javascript;
 
+import java.util.HashSet;
+import java.util.Set;
 import org.mozilla.javascript.ast.AstNode;
 import org.mozilla.javascript.ast.AstRoot;
 import org.mozilla.javascript.ast.ClassNode;
@@ -32,13 +34,16 @@ public class ModuleAnalyzer {
      *
      * @param ast the module AST
      * @param moduleRecord the module record to populate
+     * @throws RuntimeException with SyntaxError if duplicate export names are found
      */
     public static void analyze(AstRoot ast, ModuleRecord moduleRecord) {
+        Set<String> exportedNames = new HashSet<>();
+
         for (AstNode statement : ast.getStatements()) {
             if (statement instanceof ImportDeclaration) {
                 analyzeImport((ImportDeclaration) statement, moduleRecord);
             } else if (statement instanceof ExportDeclaration) {
-                analyzeExport((ExportDeclaration) statement, moduleRecord);
+                analyzeExport((ExportDeclaration) statement, moduleRecord, exportedNames);
             }
         }
     }
@@ -82,7 +87,8 @@ public class ModuleAnalyzer {
      * @param exp the export declaration
      * @param moduleRecord the module record
      */
-    private static void analyzeExport(ExportDeclaration exp, ModuleRecord moduleRecord) {
+    private static void analyzeExport(
+            ExportDeclaration exp, ModuleRecord moduleRecord, Set<String> exportedNames) {
         String fromModule = exp.getFromModuleSpecifier();
 
         if (fromModule != null) {
@@ -91,25 +97,39 @@ public class ModuleAnalyzer {
 
         // export default ...
         if (exp.isDefault()) {
-            analyzeDefaultExport(exp, moduleRecord);
+            analyzeDefaultExport(exp, moduleRecord, exportedNames);
             return;
         }
 
         // export * from 'module' or export * as ns from 'module'
         if (exp.isStarExport()) {
-            analyzeStarExport(exp, moduleRecord, fromModule);
+            analyzeStarExport(exp, moduleRecord, fromModule, exportedNames);
             return;
         }
 
         // export { a, b as c } or export { a, b } from 'module'
         if (!exp.getNamedExports().isEmpty()) {
-            analyzeNamedExports(exp, moduleRecord, fromModule);
+            analyzeNamedExports(exp, moduleRecord, fromModule, exportedNames);
             return;
         }
 
         // export function foo() {} or export class Foo {} or export var/let/const
         if (exp.getDeclaration() != null) {
-            analyzeDeclarationExport(exp, moduleRecord);
+            analyzeDeclarationExport(exp, moduleRecord, exportedNames);
+        }
+    }
+
+    /**
+     * Checks for duplicate export names and throws SyntaxError if found.
+     *
+     * @param exportName the export name to check
+     * @param exportedNames set of already exported names
+     * @throws RuntimeException with SyntaxError if duplicate found
+     */
+    private static void checkDuplicateExport(String exportName, Set<String> exportedNames) {
+        if (exportName != null && !exportedNames.add(exportName)) {
+            throw ScriptRuntime.constructError(
+                    "SyntaxError", "Duplicate export of '" + exportName + "'");
         }
     }
 
@@ -118,8 +138,13 @@ public class ModuleAnalyzer {
      *
      * @param exp the export declaration
      * @param moduleRecord the module record
+     * @param exportedNames set of already exported names for duplicate checking
      */
-    private static void analyzeDefaultExport(ExportDeclaration exp, ModuleRecord moduleRecord) {
+    private static void analyzeDefaultExport(
+            ExportDeclaration exp, ModuleRecord moduleRecord, Set<String> exportedNames) {
+        // Check for duplicate default export
+        checkDuplicateExport("default", exportedNames);
+
         // export default function foo() {} - the local name is the function name
         // export default function() {} - the local name is "*default*"
         // export default class Foo {} - the local name is the class name
@@ -151,16 +176,22 @@ public class ModuleAnalyzer {
      * @param exp the export declaration
      * @param moduleRecord the module record
      * @param fromModule the source module
+     * @param exportedNames set of already exported names for duplicate checking
      */
     private static void analyzeStarExport(
-            ExportDeclaration exp, ModuleRecord moduleRecord, String fromModule) {
+            ExportDeclaration exp,
+            ModuleRecord moduleRecord,
+            String fromModule,
+            Set<String> exportedNames) {
         Name alias = exp.getStarExportAlias();
         if (alias != null) {
             // export * as ns from 'module'
+            String exportName = alias.getIdentifier();
+            checkDuplicateExport(exportName, exportedNames);
             moduleRecord.addIndirectExportEntry(
-                    new ModuleRecord.ExportEntry(alias.getIdentifier(), fromModule, "*", null));
+                    new ModuleRecord.ExportEntry(exportName, fromModule, "*", null));
         } else {
-            // export * from 'module'
+            // export * from 'module' - no explicit export name, so no duplicate check needed
             moduleRecord.addStarExportEntry(
                     new ModuleRecord.ExportEntry(null, fromModule, "*", null));
         }
@@ -172,12 +203,19 @@ public class ModuleAnalyzer {
      * @param exp the export declaration
      * @param moduleRecord the module record
      * @param fromModule the source module (null for local exports)
+     * @param exportedNames set of already exported names for duplicate checking
      */
     private static void analyzeNamedExports(
-            ExportDeclaration exp, ModuleRecord moduleRecord, String fromModule) {
+            ExportDeclaration exp,
+            ModuleRecord moduleRecord,
+            String fromModule,
+            Set<String> exportedNames) {
         for (ExportSpecifier spec : exp.getNamedExports()) {
             String localName = spec.getLocalNameString();
             String exportedName = spec.getExportedNameString();
+
+            // Check for duplicate exports
+            checkDuplicateExport(exportedName, exportedNames);
 
             if (fromModule != null) {
                 // export { a, b as c } from 'module' - indirect export
@@ -196,17 +234,21 @@ public class ModuleAnalyzer {
      *
      * @param exp the export declaration
      * @param moduleRecord the module record
+     * @param exportedNames set of already exported names for duplicate checking
      */
-    private static void analyzeDeclarationExport(ExportDeclaration exp, ModuleRecord moduleRecord) {
+    private static void analyzeDeclarationExport(
+            ExportDeclaration exp, ModuleRecord moduleRecord, Set<String> exportedNames) {
         AstNode decl = exp.getDeclaration();
 
         if (decl instanceof FunctionNode) {
             FunctionNode fn = (FunctionNode) decl;
             String name = fn.getFunctionName().getIdentifier();
+            checkDuplicateExport(name, exportedNames);
             moduleRecord.addLocalExportEntry(new ModuleRecord.ExportEntry(name, null, null, name));
         } else if (decl instanceof ClassNode) {
             ClassNode cn = (ClassNode) decl;
             String name = cn.getClassNameString();
+            checkDuplicateExport(name, exportedNames);
             moduleRecord.addLocalExportEntry(new ModuleRecord.ExportEntry(name, null, null, name));
         } else if (decl instanceof VariableDeclaration) {
             VariableDeclaration vars = (VariableDeclaration) decl;
@@ -214,6 +256,7 @@ public class ModuleAnalyzer {
                 AstNode target = vi.getTarget();
                 if (target instanceof Name) {
                     String name = ((Name) target).getIdentifier();
+                    checkDuplicateExport(name, exportedNames);
                     moduleRecord.addLocalExportEntry(
                             new ModuleRecord.ExportEntry(name, null, null, name));
                 }

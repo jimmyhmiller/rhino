@@ -175,6 +175,68 @@ public class ModuleRecord implements Serializable {
     }
 
     /**
+     * Returns the list of all exported names from this module, following the ES6 spec
+     * GetExportedNames algorithm (ECMA-262 16.2.1.7.2.1).
+     *
+     * <p>This includes local exports, indirect exports, and recursively all names from star
+     * re-exports (excluding "default" which is not re-exported via export *).
+     *
+     * @return set of all exported names
+     */
+    public Set<String> getExportedNames() {
+        return getExportedNames(new HashSet<>());
+    }
+
+    /**
+     * Internal implementation of GetExportedNames with cycle detection.
+     *
+     * @param exportStarSet set of modules already visited for cycle detection
+     * @return set of all exported names
+     */
+    private Set<String> getExportedNames(Set<ModuleRecord> exportStarSet) {
+        Set<String> exportedNames = new java.util.TreeSet<>();
+
+        // 1. Cycle detection for star exports
+        if (exportStarSet.contains(this)) {
+            return exportedNames;
+        }
+        exportStarSet.add(this);
+
+        // 2. Add local export names
+        for (ExportEntry entry : localExportEntries) {
+            if (entry.getExportName() != null) {
+                exportedNames.add(entry.getExportName());
+            }
+        }
+
+        // 3. Add indirect export names
+        for (ExportEntry entry : indirectExportEntries) {
+            if (entry.getExportName() != null) {
+                exportedNames.add(entry.getExportName());
+            }
+        }
+
+        // 4. Add star export names (excluding "default")
+        for (ExportEntry entry : starExportEntries) {
+            String moduleRequest = entry.getModuleRequest();
+            if (moduleRequest != null) {
+                ModuleRecord sourceModule = getRequiredModule(moduleRequest);
+                if (sourceModule != null) {
+                    Set<String> starNames = sourceModule.getExportedNames(exportStarSet);
+                    for (String name : starNames) {
+                        // "default" is not re-exported via export *
+                        if (!"default".equals(name)) {
+                            exportedNames.add(name);
+                        }
+                    }
+                }
+            }
+        }
+
+        return exportedNames;
+    }
+
+    /**
      * Resolves an export name to its source module and binding name, following the ES6 spec
      * ResolveExport algorithm (ECMA-262 16.2.1.7.2.2).
      *
@@ -222,7 +284,12 @@ public class ModuleRecord implements Serializable {
             }
         }
 
-        // 4. Check star exports (export * from 'module')
+        // 4. Per spec: "default" cannot be provided by export * (ECMA-262 16.2.1.7.2.2 step 6)
+        if ("default".equals(exportName)) {
+            return null;
+        }
+
+        // 5. Check star exports (export * from 'module')
         ResolvedBinding starResolution = null;
         for (ExportEntry entry : starExportEntries) {
             String moduleRequest = entry.getModuleRequest();

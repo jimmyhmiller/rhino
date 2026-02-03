@@ -428,6 +428,11 @@ final class NativeReflect extends ScriptableObject {
             return target.putReturningBoolean((String) key, receiverObj, value);
         }
 
+        // Module namespace objects always return false from [[Set]]
+        if (target instanceof org.mozilla.javascript.es6module.NativeModuleNamespace) {
+            return false;
+        }
+
         // For ordinary objects, implement [[Set]] logic
         // Get the property descriptor from target
         DescriptorInfo ownDesc = target.getOwnPropertyDescriptor(cx, key);

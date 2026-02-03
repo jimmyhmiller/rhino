@@ -3309,12 +3309,24 @@ public class Parser {
             spec.setLocalName(localNameNode);
 
             // Check for "as exportedName"
+            // The exported name can be "default" or any IdentifierName (including keywords)
             if (matchToken(Token.NAME, true) && "as".equals(ts.getString())) {
-                if (!matchToken(Token.NAME, true)) {
+                int nextTt = peekToken();
+                // Allow "default" keyword as exported name (export { x as default })
+                if (nextTt == Token.DEFAULT) {
+                    consumeToken();
+                    Name exportedNameNode = new Name(ts.tokenBeg, "default");
+                    exportedNameNode.setLineColumnNumber(lineNumber(), columnNumber());
+                    spec.setExportedName(exportedNameNode);
+                } else if (matchToken(Token.NAME, true)
+                        || TokenStream.isKeyword(
+                                ts.getString(), compilerEnv.getLanguageVersion(), parsingModule)) {
+                    // Allow any identifier or keyword as exported name
+                    Name exportedNameNode = createNameNode(true, Token.NAME);
+                    spec.setExportedName(exportedNameNode);
+                } else {
                     reportError("msg.export.expected.binding");
                 }
-                Name exportedNameNode = createNameNode(true, Token.NAME);
-                spec.setExportedName(exportedNameNode);
             } else {
                 // Use local name as exported name
                 Name exportedNameNode = new Name(specPos, localName);
