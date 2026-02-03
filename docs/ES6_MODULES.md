@@ -1,6 +1,6 @@
 # ES6 Modules Implementation
 
-**Status**: Core module linking and validation working; ~43% of test262 module tests passing
+**Status**: Core module linking and validation working; ~49% of test262 module tests passing (532/1086)
 
 This document tracks the implementation status of ES6 modules in Rhino. **Keep this document updated as progress is made.**
 
@@ -42,53 +42,50 @@ ES6 modules provide static `import`/`export` syntax for JavaScript. This impleme
 
 | Category | Pass Rate | Notes |
 |----------|-----------|-------|
-| `language/module-code` | **251/584 (42.98%)** | Up from ~38%; namespace object improvements added 31 passing tests |
+| `language/module-code` | **265/584 (45.38%)** | 319 failing; improved from ~43% with recent fixes |
 
 ### Current Limitations
 
 | Limitation | Status | Notes |
 |------------|--------|-------|
-| Module namespace object internals | ⚠️ Partial | Most tests passing; remaining: `Object.freeze`, TDZ for uninitialized bindings |
+| Module namespace object internals | ✅ Mostly fixed | `Object.freeze`, `Reflect.set`, `defineProperty` working; TDZ tests remaining |
+| Star exports (export * from) | ✅ Fixed | `getExportedNames()` now includes star re-exports; `default` excluded per spec |
+| Duplicate export detection | ✅ Fixed | ModuleAnalyzer now validates no duplicate export names |
 | Local binding initialization | ❌ Incomplete | `instn-local-bndng-*` tests - let/const/class bindings in modules |
-| Default export bindings | ✅ Fixed | Default expression exports now properly captured during evaluation |
-| Star export ambiguity | ⚠️ Partial | `instn-star-*` edge cases with multiple star exports |
+| Function hoisting in modules | ❌ Incomplete | Named default function exports need proper hoisting |
+| TDZ for uninitialized bindings | ❌ Incomplete | `*-uninit.js` tests need ReferenceError before initialization |
 | Dynamic import() | ❌ Not started | Requires async support |
 | Top-level await | ❌ Not started | Requires async support |
 | Keyword escape sequences | ❌ Not supported | Parser doesn't reject `\u0065xport` etc. |
 
 ## Next Steps (Priority Order)
 
-### 1. Fix TDZ (Temporal Dead Zone) for Uninitialized Bindings (~12 tests)
+### 1. Fix TDZ (Temporal Dead Zone) for Uninitialized Bindings (~7 tests)
 The remaining `*-uninit.js` tests require proper TDZ handling:
 - Accessing uninitialized let/const bindings should throw ReferenceError
 - `Object.keys`, `Object.freeze`, etc. on namespace with uninitialized bindings
 
 **Files to modify**: `ModuleScope.java`, `NativeModuleNamespace.java`, `ModuleRecord.java`
 
-### 2. Fix Object.freeze on Module Namespaces (1 test)
-`Object.freeze(namespace)` should throw TypeError because export bindings are writable but not configurable.
+### 2. Fix Function Hoisting in Modules (~4 tests)
+Named default function exports need proper hoisting:
+- `export default function fName() {}` should hoist `fName`
+- Function declarations in modules should be hoisted like regular scripts
 
-**Files to modify**: `NativeObject.java` (js_freeze), `NativeModuleNamespace.java`
+**Files to modify**: `Context.java` (evaluateModuleInternal), possibly `IRFactory.java`
 
-### 3. Fix Local Binding Initialization (6 tests)
+### 3. Fix Local Binding Initialization (~6 tests)
 Tests like `instn-local-bndng-cls.js`, `instn-local-bndng-const.js`, `instn-local-bndng-let.js`:
 - Module-local let/const/class declarations need proper TDZ handling
 
 **Files to modify**: `ModuleScope.java`, possibly `Interpreter.java`
 
-### 4. Fix Default Export Binding Resolution (remaining tests)
-Some edge cases with default exports through star re-exports:
-- Default exports through star re-exports have edge cases
-- Anonymous default exports need proper binding names
+### 4. Fix Anonymous Default Export Function/Class Names (~4 tests)
+Anonymous default exports should have `.name` property set to "default":
+- `export default function() {}` should have `name === "default"`
+- `export default class {}` should have `name === "default"`
 
-**Files to modify**: `ModuleRecord.java`, `ModuleAnalyzer.java`
-
-### 4. Fix Star Export Edge Cases (10 tests)
-Tests like `instn-star-ambiguous.js`, `instn-star-props-*.js`:
-- Star exports with overlapping names from multiple modules
-- Proper property enumeration on namespace objects from star exports
-
-**Files to modify**: `ModuleRecord.java`, `NativeModuleNamespace.java`
+**Files to modify**: `IRFactory.java`, `ModuleAnalyzer.java`
 
 ### 5. Eval in Module Context (remaining eval-* tests)
 Several `eval-*` tests that check module behavior in eval contexts.
