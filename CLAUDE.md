@@ -6,143 +6,132 @@
 
 The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-negotiable - keep fixing tests until there are zero failures.
 
-### ✅ ES6 Modules: COMPLETE (49/49 tests passing)
+### Current ES6 Status: 89.8% passing (939 failures remaining)
 
-All ES6 module tests now pass! See [docs/ES6_MODULES.md](docs/ES6_MODULES.md) for implementation details.
+```bash
+node scripts/test-status.js 6  # See current status
+```
 
-### Recently Fixed TDZ Tests
+### ✅ Recently Fixed
 
-Fixed the last 3 ES6 module tests related to Temporal Dead Zone (TDZ) handling for module namespace objects:
-
-| Test | Fix |
-|------|-----|
-| `enumerate-binding-uninit.js` | TDZ check in `ScriptRuntime.enumNext()` for module namespace for-in |
-| `object-keys-binding-uninit.js` | TDZ check in `NativeObject.js_keys()` for module namespaces |
-| `object-propertyIsEnumerable-binding-uninit.js` | TDZ check via `getAttributes()` + `isEnumerable()` re-throwing ReferenceError |
-
-Also fixed `NativeObject.isEnumerable()` to re-throw `ReferenceError` and `TypeError` instead of swallowing them.
+- **ES6 Modules**: All 49/49 tests passing
+- **Generator Method Destructuring**: Fixed 359 tests (destructuring now runs before generator creation)
 
 ---
 
-### NEXT PRIORITY: ES6 Class Tests (253 failures)
+### NEXT PRIORITY: for-of Statement Tests (139 failures)
 
-**Total ES6 class test failures: 253** (from `node scripts/test-status.js 6 --all | grep class/`)
+**Total for-of failures: 139/619 (22.5%)**
 
-#### Breakdown by Category
+These are the highest-value ES6 fixes remaining. Run: `node scripts/test-status.js 6 --all | grep for-of`
 
-| Category | Count | Description |
-|----------|-------|-------------|
-| `dstr/gen-meth-*` | **208** | Generator method destructuring errors |
-| `dflt-params-ref-*` | 16 | Default parameter reference issues |
-| `*yield*` | 8 | Yield in computed property names (codegen bug) |
-| `dstr/meth-*-eval-err` | 8 | Method destructuring eval errors |
-| `*async-arrow*` | 5 | Async arrow expressions (may be ES2017+) |
-| `params-dflt-meth-ref-arguments` | 4 | Default params referencing arguments |
-| `scope-*-paramsbody-var-open` | 4 | Generator method scope issues |
-| `heritage-async-arrow` | 1 | Async arrow in class heritage (ES2017+) |
+#### Breakdown by Issue Type
 
-#### Priority 1: Generator Method Destructuring (208 tests - 82% of failures)
+| Issue | Count | Description |
+|-------|-------|-------------|
+| **Iterator Close** | ~80 | `IteratorClose` not called properly |
+| **Function Name Inference** | 5 | `obj-id-init-fn-name-*` tests |
+| **Iterator Protocol** | 4 | `iterator-next-*` edge cases |
+| **Computed Property Eval** | 2 | `obj-prop-name-evaluation*` |
+| **Other Destructuring** | ~48 | Various initialization/assignment issues |
 
-These test error handling when destructuring fails in generator methods:
+#### Priority 1: Iterator Close Behavior (~80 tests)
 
+The biggest issue: Rhino doesn't properly call `IteratorClose` (the iterator's `return()` method) when:
+- Array destructuring doesn't exhaust the iterator
+- An error occurs during destructuring
+- A `break`/`return` exits the loop early
+
+**Example test** (`array-elem-iter-nrml-close.js`):
 ```javascript
-class C {
-  *method([x]) {}  // destructuring in generator method
+var returnCount = 0;
+var iterator = {
+  next: function() { return { done: false }; },
+  return: function() { returnCount += 1; return {}; }
+};
+iterable[Symbol.iterator] = () => iterator;
+
+for ([ _ ] of [iterable]) {
+  // After destructuring [_], iterator.return() should be called
+  assert.sameValue(returnCount, 1);  // FAILS: Rhino doesn't call return()
 }
-var iter = { [Symbol.iterator]: () => { throw new Test262Error(); } };
-c.method(iter);  // should propagate the error correctly
 ```
-
-**Root Cause Investigation (2026-02-03):**
-- ES6 requires parameter destructuring during `FunctionDeclarationInstantiation` (when function is called), NOT when generator body runs
-- Current Rhino behavior: destructuring happens when `next()` is called (deferred)
-- Expected behavior: destructuring errors should throw immediately when `c.method(iter)` is called
-
-**Attempted Fix (2026-02-03, reverted):**
-- Moved destructuring from function body to `paramInitBlock` in `IRFactory.transformFunction()` (processed before `Icode_GENERATOR`)
-- Added `NodeTransformer` handling to transform `paramInitBlock` LETEXPR nodes to WITHEXPR
-- **Result:** Fix works correctly in **compiled mode** (opt level >= 0)
-- **Issue:** Breaks **interpreted mode** (opt level -1) - `ArrayIndexOutOfBoundsException` when resuming generators
-- **Why:** The WITHEXPR transformation creates scope objects using locals. When the generator frame is saved at `Icode_GENERATOR`, the frame's `savedStackTop` is captured. When the generator resumes (on `next()` call), the stack indices don't match what the generator body expects, causing overflow.
-
-**Verified Behavior:**
-```bash
-# Compiled mode (works): java -cp ... Main -opt 9 -e "class C { *m([x=(function(){})]) { return x.name; } }; new C().m([]).next();"
-# Interpreted mode (fails): java -cp ... Main -opt -1 -e "..." → ArrayIndexOutOfBoundsException
-```
-
-**Proper Fix Requires:**
-1. Fix interpreter's generator frame capture in `Interpreter.captureFrameForGenerator()` to properly account for locals created in `paramInitBlock`
-2. Or, generate simpler destructuring code for generator parameters that doesn't use LETEXPR/WITHEXPR scopes
-3. Or, restructure generator initialization to run destructuring synchronously before returning generator object
 
 **Test patterns:**
-- `dstr/gen-meth-ary-*` - Array destructuring errors
-- `dstr/gen-meth-obj-*` - Object destructuring errors
-- `dstr/gen-meth-dflt-*` - Default value errors
-- `dstr/gen-meth-static-*` - Static generator methods
+- `*-nrml-close*` - Normal completion, iterator not exhausted
+- `*-rtrn-close*` - Return/break exits loop
+- `*-thrw-close*` - Error thrown during iteration
+- `*-close-err*` - Error in close itself
+- `*-close-null*` - return() returns null
+- `*-close-skip*` - Cases where close should NOT be called
 
-**Run these tests:**
+**Key files to investigate:**
+- `ScriptRuntime.java` - `toIterator()`, iteration helpers
+- `NativeIterator.java` - Iterator protocol implementation
+- `IRFactory.java` - for-of compilation
+
+**Run iterator close tests:**
 ```bash
 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/*/class/dstr/gen-meth-ary-init-iter-get-err.js" -Dtest262raw --rerun-tasks
+  -Dtest262filter="language/statements/for-of/dstr/*-close*.js" -Dtest262raw --rerun-tasks
 ```
 
-#### Priority 2: Default Parameter Reference Issues (16 tests)
+#### Priority 2: Function Name Inference (5 tests)
 
-Parameters referencing later parameters or themselves:
+When destructuring with default values, anonymous functions should get the property name:
 
 ```javascript
-class C {
-  method(x = y, y) {}     // dflt-params-ref-later - x references y before y is defined
-  method(x = x) {}        // dflt-params-ref-self - x references itself
+for ({ fn = function() {} } of [{}]) {
+  assert.sameValue(fn.name, 'fn');  // FAILS: name not set
 }
 ```
 
-**Test files:** `*/class/method*/dflt-params-ref-later.js`, `*/class/method*/dflt-params-ref-self.js`
+**Test files:** `obj-id-init-fn-name-*.js` (fn, gen, class, arrow, cover)
 
-#### Priority 3: Yield in Computed Property Names (8 tests)
+**Key files:** `ScriptRuntime.java` - `setFunctionName()` calls during destructuring
 
-Classes inside generators using `yield` as computed property name - **COMPILED mode only bug**:
+#### Priority 3: Iterator Protocol Edge Cases (4 tests)
 
 ```javascript
-function* g() {
-  C = class {
-    get [yield]() { return 'get yield'; }
-  };
-}
+// iterator-next-result-type.js - next() must return object
+// iterator-next-result-value-attr-error.js - error getting .value
+// iterator-next-reference.js - next as reference
+// iterator-next-error.js - next() throws
 ```
 
-**Error:** `VerifyError: Bad type on operand stack` in compiled mode
-**Location:** `Codegen.java` - generator/class interaction
+#### Priority 4: Body Errors with Iterator Close (2 tests)
 
-**Test files:** `accessor-name-*-computed-yield-expr.js`, `cpn-class-*-from-yield-expression.js`
+```javascript
+// body-dstr-assign-error.js - destructuring error should close iterator
+// body-put-error.js - assignment error should close iterator
+```
 
-#### Run ES6 Class Tests
+When destructuring in `for ([x.attr] of iterable)` throws, iterator must be closed.
+
+#### Run All for-of Tests
 
 ```bash
-# See all ES6 class failures
-node scripts/test-status.js 6 --all | grep class/
+# See all for-of failures
+node scripts/test-status.js 6 --all | grep for-of
 
-# Run specific category
+# Run all for-of tests
 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/*/class/dstr/gen-meth-*" -Dtest262raw --rerun-tasks
+  -Dtest262filter="language/statements/for-of/*" -Dtest262raw --rerun-tasks
 
-# Run yield-related tests
+# Run just destructuring tests
 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/*/class/*yield*.js" -Dtest262raw --rerun-tasks
+  -Dtest262filter="language/statements/for-of/dstr/*" -Dtest262raw --rerun-tasks
 ```
 
 ---
 
-### Other ES6 Gaps (lower priority)
+### Other ES6 Gaps (lower priority after for-of)
 
-**new.target** - 10/14 tests passing (71%). 4 remaining failures need investigation.
-
-**Other categories with failures:**
-- `built-ins/Promise` - 71/114 failing (62%)
-- `language/statements` - 504/2885 failing (17.5%)
-- `language/expressions` - 390/2833 failing (13.8%)
+| Category | Failures | Notes |
+|----------|----------|-------|
+| Class tests | ~45 | Mostly computed property eval, yield in cpn |
+| new.target | 4/14 | 71% passing |
+| Generators | ~30 | Various edge cases |
 
 ### Check Current Test Status
 
