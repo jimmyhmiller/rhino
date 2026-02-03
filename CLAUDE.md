@@ -6,18 +6,32 @@
 
 The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-negotiable - keep fixing tests until there are zero failures.
 
-### Current Work In Progress
+### IMMEDIATE NEXT TASK: Fix These 4 ES6 Module Tests
 
-**ES6 Modules** - Parser complete, runtime execution not yet implemented (~672 skipped tests).
-- ✅ Parser supports all import/export syntax
-- ✅ AST nodes, IRFactory stubs, runtime infrastructure classes
-- ❌ Module loading, linking, and evaluation (requires `ModuleLoader` implementation)
-- See **[docs/ES6_MODULES.md](docs/ES6_MODULES.md)** for full implementation details
-- **IMPORTANT**: Keep `docs/ES6_MODULES.md` updated as you make progress on module execution
+**ES6 Modules are 91.8% complete (45/49 tests passing). Only 4 tests remain:**
 
-**new.target** - Completely skipped (14 tests in `language/expressions/new.target`). This is an ES6 meta-property for detecting constructor calls.
+| # | Test File | Issue | Fix Location |
+|---|-----------|-------|--------------|
+| 1 | `language/module-code/eval-export-dflt-expr-gen-anon.js` | Anonymous generator default export not bound to `*default*` | `IRFactory.java` - add generator case like we did for functions/classes |
+| 2 | `language/module-code/instn-named-bndng-dflt-gen-anon.js` | Same issue as #1 | Same fix |
+| 3 | `language/module-code/namespace/internals/get-own-property-str-found-uninit.js` | `GetOwnPropertyDescriptor` on uninitialized export should throw ReferenceError | `NativeModuleNamespace.getOwnPropertyDescriptor()` needs TDZ check |
+| 4 | `language/module-code/parse-err-hoist-lex-gen.js` | Generator hoisting should be early SyntaxError when it conflicts with lexical binding | `Parser.java` |
 
-**Other major ES6 gaps:**
+**Run these tests:**
+```bash
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
+  -Dtest262filter="language/module-code/eval-export-dflt-expr-gen-anon.js" -Dtest262raw --rerun-tasks
+```
+
+**After fixing, update [docs/ES6_MODULES.md](docs/ES6_MODULES.md).**
+
+---
+
+### Other ES6 Gaps (lower priority)
+
+**new.target** - 10/14 tests passing (71%). 4 remaining failures need investigation.
+
+**Other categories with failures:**
 - `built-ins/Promise` - 71/114 failing (62%)
 - `language/statements` - 504/2885 failing (17.5%)
 - `language/expressions` - 410/2833 failing (14.5%)
