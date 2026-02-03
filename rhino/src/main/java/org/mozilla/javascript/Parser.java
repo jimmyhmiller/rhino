@@ -3255,7 +3255,13 @@ public class Parser {
         // export default function ...
         if (tt == Token.FUNCTION) {
             consumeToken();
+            // Parse initially as expression (allows anonymous functions)
             FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION);
+            // If the function has a name, treat it as a statement so it gets hoisted
+            // and bound in the module scope (per ES6 HoistableDeclaration semantics)
+            if (fn.getFunctionName() != null) {
+                fn.setFunctionType(FunctionNode.FUNCTION_STATEMENT);
+            }
             pn.setDeclaration(fn);
             pn.setLength(getNodeEnd(fn) - pos);
             return pn;
