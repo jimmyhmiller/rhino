@@ -4645,6 +4645,25 @@ public class Parser {
         } else {
             consumeToken();
             int pos = ts.tokenBeg, lineno = lineNumber(), column = columnNumber();
+
+            // Check for new.target meta-property
+            if (matchToken(Token.DOT, true)) {
+                int next = peekToken();
+                if (next == Token.NAME && "target".equals(ts.getString())) {
+                    consumeToken();
+                    // Validate that new.target is used in a valid context (inside a function)
+                    if (!insideFunctionBody() && !insideFunctionParams()) {
+                        reportError("msg.new.target.not.function");
+                    }
+                    KeywordLiteral newTarget =
+                            new KeywordLiteral(pos, ts.tokenEnd - pos, Token.NEW_TARGET);
+                    newTarget.setLineColumnNumber(lineno, column);
+                    return memberExprTail(allowCallSyntax, newTarget);
+                }
+                // Not "target", report error - new. must be followed by target
+                reportError("msg.no.target.after.new");
+            }
+
             NewExpression nx = new NewExpression(pos);
 
             AstNode target = memberExpr(false);

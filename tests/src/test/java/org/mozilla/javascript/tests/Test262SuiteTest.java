@@ -104,7 +104,6 @@ public class Test262SuiteTest {
                             "IsHTMLDDA",
                             "async-functions",
                             "async-iteration",
-                            "new.target",
                             "object-rest",
                             "regexp-dotall",
                             "regexp-unicode-property-escapes",

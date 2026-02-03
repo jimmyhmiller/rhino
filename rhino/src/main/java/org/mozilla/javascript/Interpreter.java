@@ -84,6 +84,10 @@ public final class Interpreter extends Icode implements Evaluator {
         // Accessing 'this' before super() in a derived class constructor throws ReferenceError.
         boolean superCalled;
 
+        // ES6 new.target: the constructor that was invoked with 'new'
+        // null for regular function calls, the constructor function for 'new' calls
+        Object newTarget;
+
         // The values that change during interpretation
 
         Object result;
@@ -1766,6 +1770,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.THIS] = new DoThis();
         instructionObjs[base + Token.SUPER] = new DoSuper();
         instructionObjs[base + Token.THISFN] = new DoThisFunction();
+        instructionObjs[base + Token.NEW_TARGET] = new DoNewTarget();
         instructionObjs[base + Token.FALSE] = new DoFalse();
         instructionObjs[base + Token.TRUE] = new DoTrue();
         instructionObjs[base + Icode_UNDEF] = new DoUndef();
@@ -4110,6 +4115,9 @@ public final class Interpreter extends Icode implements Evaluator {
                                     idata,
                                     frame);
 
+                    // ES6: Set new.target to the constructor being invoked
+                    calleeFrame.newTarget = f;
+
                     frame.stack[state.stackTop] = newInstance;
                     frame.savedStackTop = state.stackTop;
                     frame.savedCallOp = op;
@@ -4569,6 +4577,19 @@ public final class Interpreter extends Icode implements Evaluator {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
             frame.stack[++state.stackTop] = frame.fnOrScript;
+            return null;
+        }
+    }
+
+    private static class DoNewTarget extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Return the new.target value - undefined if not called with 'new'
+            Object result = frame.newTarget;
+            if (result == null) {
+                result = Undefined.instance;
+            }
+            frame.stack[++state.stackTop] = result;
             return null;
         }
     }

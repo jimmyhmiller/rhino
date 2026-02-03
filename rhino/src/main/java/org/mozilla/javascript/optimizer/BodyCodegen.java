@@ -1347,6 +1347,10 @@ class BodyCodegen {
                 cfw.addALoad(funObjLocal);
                 break;
 
+            case Token.NEW_TARGET:
+                cfw.addALoad(newTargetLocal);
+                break;
+
             case Token.NULL:
                 cfw.add(ByteCode.ACONST_NULL);
                 break;

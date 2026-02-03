@@ -217,6 +217,8 @@ public final class IRFactory {
             case Token.SUPER:
                 parser.setRequiresActivation();
                 return transformLiteral(node);
+            case Token.NEW_TARGET:
+                return transformLiteral(node);
             case Token.NAME:
                 return transformName((Name) node);
             case Token.NUMBER:
