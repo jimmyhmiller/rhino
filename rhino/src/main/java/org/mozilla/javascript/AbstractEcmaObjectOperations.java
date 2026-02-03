@@ -53,6 +53,15 @@ public class AbstractEcmaObjectOperations {
         // Per spec: Let key be ? ToPropertyKey(P).
         Object key = ScriptRuntime.toPropertyKey(property);
 
+        // For module namespace objects, use getOwnPropertyDescriptor which properly
+        // implements [[GetOwnProperty]] semantics including TDZ checks.
+        // Per ES6 spec, module namespace [[GetOwnProperty]] calls [[Get]] which triggers TDZ.
+        if (obj instanceof org.mozilla.javascript.es6module.NativeModuleNamespace) {
+            ScriptableObject so = (ScriptableObject) obj;
+            ScriptableObject.DescriptorInfo desc = so.getOwnPropertyDescriptor(cx, key);
+            return desc != null;
+        }
+
         if (key instanceof Symbol) {
             return ScriptableObject.ensureSymbolScriptable(o).has((Symbol) key, obj);
         }

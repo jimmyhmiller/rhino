@@ -6,24 +6,32 @@
 
 The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-negotiable - keep fixing tests until there are zero failures.
 
-### IMMEDIATE NEXT TASK: Fix These 4 ES6 Module Tests
+### IMMEDIATE NEXT TASK: Fix Remaining 3 ES6 Module Tests
 
-**ES6 Modules are 91.8% complete (45/49 tests passing). Only 4 tests remain:**
+**ES6 Modules are 93.9% complete (46/49 tests passing). Only 3 tests remain:**
 
 | # | Test File | Issue | Fix Location |
 |---|-----------|-------|--------------|
-| 1 | `language/module-code/eval-export-dflt-expr-gen-anon.js` | Anonymous generator default export not bound to `*default*` | `IRFactory.java` - add generator case like we did for functions/classes |
-| 2 | `language/module-code/instn-named-bndng-dflt-gen-anon.js` | Same issue as #1 | Same fix |
-| 3 | `language/module-code/namespace/internals/get-own-property-str-found-uninit.js` | `GetOwnPropertyDescriptor` on uninitialized export should throw ReferenceError | `NativeModuleNamespace.getOwnPropertyDescriptor()` needs TDZ check |
-| 4 | `language/module-code/parse-err-hoist-lex-gen.js` | Generator hoisting should be early SyntaxError when it conflicts with lexical binding | `Parser.java` |
+| 1 | `language/module-code/namespace/internals/delete-exported-uninit.js` | Delete on uninitialized export should throw ReferenceError | `NativeModuleNamespace.delete()` needs TDZ check |
+| 2 | `language/module-code/namespace/internals/get-str-found-uninit.js` | Get on uninitialized export should throw ReferenceError | `NativeModuleNamespace.get()` needs TDZ check |
+| 3 | `language/module-code/namespace/internals/enumerate-binding-uninit.js` | Enumeration of uninitialized binding should throw | `NativeModuleNamespace` getIds() or related |
 
 **Run these tests:**
 ```bash
 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/module-code/eval-export-dflt-expr-gen-anon.js" -Dtest262raw --rerun-tasks
+  -Dtest262filter="language/module-code/namespace/internals/*-uninit.js" -Dtest262raw --rerun-tasks
 ```
 
 **After fixing, update [docs/ES6_MODULES.md](docs/ES6_MODULES.md).**
+
+### Recently Completed: 4 ES6 Module Tests + 5 Bonus Tests
+
+Fixed 9 tests related to anonymous default exports and TDZ handling:
+- `eval-export-dflt-expr-gen-anon.js` - Set function name to "default" for anonymous generator expressions
+- `instn-named-bndng-dflt-gen-anon.js` - Anonymous generator declarations now hoisted with `*default*` binding
+- `parse-err-hoist-lex-gen.js` - Parser now detects var/generator conflicts in module top-level
+- `get-own-property-str-found-uninit.js` - TDZ check added to hasOwnProperty for module namespaces
+- Plus 5 bonus tests for anonymous function/class default exports
 
 ---
 

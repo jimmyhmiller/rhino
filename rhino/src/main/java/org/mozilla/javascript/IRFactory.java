@@ -1458,6 +1458,9 @@ public final class IRFactory {
                                 && ((FunctionNode) node.getDeclaration()).getFunctionName() == null;
 
                 if (isAnonymousClass || isAnonymousFunction) {
+                    // Set the function name to "default" per ES6 spec
+                    // (applies to anonymous functions, generators, and classes)
+                    inferFunctionNameForDefaultParam(transformed, "default");
                     // Create: *default* = <class/function> using SETLETINIT
                     Node bindName = Node.newString(Token.BINDNAME, "*default*");
                     Node assignment = new Node(Token.SETLETINIT, bindName, transformed);
@@ -1474,6 +1477,8 @@ public final class IRFactory {
         // so it can be accessed via the module's export bindings
         if (node.isDefault() && node.getDefaultExpression() != null) {
             Node expr = transform(node.getDefaultExpression());
+            // Set the function name to "default" for anonymous functions/classes per ES6 spec
+            inferFunctionNameForDefaultParam(expr, "default");
             // Create: *default* = <expression> using SETLETINIT to bypass TDZ check
             // (since this IS the initialization of the binding)
             Node bindName = Node.newString(Token.BINDNAME, "*default*");

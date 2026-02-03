@@ -166,10 +166,12 @@ public class ModuleAnalyzer {
             }
         }
 
-        // *default* bindings need TDZ handling because the value isn't available
-        // until the export default statement is evaluated. Named function/class
-        // exports are hoisted and don't need TDZ.
-        boolean isTDZ = "*default*".equals(localName);
+        // *default* bindings need TDZ handling for expression exports and class declarations.
+        // Only anonymous function/generator declarations are hoisted during module instantiation
+        // (per ES6 spec 16.2.1.6.4 step 17.a.iii). Class declarations are NOT hoisted.
+        // decl instanceof FunctionNode covers both regular functions and generators.
+        boolean isHoistedDeclaration = decl instanceof FunctionNode;
+        boolean isTDZ = "*default*".equals(localName) && !isHoistedDeclaration;
         moduleRecord.addLocalExportEntry(
                 new ModuleRecord.ExportEntry("default", null, null, localName, isTDZ));
     }

@@ -39,6 +39,11 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         if (descriptor.isClassConstructor()) {
             removeArityProperty();
         }
+        // For anonymous default export functions, the binding name is "*default*"
+        // but the display name (function.name property) should be "default"
+        if ("*default*".equals(descriptor.getName())) {
+            setFunctionName("default");
+        }
     }
 
     JSFunction(
@@ -59,6 +64,11 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         // ES6 class constructors should not have the non-standard "arity" property
         if (descriptor.isClassConstructor()) {
             removeArityProperty();
+        }
+        // For anonymous default export functions, the binding name is "*default*"
+        // but the display name (function.name property) should be "default"
+        if ("*default*".equals(descriptor.getName())) {
+            setFunctionName("default");
         }
     }
 

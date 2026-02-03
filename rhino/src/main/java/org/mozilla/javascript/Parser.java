@@ -3257,9 +3257,16 @@ public class Parser {
             consumeToken();
             // Parse initially as expression (allows anonymous functions)
             FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION);
-            // If the function has a name, treat it as a statement so it gets hoisted
-            // and bound in the module scope (per ES6 HoistableDeclaration semantics)
+            // Treat function declarations (named or anonymous) as hoistable
+            // For anonymous default exports, use *default* as the binding name
+            // so they get hoisted and bound during module instantiation
             if (fn.getFunctionName() != null) {
+                fn.setFunctionType(FunctionNode.FUNCTION_STATEMENT);
+            } else {
+                // Anonymous default export: give it the internal name *default* for hoisting
+                // The display name will be set to "default" later via function name inference
+                Name starDefault = new Name(fn.getPosition(), "*default*");
+                fn.setFunctionName(starDefault);
                 fn.setFunctionType(FunctionNode.FUNCTION_STATEMENT);
             }
             pn.setDeclaration(fn);
@@ -3997,6 +4004,19 @@ public class Parser {
             addError("msg.var.redecl", name);
             return false;
         }
+        // ES6 modules: Check for generator declaration conflicting with var at module top level.
+        // In modules, generator declarations are lexically scoped, so they cannot coexist
+        // with var declarations of the same name.
+        if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                && declType == Token.FUNCTION
+                && isGenerator
+                && parsingModule
+                && currentScope == currentScriptOrFn
+                && symbol != null
+                && symbol.getDeclType() == Token.VAR) {
+            addError("msg.var.redecl", name);
+            return false;
+        }
         // ES6: Check for var declaration conflicting with function/generator in enclosing blocks.
         // Since var hoists through blocks, we need to check all enclosing block scopes.
         if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6 && declType == Token.VAR) {
@@ -4007,6 +4027,14 @@ public class Parser {
                     addError("msg.var.redecl", name);
                     return false;
                 }
+            }
+            // ES6 modules: Also check the module top level, since function/generator declarations
+            // are lexically scoped in modules (unlike scripts where they're var-scoped).
+            if (parsingModule
+                    && (currentScriptOrFn.hasFunctionNameInBlock(name)
+                            || currentScriptOrFn.hasGeneratorNameInBlock(name))) {
+                addError("msg.var.redecl", name);
+                return false;
             }
         }
         // Annex B.3.3.3: In non-strict eval code, function declarations that
@@ -4110,17 +4138,21 @@ public class Parser {
                         s.addVarNameInBlock(name);
                     }
                 }
-                // ES6: Record function/generator declaration in the block for conflict detection.
-                // Function declarations in blocks are lexically scoped in ES6.
+                // ES6: Record function/generator declaration for conflict detection.
+                // In modules, top-level function/generator declarations are lexically scoped.
+                // In blocks, function declarations are also lexically scoped in ES6.
                 // We track regular functions and generators separately because Annex B.3.3.4
                 // allows duplicate function declarations in non-strict mode, but not generators.
                 if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
-                        && declType == Token.FUNCTION
-                        && currentScope != currentScriptOrFn) {
-                    if (isGenerator) {
-                        currentScope.addGeneratorNameInBlock(name);
-                    } else {
-                        currentScope.addFunctionNameInBlock(name);
+                        && declType == Token.FUNCTION) {
+                    boolean isModuleTopLevel = parsingModule && currentScope == currentScriptOrFn;
+                    boolean isBlockLevel = currentScope != currentScriptOrFn;
+                    if (isModuleTopLevel || isBlockLevel) {
+                        if (isGenerator) {
+                            currentScope.addGeneratorNameInBlock(name);
+                        } else {
+                            currentScope.addFunctionNameInBlock(name);
+                        }
                     }
                 }
                 return false;

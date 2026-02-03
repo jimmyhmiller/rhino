@@ -1,6 +1,6 @@
 # ES6 Modules Implementation
 
-**Status**: ES6 module support is **87.8% complete** (43/49 ES6 tests passing)
+**Status**: ES6 module support is **93.9% complete** (46/49 ES6 tests passing)
 
 This document tracks the implementation status of ES6 modules in Rhino. **Keep this document updated as progress is made.**
 
@@ -46,18 +46,24 @@ ES6 modules provide static `import`/`export` syntax for JavaScript. This impleme
 
 | Category | ES6 Tests | Pass Rate | Notes |
 |----------|-----------|-----------|-------|
-| `language/module-code` | 49 | **43/49 (87.8%)** | Only 6 ES6 tests failing |
+| `language/module-code` | 49 | **46/49 (93.9%)** | Only 3 ES6 tests failing |
 
-### Remaining ES6 Failures (6 tests)
+### Remaining ES6 Failures (3 tests)
 
 | Test | Category | Issue |
 |------|----------|-------|
 | `namespace/internals/delete-exported-uninit.js` | TDZ | Delete on uninitialized binding should throw |
-| `namespace/internals/get-own-property-str-found-uninit.js` | TDZ | GetOwnProperty on uninitialized binding |
 | `namespace/internals/get-str-found-uninit.js` | TDZ | Get on uninitialized binding should throw |
-| `eval-export-dflt-expr-gen-anon.js` | Eval | Eval with default generator export |
-| `instn-named-bndng-dflt-gen-anon.js` | Default binding | Anonymous generator default export binding |
-| `parse-err-hoist-lex-gen.js` | Early error | Generator hoisting with lexical binding |
+| `namespace/internals/enumerate-binding-uninit.js` | TDZ | Enumeration on uninitialized binding |
+
+### Recently Fixed (commit: TBD)
+
+| Test | Fix |
+|------|-----|
+| `eval-export-dflt-expr-gen-anon.js` | Set function name to "default" for anonymous generator expressions |
+| `instn-named-bndng-dflt-gen-anon.js` | Anonymous generator declarations now hoisted with `*default*` binding |
+| `parse-err-hoist-lex-gen.js` | Parser now detects var/generator conflicts in module top-level |
+| `namespace/internals/get-own-property-str-found-uninit.js` | TDZ check added to hasOwnProperty for module namespaces |
 
 ### Post-ES6 Features (Not in Scope)
 
@@ -74,9 +80,9 @@ These features are tested in `language/module-code` but are **not ES6**:
 
 ## Next Steps (Priority Order)
 
-### 1. Fix TDZ (Temporal Dead Zone) for Uninitialized Bindings (3 tests)
+### 1. Fix Remaining TDZ Tests (3 tests)
 
-The `*-uninit.js` tests require proper TDZ handling for namespace object access:
+The remaining `*-uninit.js` tests require proper TDZ handling:
 
 ```javascript
 // dep.js
@@ -84,33 +90,12 @@ export let x;  // uninitialized
 
 // main.js
 import * as ns from './dep.js';
-ns.x;  // Should throw ReferenceError (TDZ)
-Object.getOwnPropertyDescriptor(ns, 'x');  // Should throw ReferenceError
-delete ns.x;  // Should throw ReferenceError
+ns.x;  // Should throw ReferenceError (TDZ) - get-str-found-uninit.js
+delete ns.x;  // Should throw ReferenceError - delete-exported-uninit.js
+Object.keys(ns);  // Should throw - enumerate-binding-uninit.js
 ```
 
-**Files to modify**: `NativeModuleNamespace.java`, `ModuleScope.java`
-
-### 2. Fix Default Generator Binding (2 tests)
-
-Anonymous generator default exports need proper binding:
-
-```javascript
-export default function* () {}  // Should create binding for default
-```
-
-**Files to modify**: `IRFactory.java`, `ModuleAnalyzer.java`
-
-### 3. Fix Early Error for Generator Hoisting (1 test)
-
-Parser should reject generator declarations that conflict with lexical bindings:
-
-```javascript
-let f;
-function* f() {}  // Should be early SyntaxError in module
-```
-
-**Files to modify**: `Parser.java`
+**Files to modify**: `NativeModuleNamespace.java` - add TDZ checks to `get()` and `delete()` methods
 
 ## Running Module Tests
 
