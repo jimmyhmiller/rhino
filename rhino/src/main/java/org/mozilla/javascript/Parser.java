@@ -4206,7 +4206,9 @@ public class Parser {
 
     private AstNode assignExpr() throws IOException {
         int tt = peekToken();
-        if (tt == Token.YIELD) {
+        // Only treat yield as keyword when inside a generator function
+        // In ES6 non-strict mode outside generators, yield is a valid identifier
+        if (tt == Token.YIELD && isCurrentFunctionGenerator()) {
             return returnOrYield(tt, true);
         }
 
@@ -5191,6 +5193,26 @@ public class Parser {
                 consumeToken();
                 return let(false, ts.tokenBeg);
 
+            case Token.YIELD:
+                // In ES6 non-strict mode outside generators, 'yield' can be used as an identifier
+                if (!inUseStrictDirective
+                        && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && !isCurrentFunctionGenerator()) {
+                    consumeToken();
+                    int yieldPos = ts.tokenBeg;
+                    int yieldLineno = lineNumber();
+                    int yieldColumn = columnNumber();
+                    // Treat 'yield' as an identifier
+                    saveNameTokenData(yieldPos, "yield", yieldLineno, yieldColumn);
+                    return createNameNode(true, Token.NAME);
+                }
+                // Inside generators, yield as expression should go through assignExpr ->
+                // returnOrYield
+                // If we reach here inside a generator, it's a syntax error
+                consumeToken();
+                reportError("msg.syntax");
+                break;
+
             case Token.LP:
                 consumeToken();
                 return parenExpr();
@@ -5925,7 +5947,20 @@ public class Parser {
         }
         mustMatchToken(Token.COLON, "msg.no.colon.prop", true);
         ObjectProperty pn = new ObjectProperty();
-        pn.setKeyAndValue(property, assignExpr());
+        // Reset inForInit to allow `in` operator in property value
+        // e.g., for ({ x: prop = 'y' in z } of ...) - the `in` is valid in the default value
+        // Also set inDestructuringAssignment to allow nested destructuring patterns like { x: { y =
+        // z } }
+        boolean wasInForInit = inForInit;
+        boolean wasInDestructuringAssignment = inDestructuringAssignment;
+        inForInit = false;
+        inDestructuringAssignment = true;
+        try {
+            pn.setKeyAndValue(property, assignExpr());
+        } finally {
+            inForInit = wasInForInit;
+            inDestructuringAssignment = wasInDestructuringAssignment;
+        }
         return pn;
     }
 
