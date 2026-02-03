@@ -62,6 +62,20 @@ public class NodeTransformer {
         // uncomment to print tree before transformation
         if (Token.printTrees) System.out.println(tree.toStringTree(tree));
         transformCompilationUnit_r(tree, tree, tree, createScopeObjects, inStrictMode);
+
+        // For generator functions, also transform the paramInitBlock which contains
+        // parameter destructuring and default value code that runs before Icode_GENERATOR.
+        // This needs the same LETEXPR->WITHEXPR transformation as the body.
+        if (tree.getType() == Token.FUNCTION) {
+            FunctionNode fn = (FunctionNode) tree;
+            if (fn.isGenerator()) {
+                Node paramInitBlock = fn.getGeneratorParamInitBlock();
+                if (paramInitBlock != null) {
+                    transformCompilationUnit_r(
+                            tree, paramInitBlock, fn, createScopeObjects, inStrictMode);
+                }
+            }
+        }
     }
 
     private void transformCompilationUnit_r(

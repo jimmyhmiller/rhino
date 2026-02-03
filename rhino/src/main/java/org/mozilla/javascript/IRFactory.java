@@ -740,7 +740,22 @@ public final class IRFactory {
             }
 
             if (destructuring != null) {
-                body.addChildToFront(new Node(Token.EXPR_VOID, destructuring, lineno, column));
+                if (fn.isGenerator()) {
+                    // For generators, add destructuring to paramInitBlock so it runs
+                    // during FunctionDeclarationInstantiation, before Icode_GENERATOR.
+                    // This ensures destructuring errors are thrown when the generator
+                    // function is called, not when next() is called on the generator object.
+                    // See ES6 9.2.12 FunctionDeclarationInstantiation step 25.
+                    Node paramInitBlock = fn.getGeneratorParamInitBlock();
+                    if (paramInitBlock == null) {
+                        paramInitBlock = new Node(Token.BLOCK);
+                        fn.setGeneratorParamInitBlock(paramInitBlock);
+                    }
+                    paramInitBlock.addChildToBack(
+                            new Node(Token.EXPR_VOID, destructuring, lineno, column));
+                } else {
+                    body.addChildToFront(new Node(Token.EXPR_VOID, destructuring, lineno, column));
+                }
             }
 
             int syntheticType = fn.getFunctionType();
@@ -1299,7 +1314,15 @@ public final class IRFactory {
             Node body = genExprTransformHelper(node);
 
             if (destructuring != null) {
-                body.addChildToFront(new Node(Token.EXPR_VOID, destructuring, lineno, column));
+                // Generator expressions are always generators, so add destructuring
+                // to paramInitBlock for proper FunctionDeclarationInstantiation timing
+                Node paramInitBlock = fn.getGeneratorParamInitBlock();
+                if (paramInitBlock == null) {
+                    paramInitBlock = new Node(Token.BLOCK);
+                    fn.setGeneratorParamInitBlock(paramInitBlock);
+                }
+                paramInitBlock.addChildToBack(
+                        new Node(Token.EXPR_VOID, destructuring, lineno, column));
             }
 
             int syntheticType = fn.getFunctionType();

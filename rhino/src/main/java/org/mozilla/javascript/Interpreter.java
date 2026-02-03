@@ -117,6 +117,21 @@ public final class Interpreter extends Icode implements Evaluator {
 
             emptyStackTop = (short) (idata.itsMaxVars + idata.itsMaxLocals - 1);
             int maxFrameArray = idata.itsMaxFrameArray;
+            if (Token.printTrees) {
+                System.err.println(
+                        "Frame for "
+                                + fnOrScript.getDescriptor().getSourceName()
+                                + ": itsMaxVars="
+                                + idata.itsMaxVars
+                                + " itsMaxLocals="
+                                + idata.itsMaxLocals
+                                + " itsMaxStack="
+                                + idata.itsMaxStack
+                                + " itsMaxFrameArray="
+                                + maxFrameArray
+                                + " emptyStackTop="
+                                + emptyStackTop);
+            }
             if (maxFrameArray != emptyStackTop + idata.itsMaxStack + 1) Kit.codeBug();
 
             stack = new Object[maxFrameArray];
@@ -2223,6 +2238,15 @@ public final class Interpreter extends Icode implements Evaluator {
             if (!frame.frozen) {
                 // First time encountering this opcode: create new generator
                 // object and return
+                if (Token.printTrees) {
+                    System.err.println(
+                            "DoGenerator: creating generator, stackTop="
+                                    + state.stackTop
+                                    + " emptyStackTop="
+                                    + frame.emptyStackTop
+                                    + " savedStackTop="
+                                    + frame.savedStackTop);
+                }
                 generatorCreate(cx, frame);
                 return BREAK_LOOP;
             }
@@ -2233,6 +2257,15 @@ public final class Interpreter extends Icode implements Evaluator {
                 return new YieldResult(
                         freezeGenerator(
                                 cx, frame, state, state.generatorState, op == Icode_YIELD_STAR));
+            }
+            if (Token.printTrees) {
+                System.err.println(
+                        "DoGenerator: resuming generator, stackTop="
+                                + state.stackTop
+                                + " emptyStackTop="
+                                + frame.emptyStackTop
+                                + " savedStackTop="
+                                + frame.savedStackTop);
             }
             Object obj = thawGenerator(frame, state, state.generatorState, op);
             if (obj != Scriptable.NOT_FOUND) {
@@ -2246,6 +2279,11 @@ public final class Interpreter extends Icode implements Evaluator {
             // First time encountering this opcode: create new generator
             // object and return
             frame.pc--; // we want to come back here when we resume
+            // Reset savedStackTop to emptyStackTop before capturing the frame.
+            // During parameter initialization (destructuring, default params),
+            // CALL operations may have set savedStackTop to a non-empty stack value.
+            // When the generator resumes, the body should start with an empty stack.
+            frame.savedStackTop = frame.emptyStackTop;
             CallFrame generatorFrame = captureFrameForGenerator(frame);
             generatorFrame.frozen = true;
             if (cx.getLanguageVersion() >= Context.VERSION_ES6) {

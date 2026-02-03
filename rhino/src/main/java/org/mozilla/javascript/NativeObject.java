@@ -444,6 +444,20 @@ public class NativeObject extends ScriptableObject implements Map {
         Object arg = args.length < 1 ? Undefined.instance : args[0];
         Scriptable obj = getCompatibleObject(cx, f.getDeclarationScope(), arg);
         Object[] ids = obj.getIds();
+
+        // Per ES6 spec, Object.keys calls EnumerableOwnProperties which calls [[GetOwnProperty]]
+        // for each key. For module namespace objects, [[GetOwnProperty]] calls [[Get]] which
+        // throws ReferenceError for uninitialized (TDZ) bindings.
+        if (obj instanceof org.mozilla.javascript.es6module.NativeModuleNamespace) {
+            org.mozilla.javascript.es6module.NativeModuleNamespace ns =
+                    (org.mozilla.javascript.es6module.NativeModuleNamespace) obj;
+            for (Object id : ids) {
+                if (id instanceof String) {
+                    ns.checkBindingTDZ((String) id);
+                }
+            }
+        }
+
         for (int i = 0; i < ids.length; i++) {
             ids[i] = ScriptRuntime.toString(ids[i]);
         }
@@ -910,6 +924,13 @@ public class NativeObject extends ScriptableObject implements Map {
             try {
                 int attrs = so.getAttributes(key);
                 return (attrs & ScriptableObject.DONTENUM) == 0;
+            } catch (EcmaError ee) {
+                // Re-throw ReferenceError (e.g., TDZ errors from module namespace objects)
+                // and TypeError, but swallow other errors for backwards compatibility
+                if ("ReferenceError".equals(ee.getName()) || "TypeError".equals(ee.getName())) {
+                    throw ee;
+                }
+                return true;
             } catch (RhinoException re) {
                 return true;
             }
@@ -924,6 +945,13 @@ public class NativeObject extends ScriptableObject implements Map {
             try {
                 int attrs = so.getAttributes(sym);
                 return (attrs & ScriptableObject.DONTENUM) == 0;
+            } catch (EcmaError ee) {
+                // Re-throw ReferenceError (e.g., TDZ errors from module namespace objects)
+                // and TypeError, but swallow other errors for backwards compatibility
+                if ("ReferenceError".equals(ee.getName()) || "TypeError".equals(ee.getName())) {
+                    throw ee;
+                }
+                return true;
             } catch (RhinoException re) {
                 return true;
             }

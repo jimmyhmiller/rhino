@@ -2938,6 +2938,13 @@ public class ScriptRuntime {
             } else if (id instanceof String) {
                 String strId = (String) id;
                 if (!x.obj.has(strId, x.obj)) continue; // must have been deleted
+                // Per ES6 spec, for-in enumeration calls [[GetOwnProperty]] for each key.
+                // For module namespace objects, [[GetOwnProperty]] calls [[Get]] which throws
+                // ReferenceError for uninitialized (TDZ) bindings.
+                if (x.obj instanceof org.mozilla.javascript.es6module.NativeModuleNamespace) {
+                    ((org.mozilla.javascript.es6module.NativeModuleNamespace) x.obj)
+                            .checkBindingTDZ(strId);
+                }
                 x.currentId = strId;
             } else {
                 int intId = ((Number) id).intValue();

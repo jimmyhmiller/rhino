@@ -1,6 +1,6 @@
 # ES6 Modules Implementation
 
-**Status**: ES6 module support is **93.9% complete** (46/49 ES6 tests passing)
+**Status**: ES6 module support is **100% complete** (49/49 ES6 tests passing)
 
 This document tracks the implementation status of ES6 modules in Rhino. **Keep this document updated as progress is made.**
 
@@ -46,20 +46,15 @@ ES6 modules provide static `import`/`export` syntax for JavaScript. This impleme
 
 | Category | ES6 Tests | Pass Rate | Notes |
 |----------|-----------|-----------|-------|
-| `language/module-code` | 49 | **46/49 (93.9%)** | Only 3 ES6 tests failing |
+| `language/module-code` | 49 | **49/49 (100%)** | All ES6 tests passing! |
 
-### Remaining ES6 Failures (3 tests)
-
-| Test | Category | Issue |
-|------|----------|-------|
-| `namespace/internals/delete-exported-uninit.js` | TDZ | Delete on uninitialized binding should throw |
-| `namespace/internals/get-str-found-uninit.js` | TDZ | Get on uninitialized binding should throw |
-| `namespace/internals/enumerate-binding-uninit.js` | TDZ | Enumeration on uninitialized binding |
-
-### Recently Fixed (commit: TBD)
+### Recently Fixed
 
 | Test | Fix |
 |------|-----|
+| `namespace/internals/enumerate-binding-uninit.js` | TDZ check during for-in enumeration via ScriptRuntime.enumNext |
+| `namespace/internals/object-keys-binding-uninit.js` | TDZ check in NativeObject.js_keys for module namespaces |
+| `namespace/internals/object-propertyIsEnumerable-binding-uninit.js` | TDZ check via getAttributes() and isEnumerable() re-throwing ReferenceError |
 | `eval-export-dflt-expr-gen-anon.js` | Set function name to "default" for anonymous generator expressions |
 | `instn-named-bndng-dflt-gen-anon.js` | Anonymous generator declarations now hoisted with `*default*` binding |
 | `parse-err-hoist-lex-gen.js` | Parser now detects var/generator conflicts in module top-level |
@@ -78,24 +73,16 @@ These features are tested in `language/module-code` but are **not ES6**:
 | `export * as ns from` | ES2020 | ~2 tests |
 | Import attributes | ES2023+ | ~5 tests |
 
-## Next Steps (Priority Order)
+## TDZ (Temporal Dead Zone) Handling
 
-### 1. Fix Remaining TDZ Tests (3 tests)
+ES6 module namespace objects must throw ReferenceError when accessing uninitialized bindings. This is implemented in:
 
-The remaining `*-uninit.js` tests require proper TDZ handling:
-
-```javascript
-// dep.js
-export let x;  // uninitialized
-
-// main.js
-import * as ns from './dep.js';
-ns.x;  // Should throw ReferenceError (TDZ) - get-str-found-uninit.js
-delete ns.x;  // Should throw ReferenceError - delete-exported-uninit.js
-Object.keys(ns);  // Should throw - enumerate-binding-uninit.js
-```
-
-**Files to modify**: `NativeModuleNamespace.java` - add TDZ checks to `get()` and `delete()` methods
+1. **NativeModuleNamespace.checkBindingTDZ()** - Core TDZ check method that throws if a binding is uninitialized
+2. **NativeModuleNamespace.getOwnPropertyDescriptor()** - Calls [[Get]] which triggers TDZ
+3. **NativeModuleNamespace.getAttributes()** - Checks TDZ for propertyIsEnumerable
+4. **NativeObject.js_keys()** - Calls checkBindingTDZ for each key on module namespaces
+5. **NativeObject.isEnumerable()** - Re-throws ReferenceError and TypeError (no longer swallowed)
+6. **ScriptRuntime.enumNext()** - Checks TDZ during for-in enumeration for module namespaces
 
 ## Running Module Tests
 

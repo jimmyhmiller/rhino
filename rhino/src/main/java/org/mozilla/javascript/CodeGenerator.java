@@ -106,6 +106,8 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             // bytecode BEFORE Icode_GENERATOR so defaults are evaluated before generator
             // object creation. Ref: Ecma 2026, 10.2.11 FunctionDeclarationInstantiation
             Node paramInitBlock = theFunction.getGeneratorParamInitBlock();
+            int paramInitMaxStack = 0;
+            int paramInitMaxLocals = 0;
             if (paramInitBlock != null) {
                 // Generate bytecode for each parameter initialization statement
                 Node paramInit = paramInitBlock.getFirstChild();
@@ -113,6 +115,16 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     visitStatement(paramInit, 0);
                     paramInit = paramInit.getNext();
                 }
+                // Save the max stack/locals used by paramInitBlock.
+                // We need to ensure the frame is sized for BOTH paramInitBlock
+                // AND the generator body operations when they run sequentially.
+                paramInitMaxStack = itsData.itsMaxStack;
+                paramInitMaxLocals = itsData.itsMaxLocals;
+                // Reset for the generator body to calculate its own requirements
+                itsData.itsMaxStack = 0;
+                itsData.itsMaxLocals = 0;
+                localTop = 0;
+                stackDepth = 0;
             }
 
             // For generators, nested function declarations must be instantiated after
@@ -130,9 +142,51 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
 
             addIcode(Icode_GENERATOR);
             addUint16(theFunction.getBaseLineno() & 0xFFFF);
-        }
 
-        generateICodeFromTree(theFunction.getLastChild());
+            generateICodeFromTree(theFunction.getLastChild());
+
+            // Combine max stack/locals from paramInitBlock and generator body.
+            // The frame needs to accommodate both, as paramInitBlock runs before
+            // the generator is created, and then the generator body runs when resumed.
+            // Combine max stack/locals from paramInitBlock and generator body.
+            // The frame needs to accommodate both, as paramInitBlock runs before
+            // the generator is created, and then the generator body runs when resumed.
+            // IMPORTANT: itsMaxFrameArray was already calculated in generateICodeFromTree()
+            // with the body-only values. We must recalculate it after combining.
+            if (paramInitMaxStack > 0 || paramInitMaxLocals > 0) {
+                if (Token.printTrees) {
+                    System.out.println(
+                            "Before combining: itsMaxVars="
+                                    + itsData.itsMaxVars
+                                    + " itsMaxLocals="
+                                    + itsData.itsMaxLocals
+                                    + " itsMaxStack="
+                                    + itsData.itsMaxStack
+                                    + " itsMaxFrameArray="
+                                    + itsData.itsMaxFrameArray
+                                    + " paramInitMaxStack="
+                                    + paramInitMaxStack
+                                    + " paramInitMaxLocals="
+                                    + paramInitMaxLocals);
+                }
+                itsData.itsMaxStack = Math.max(itsData.itsMaxStack, paramInitMaxStack);
+                itsData.itsMaxLocals = Math.max(itsData.itsMaxLocals, paramInitMaxLocals);
+                // Recalculate itsMaxFrameArray with the combined values
+                itsData.itsMaxFrameArray =
+                        itsData.itsMaxVars + itsData.itsMaxLocals + itsData.itsMaxStack;
+                if (Token.printTrees) {
+                    System.out.println(
+                            "After combining: itsMaxStack="
+                                    + itsData.itsMaxStack
+                                    + " itsMaxLocals="
+                                    + itsData.itsMaxLocals
+                                    + " itsMaxFrameArray="
+                                    + itsData.itsMaxFrameArray);
+                }
+            }
+        } else {
+            generateICodeFromTree(theFunction.getLastChild());
+        }
     }
 
     private void generateICodeFromTree(Node tree) {

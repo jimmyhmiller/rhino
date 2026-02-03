@@ -145,9 +145,29 @@ public class NativeModuleNamespace extends ScriptableObject implements SymbolScr
     }
 
     // OwnPropertyKeys returns the sorted export names
+    // Per ES6 spec, [[OwnPropertyKeys]] should NOT throw for TDZ - it just returns the keys.
+    // The TDZ check happens in [[GetOwnProperty]] which is called during Object.keys() and
+    // for-in enumeration via EnumerableOwnProperties.
     @Override
     public Object[] getIds() {
         return exports.toArray(new Object[0]);
+    }
+
+    /**
+     * Checks if an export binding is in the Temporal Dead Zone and throws if so.
+     *
+     * <p>This is called during property enumeration and access to ensure that uninitialized
+     * bindings throw ReferenceError per the ES6 module namespace specification.
+     *
+     * @param name the export name to check
+     * @throws ReferenceError if the binding is in TDZ
+     */
+    public void checkBindingTDZ(String name) {
+        if (!exports.contains(name)) {
+            return;
+        }
+        // getExportBinding will throw ReferenceError if the binding is in TDZ
+        module.getExportBinding(name);
     }
 
     @Override
@@ -157,6 +177,8 @@ public class NativeModuleNamespace extends ScriptableObject implements SymbolScr
 
     /**
      * Module namespace [[OwnPropertyKeys]] returns sorted export names followed by symbol keys.
+     *
+     * <p>Per ES6 spec, [[OwnPropertyKeys]] should NOT throw for TDZ - it just returns the keys.
      *
      * @see <a
      *     href="https://tc39.es/ecma262/#sec-module-namespace-exotic-objects-ownpropertykeys">[[OwnPropertyKeys]]</a>
@@ -176,6 +198,26 @@ public class NativeModuleNamespace extends ScriptableObject implements SymbolScr
         } else {
             return exports.toArray(new Object[0]);
         }
+    }
+
+    /**
+     * Returns the attributes for a property. For module namespace objects, this must check TDZ
+     * because Object.prototype.propertyIsEnumerable calls this via isEnumerable(), and per ES6 spec
+     * it should call [[GetOwnProperty]] which triggers [[Get]] and throws for TDZ.
+     *
+     * @param name the property name
+     * @return the property attributes (READONLY for exports, NOT_FOUND attributes if not an export)
+     */
+    @Override
+    public int getAttributes(String name) {
+        if (exports.contains(name)) {
+            // Check TDZ - getExportBinding will throw ReferenceError if binding is uninitialized
+            checkBindingTDZ(name);
+            // Module namespace properties are writable, enumerable, non-configurable
+            return PERMANENT;
+        }
+        // Property doesn't exist
+        return super.getAttributes(name);
     }
 
     /**
