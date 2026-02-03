@@ -5396,8 +5396,12 @@ public class Parser {
         int skipCount = 0;
         // Reset inForInit to allow `in` operator in array element expressions
         // e.g., for ([x = 'y' in z] of ...) - the `in` is valid in the default value
+        // Also set inDestructuringAssignment to allow nested destructuring patterns
+        // like [{ x = yield }] where yield is used as an identifier
         boolean wasInForInit = inForInit;
+        boolean wasInDestructuringAssignment = inDestructuringAssignment;
         inForInit = false;
+        inDestructuringAssignment = true;
         try {
             for (; ; ) {
                 int tt = peekToken();
@@ -5460,6 +5464,7 @@ public class Parser {
             return pn;
         } finally {
             inForInit = wasInForInit;
+            inDestructuringAssignment = wasInDestructuringAssignment;
         }
     }
 
