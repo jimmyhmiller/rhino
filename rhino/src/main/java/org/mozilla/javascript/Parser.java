@@ -1805,6 +1805,131 @@ public class Parser {
     }
 
     /**
+     * Checks if the given node represents an async arrow function call pattern: async(...) or async
+     * x where async is an identifier followed by arrow function parameters.
+     */
+    private boolean isAsyncArrowFunctionCall(AstNode pn) {
+        if (pn instanceof FunctionCall) {
+            FunctionCall call = (FunctionCall) pn;
+            AstNode target = call.getTarget();
+            if (target instanceof Name && "async".equals(((Name) target).getIdentifier())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Parses an async arrow function. Called when we've seen async(...) => or async x => pattern.
+     * The pn parameter is a FunctionCall node with target "async".
+     */
+    private AstNode asyncArrowFunction(AstNode pn, int startLine, int startColumn)
+            throws IOException {
+        FunctionCall call = (FunctionCall) pn;
+        List<AstNode> args = call.getArguments();
+
+        // Convert the function call arguments to arrow function parameter format
+        AstNode params;
+        if (args == null || args.isEmpty()) {
+            // async () => ... - empty params, create a ParenthesizedExpression with EmptyExpression
+            ParenthesizedExpression pe = new ParenthesizedExpression();
+            pe.setExpression(new EmptyExpression());
+            pe.setPosition(call.getLp() + call.getPosition());
+            pe.setLength(call.getRp() - call.getLp() + 1);
+            params = pe;
+        } else if (args.size() == 1) {
+            // async (x) => ... or async (x, y) => ... - wrap in ParenthesizedExpression
+            ParenthesizedExpression pe = new ParenthesizedExpression();
+            pe.setExpression(args.get(0));
+            pe.setPosition(call.getLp() + call.getPosition());
+            pe.setLength(call.getRp() - call.getLp() + 1);
+            params = pe;
+        } else {
+            // Multiple arguments - create comma expression
+            int commaPos = args.get(0).getPosition();
+            AstNode commaExpr = args.get(0);
+            for (int i = 1; i < args.size(); i++) {
+                InfixExpression comma =
+                        new InfixExpression(Token.COMMA, commaExpr, args.get(i), commaPos);
+                commaExpr = comma;
+            }
+            ParenthesizedExpression pe = new ParenthesizedExpression();
+            pe.setExpression(commaExpr);
+            pe.setPosition(call.getLp() + call.getPosition());
+            pe.setLength(call.getRp() - call.getLp() + 1);
+            params = pe;
+        }
+
+        // Create the arrow function and mark it as async
+        int baseLineno = lineNumber();
+        int functionSourceStart = call.getPosition();
+
+        FunctionNode fnNode = new FunctionNode(functionSourceStart);
+        fnNode.setFunctionType(FunctionNode.ARROW_FUNCTION);
+        fnNode.setJsDocNode(getAndResetJsDoc());
+        fnNode.setIsAsync(); // Mark as async
+
+        Map<String, Node> destructuring = new HashMap<>();
+        Map<String, AstNode> destructuringDefault = new HashMap<>();
+        Set<String> paramNames = new HashSet<>();
+
+        PerFunctionVariables savedVars = new PerFunctionVariables(fnNode);
+        try {
+            if (params instanceof ParenthesizedExpression) {
+                fnNode.setParens(0, params.getLength());
+                if (params.getIntProp(Node.TRAILING_COMMA, 0) == 1) {
+                    fnNode.putIntProp(Node.TRAILING_COMMA, 1);
+                }
+                AstNode p = ((ParenthesizedExpression) params).getExpression();
+                if (!(p instanceof EmptyExpression)) {
+                    arrowFunctionParams(fnNode, p, destructuring, destructuringDefault, paramNames);
+                }
+            } else {
+                arrowFunctionParams(
+                        fnNode, params, destructuring, destructuringDefault, paramNames);
+            }
+
+            if (!destructuring.isEmpty()) {
+                Node destructuringNode = new Node(Token.COMMA);
+                for (Map.Entry<String, Node> param : destructuring.entrySet()) {
+                    AstNode defaultValue = null;
+                    if (destructuringDefault != null) {
+                        defaultValue = destructuringDefault.get(param.getKey());
+                    }
+                    Node assign =
+                            createDestructuringAssignment(
+                                    Token.VAR,
+                                    param.getValue(),
+                                    createName(param.getKey()),
+                                    defaultValue);
+                    destructuringNode.addChildToBack(assign);
+                }
+                fnNode.putProp(Node.DESTRUCTURING_PARAMS, destructuringNode);
+            }
+
+            AstNode body = parseFunctionBody(FunctionNode.ARROW_FUNCTION, fnNode);
+            fnNode.setBody(body);
+            int end = functionSourceStart + body.getPosition() + body.getLength();
+            fnNode.setRawSourceBounds(functionSourceStart, end);
+            fnNode.setLength(end - functionSourceStart);
+        } finally {
+            savedVars.restore();
+        }
+
+        if (fnNode.isGenerator()) {
+            reportError("msg.arrowfunction.generator");
+            return makeErrorNode();
+        }
+
+        fnNode.setSourceName(sourceURI);
+        fnNode.setBaseLineno(baseLineno);
+        fnNode.setEndLineno(lineNumber());
+        fnNode.setLineColumnNumber(startLine, startColumn);
+
+        return fnNode;
+    }
+
+    /**
      * Checks if any names in a destructuring pattern duplicate existing parameter names or each
      * other. Reports errors for any duplicates found (arrow functions are always strict w.r.t.
      * duplicate params). The check for eval/arguments only applies in strict mode.
@@ -4370,7 +4495,12 @@ public class Parser {
             }
         } else if (!hasEOL && tt == Token.ARROW) {
             consumeToken();
-            pn = arrowFunction(pn, startLine, startColumn);
+            // Check for async arrow function: async (...) => or async x =>
+            if (isAsyncArrowFunctionCall(pn)) {
+                pn = asyncArrowFunction(pn, startLine, startColumn);
+            } else {
+                pn = arrowFunction(pn, startLine, startColumn);
+            }
         } else if (pn.getIntProp(Node.OBJECT_LITERAL_DESTRUCTURING, 0) == 1
                 && !inDestructuringAssignment
                 && !inPotentialArrowParams
