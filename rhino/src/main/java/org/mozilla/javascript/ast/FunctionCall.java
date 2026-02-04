@@ -21,6 +21,7 @@ public class FunctionCall extends AstNode {
     protected int lp = -1;
     protected int rp = -1;
     protected boolean optionalCall = false;
+    protected boolean hasLineTerminatorBeforeLp = false;
 
     {
         type = Token.CALL;
@@ -133,6 +134,16 @@ public class FunctionCall extends AstNode {
     /** Returns whether the call is preceded by the optional chaining operator ?. */
     public boolean isOptionalCall() {
         return optionalCall;
+    }
+
+    /** Marks that there was a line terminator between the target and the left paren. */
+    public void setHasLineTerminatorBeforeLp(boolean value) {
+        this.hasLineTerminatorBeforeLp = value;
+    }
+
+    /** Returns whether there was a line terminator between the target and the left paren. */
+    public boolean hasLineTerminatorBeforeLp() {
+        return hasLineTerminatorBeforeLp;
     }
 
     @Override

@@ -1817,6 +1817,10 @@ public class Parser {
     private boolean isAsyncArrowFunctionCall(AstNode pn) {
         if (pn instanceof FunctionCall) {
             FunctionCall call = (FunctionCall) pn;
+            // If there was a line terminator between async and (, it's not a valid async arrow
+            if (call.hasLineTerminatorBeforeLp()) {
+                return false;
+            }
             AstNode target = call.getTarget();
             if (target instanceof Name && "async".equals(((Name) target).getIdentifier())) {
                 return true;
@@ -5400,7 +5404,8 @@ public class Parser {
                     if (!allowCallSyntax) {
                         break tailLoop;
                     }
-                    pn = makeFunctionCall(pn, pos, isOptionalChain);
+                    boolean hasEolBeforeLp = (currentFlaggedToken & TI_AFTER_EOL) != 0;
+                    pn = makeFunctionCall(pn, pos, isOptionalChain, hasEolBeforeLp);
                     break;
                 case Token.COMMENT:
                     // Ignoring all the comments, because previous statement may not be terminated
@@ -5423,13 +5428,15 @@ public class Parser {
         return pn;
     }
 
-    private FunctionCall makeFunctionCall(AstNode pn, int pos, boolean isOptionalChain)
+    private FunctionCall makeFunctionCall(
+            AstNode pn, int pos, boolean isOptionalChain, boolean hasLineTerminatorBeforeLp)
             throws IOException {
         consumeToken();
         checkCallRequiresActivation(pn);
         FunctionCall f = new FunctionCall(pos);
         f.setTarget(pn);
         f.setLp(ts.tokenBeg - pos);
+        f.setHasLineTerminatorBeforeLp(hasLineTerminatorBeforeLp);
         List<AstNode> args = argumentList();
         if (args != null && args.size() > ARGC_LIMIT) reportError("msg.too.many.function.args");
         f.setArguments(args);
@@ -5550,8 +5557,8 @@ public class Parser {
 
             case Token.LP:
                 if (tt == Token.QUESTION_DOT) {
-                    // a function call such as f?.()
-                    return makeFunctionCall(pn, pn.getPosition(), isOptionalChain);
+                    // a function call such as f?.() - no line terminator relevance here
+                    return makeFunctionCall(pn, pn.getPosition(), isOptionalChain, false);
                 } else {
                     reportError("msg.no.name.after.dot");
                     return makeErrorNode();
