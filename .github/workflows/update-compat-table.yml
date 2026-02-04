@@ -97,25 +97,47 @@ jobs:
           run_tests() {
             local jar="$1"
             local ver="$2"
-            echo "Testing $ver..."
+            echo "Testing $ver with JAR: $jar"
+
+            # Verify JAR exists
+            if [ ! -f "$jar" ]; then
+              echo "ERROR: JAR file not found: $jar"
+              echo '{}' > rhino-results/${ver}.json
+              echo '{}' > rhino-results/${ver}-es6.json
+              return 1
+            fi
 
             # Run tests without ES6 flag (use load() as original script does)
             echo "supportVersion=200; load('rhinotest.js');" > /tmp/test.js
-            if ! java -jar "$jar" -version 200 /tmp/test.js > rhino-results/${ver}.json 2>&1; then
+            echo "Running: java -jar $jar -version 200 /tmp/test.js"
+            if ! java -jar "$jar" -version 200 /tmp/test.js > rhino-results/${ver}.json 2>/tmp/rhino-err.log; then
+              echo "ERROR: Test failed for $ver"
+              echo "=== stderr output ==="
+              cat /tmp/rhino-err.log
+              echo "=== end stderr ==="
               echo '{}' > rhino-results/${ver}.json
             fi
 
             # Run tests with ES6 flag
             echo "var defined = 'RHINO_VERSION_ES6'; supportVersion=200; load('rhinotest.js');" > /tmp/test.js
-            if ! java -jar "$jar" -version 200 /tmp/test.js > rhino-results/${ver}-es6.json 2>&1; then
+            echo "Running ES6: java -jar $jar -version 200 /tmp/test.js"
+            if ! java -jar "$jar" -version 200 /tmp/test.js > rhino-results/${ver}-es6.json 2>/tmp/rhino-err.log; then
+              echo "ERROR: ES6 test failed for $ver"
+              echo "=== stderr output ==="
+              cat /tmp/rhino-err.log
+              echo "=== end stderr ==="
               echo '{}' > rhino-results/${ver}-es6.json
             fi
-            rm -f /tmp/test.js
+            rm -f /tmp/test.js /tmp/rhino-err.log
 
             # Ensure files have valid JSON
             for f in rhino-results/${ver}.json rhino-results/${ver}-es6.json; do
               if [ ! -s "$f" ] || ! node -e "JSON.parse(require('fs').readFileSync('$f'))" 2>/dev/null; then
-                echo "Warning: Invalid JSON in $f, using empty object"
+                echo "Warning: Invalid JSON in $f (size: $(wc -c < "$f") bytes)"
+                echo "=== First 500 chars of $f ==="
+                head -c 500 "$f"
+                echo ""
+                echo "=== end ==="
                 echo '{}' > "$f"
               fi
             done
