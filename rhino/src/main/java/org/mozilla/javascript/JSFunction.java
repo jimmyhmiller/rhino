@@ -247,6 +247,11 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         return descriptor.hasDefaultParameters();
     }
 
+    /** Check if this function has a rest parameter. */
+    public boolean hasRestParameter() {
+        return descriptor.hasRestArg();
+    }
+
     public boolean hasFunctionNamed(String name) {
         return descriptor.hasFunctionNamed(name);
     }

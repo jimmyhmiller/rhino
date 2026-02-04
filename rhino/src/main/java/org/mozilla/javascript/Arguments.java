@@ -181,8 +181,9 @@ class Arguments extends ScriptableObject {
         }
         JSFunction f = activation.function;
 
-        // Check if default arguments are present
-        if (f == null || f.hasDefaultParameters()) {
+        // Check if non-simple parameters are present (default params or rest params)
+        // ES6 9.4.4.6: Functions with non-simple parameters have unmapped arguments
+        if (f == null || f.hasDefaultParameters() || f.hasRestParameter()) {
             return false;
         }
 

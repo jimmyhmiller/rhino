@@ -1643,6 +1643,10 @@ public class Parser {
         } else if (entryKind == SET_ENTRY && paramCount != 1) {
             reportError("msg.setter.param.count");
         }
+        // ES6 14.3.1: Setter parameter cannot be a rest parameter
+        if (entryKind == SET_ENTRY && fn.hasRestParameter()) {
+            reportError("msg.setter.rest.param");
+        }
 
         // For constructors, clear the methodDefinition flag after parsing
         // Constructors should be created as closures, not methods (no homeObject needed)
@@ -6686,6 +6690,10 @@ public class Parser {
             reportError("msg.getter.param.count");
         } else if (entryKind == SET_ENTRY && paramCount != 1) {
             reportError("msg.setter.param.count");
+        }
+        // ES6 14.3.1: Setter parameter cannot be a rest parameter
+        if (entryKind == SET_ENTRY && fn.hasRestParameter()) {
+            reportError("msg.setter.rest.param");
         }
 
         // We've already parsed the function name, so fn should be anonymous.
