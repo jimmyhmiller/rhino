@@ -442,16 +442,20 @@ function main() {
             editionResult.engines[engineName] = 0;
         }
 
-        // Find all tests that use this feature
+        // Find all tests that use this feature AND were actually run
+        // Tests not in testResults were skipped (async, etc.) and shouldn't count
         for (const [testPath, testFeatures] of Object.entries(testsWithFeatures)) {
             if (testFeatures.includes(feature)) {
-                featureResult.total++;
-                editionResult.total++;
+                // Only count tests that were actually run (present in testResults)
+                if (testResults[testPath] !== undefined) {
+                    featureResult.total++;
+                    editionResult.total++;
 
-                // Check if test passed
-                if (testResults[testPath]) {
-                    featureResult.engines[engineName]++;
-                    editionResult.engines[engineName]++;
+                    // Check if test passed
+                    if (testResults[testPath]) {
+                        featureResult.engines[engineName]++;
+                        editionResult.engines[engineName]++;
+                    }
                 }
             }
         }
