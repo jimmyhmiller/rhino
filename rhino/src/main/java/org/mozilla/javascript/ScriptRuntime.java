@@ -1465,6 +1465,32 @@ public class ScriptRuntime {
     }
 
     /**
+     * ES6 Symbol.unscopables support - checks if a property name is blocked from being visible in a
+     * `with` statement's scope. Per ES6 8.1.1.2.1 HasBinding step 7-9.
+     *
+     * @param obj The with-object to check
+     * @param name The property name being looked up
+     * @return true if the name is blocked by Symbol.unscopables, false otherwise
+     */
+    public static boolean isBlockedByUnscopables(Scriptable obj, String name) {
+        // Get Symbol.unscopables from the object
+        Object unscopables = ScriptableObject.getProperty(obj, SymbolKey.UNSCOPABLES);
+        if (unscopables == Scriptable.NOT_FOUND || Undefined.isUndefined(unscopables)) {
+            return false;
+        }
+        // Symbol.unscopables must be an object
+        if (!(unscopables instanceof Scriptable)) {
+            return false;
+        }
+        // Check if the property name is blocked (truthy value means blocked)
+        Object blocked = ScriptableObject.getProperty((Scriptable) unscopables, name);
+        if (blocked == Scriptable.NOT_FOUND || Undefined.isUndefined(blocked)) {
+            return false;
+        }
+        return toBoolean(blocked);
+    }
+
+    /**
      * @deprecated Use {@link #toObject(Context, Scriptable, Object)} instead.
      */
     @Deprecated
@@ -2453,13 +2479,21 @@ public class ScriptRuntime {
                         firstXMLObject = xmlObj;
                     }
                 } else {
+                    // ES6 8.1.1.2.1 HasBinding: First check if binding exists
                     // Use scope.get() instead of ScriptableObject.getProperty(withObj, ...)
                     // so that TDZ checks in NativeWith.get() are triggered
                     result = scope.get(name, scope);
                     if (result != Scriptable.NOT_FOUND) {
-                        // function this should be the target object of with
-                        thisObj = withObj;
-                        break;
+                        // ES6 8.1.1.2.1 step 7-9: Check Symbol.unscopables
+                        // Only after confirming the binding exists
+                        if (isBlockedByUnscopables(withObj, name)) {
+                            // Name is blocked - treat as not found and continue search
+                            result = Scriptable.NOT_FOUND;
+                        } else {
+                            // function this should be the target object of with
+                            thisObj = withObj;
+                            break;
+                        }
                     }
                 }
             } else if (scope instanceof NativeCall) {
