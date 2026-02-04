@@ -410,50 +410,65 @@ function main() {
 
     console.log(`Parsed features for ${Object.keys(testsWithFeatures).length} tests`);
 
-    // Build feature results and edition results
+    // Build feature results (per-feature, tests can count toward multiple features)
     // Use Object.create(null) to avoid issues with __proto__ as a key
     const featureResults = Object.create(null);
-    const editionResults = Object.create(null);
 
     for (const feature of features) {
-        let edition = featureByEdition.get(feature);
-        if (edition === undefined) {
-            console.warn(`Feature '${feature}' has no associated edition, treating as ESNext`);
-            edition = 99;
-        }
-        // Edition 99 becomes undefined (ESNext)
-        const editionKey = edition === 99 ? 'undefined' : String(edition);
-
         if (!featureResults[feature]) {
             featureResults[feature] = { total: 0, engines: {}, proposal: proposalInfo[feature] || null };
         }
-        if (!editionResults[editionKey]) {
-            editionResults[editionKey] = { total: 0, engines: {} };
-        }
-
         const featureResult = featureResults[feature];
-        const editionResult = editionResults[editionKey];
 
-        // Initialize engine counts
         if (featureResult.engines[engineName] === undefined) {
             featureResult.engines[engineName] = 0;
-        }
-        if (editionResult.engines[engineName] === undefined) {
-            editionResult.engines[engineName] = 0;
         }
 
         // Find all tests that use this feature
         for (const [testPath, testFeatures] of Object.entries(testsWithFeatures)) {
             if (testFeatures.includes(feature)) {
                 featureResult.total++;
-                editionResult.total++;
-
-                // Check if test passed
                 if (testResults[testPath]) {
                     featureResult.engines[engineName]++;
-                    editionResult.engines[engineName]++;
                 }
             }
+        }
+    }
+
+    // Build edition results - each test counts toward ONE edition (highest feature)
+    // This means a test with [class, async-functions] counts toward ES8, not ES6
+    const editionResults = Object.create(null);
+
+    // Helper to get edition for a feature
+    function getEdition(feature) {
+        let edition = featureByEdition.get(feature);
+        if (edition === undefined) edition = 99;
+        return edition;
+    }
+
+    // Process each test once, assigning to highest edition
+    for (const [testPath, testFeatures] of Object.entries(testsWithFeatures)) {
+        // Find the highest edition among this test's features
+        let maxEdition = 5; // Default to ES5 if no features match
+        for (const feature of testFeatures) {
+            const edition = getEdition(feature);
+            if (edition > maxEdition) {
+                maxEdition = edition;
+            }
+        }
+
+        const editionKey = maxEdition === 99 ? 'undefined' : String(maxEdition);
+
+        if (!editionResults[editionKey]) {
+            editionResults[editionKey] = { total: 0, engines: {} };
+        }
+        if (editionResults[editionKey].engines[engineName] === undefined) {
+            editionResults[editionKey].engines[engineName] = 0;
+        }
+
+        editionResults[editionKey].total++;
+        if (testResults[testPath]) {
+            editionResults[editionKey].engines[engineName]++;
         }
     }
 
