@@ -254,8 +254,8 @@ public class Test262JsonRunner {
             }
 
             // Check for unsupported flags
-            // async is not supported; modules require the fork's module support
-            if (testCase.hasFlag("async") || (testCase.hasFlag("module") && !MODULES_SUPPORTED)) {
+            // modules require the fork's module support
+            if (testCase.hasFlag("module") && !MODULES_SUPPORTED) {
                 skipCount.incrementAndGet();
                 return;
             }
