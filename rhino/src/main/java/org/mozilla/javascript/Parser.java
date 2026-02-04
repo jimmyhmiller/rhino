@@ -1123,6 +1123,30 @@ public class Parser {
             if (mustMatchToken(Token.RP, "msg.no.paren.after.parms", true)) {
                 fnNode.setRp(ts.tokenBeg - fnNode.getPosition());
             }
+
+            // ES6 14.1.2: If FormalParameters contains non-simple parameters (defaults,
+            // rest, or destructuring), duplicate parameter names are always an error,
+            // even in non-strict mode.
+            if (!inUseStrictDirective && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                boolean hasNonSimpleParams =
+                        fnNode.getDefaultParams() != null
+                                || fnNode.hasRestParameter()
+                                || destructuring != null;
+
+                if (hasNonSimpleParams) {
+                    // Check for duplicates among all parameter names
+                    Set<String> seen = new HashSet<>();
+                    for (AstNode param : fnNode.getParams()) {
+                        if (param instanceof Name) {
+                            String pname = ((Name) param).getIdentifier();
+                            if (seen.contains(pname)) {
+                                addError("msg.dup.param.strict", pname);
+                            }
+                            seen.add(pname);
+                        }
+                    }
+                }
+            }
         } finally {
             --nestingOfFunctionParams;
         }
