@@ -6,7 +6,7 @@
 
 The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-negotiable - keep fixing tests until there are zero failures.
 
-### Current ES6 Status: 90.8% passing (851 failures remaining)
+### Current ES6 Status: 91.4% passing (789 failures remaining)
 
 ```bash
 node scripts/test-status.js 6  # See current status
@@ -18,25 +18,7 @@ node scripts/test-status.js 6  # See current status
 
 These are the features most likely to break real JavaScript code. Fix these first!
 
-### 1. Object Rest in Destructuring (HIGH IMPACT)
-
-**Status:** Not supported - syntax error
-
-```javascript
-// BROKEN - extremely common pattern in modern JS
-const { id, ...rest } = { id: 1, name: 'foo', value: 42 };
-// Error: "object rest properties in destructuring are not supported"
-```
-
-**Why it matters:** This is one of the most common patterns for "removing a property" or "extracting some props" in React/modern JS. Nearly every modern codebase uses this.
-
-**Workaround:** Manually pick properties or use helper functions.
-
-**Key files:** `Parser.java` - needs to parse `...rest` in object patterns
-
----
-
-### 2. Destructuring from Set/Map/Custom Iterables (HIGH IMPACT)
+### 1. Destructuring from Set/Map/Custom Iterables (HIGH IMPACT)
 
 **Status:** Broken - returns undefined
 
@@ -60,47 +42,13 @@ const [first] = Array.from(set); // works
 
 **Why it matters:** Getting first element of a Set, destructuring Map entries, working with generators via destructuring - all common patterns.
 
-**Key files:** `IRFactory.java` - destructuring code generation doesn't use iterator protocol
+**Key files:** `Parser.java`, `IRFactory.java` - destructuring code generation uses index-based access instead of iterator protocol
+
+**Note:** Fixing this requires significant changes to how array destructuring is compiled. The parser/NodeTransformer infrastructure wasn't designed for iterator-based destructuring in all contexts.
 
 ---
 
-### 3. Computed Property Names in Destructuring (MEDIUM IMPACT)
-
-**Status:** Not supported - syntax error
-
-```javascript
-// BROKEN
-const key = 'dynamicProp';
-const { [key]: value } = obj;  // Syntax error: "Unsupported computed property in destructuring"
-```
-
-**Workaround:** `const value = obj[key];`
-
-**Why it matters:** Used in dynamic property access patterns, especially in libraries and when working with variable property names.
-
-**Key files:** `Parser.java`, `IRFactory.java` - need to support ComputedPropertyKey in destructuring patterns
-
----
-
-### 4. `const` Destructuring in `for` Loop Init (MEDIUM IMPACT)
-
-**Status:** Crashes with NullPointerException
-
-```javascript
-// CRASHES the entire runtime!
-for (const [a, b] = getCoords(); condition; update) { }
-// java.lang.NullPointerException in ScriptableObject.putConstProperty
-```
-
-**Workaround:** Use `let` instead of `const`
-
-**Why it matters:** This is a Java exception crash, not a JS error - could crash your entire application.
-
-**Key files:** `ScriptRuntime.java` - `setConst()` has null scope issue
-
----
-
-### 5. Default Parameter TDZ Violations (LOW-MEDIUM IMPACT)
+### 2. Default Parameter TDZ Violations (LOW-MEDIUM IMPACT)
 
 **Status:** Wrong behavior - should throw, returns NaN
 
@@ -123,7 +71,9 @@ f();  // Returns NaN instead of throwing ReferenceError
 | Basic destructuring `{a, b} = obj`, `[x, y] = arr` | ✅ Works |
 | Nested destructuring `{ user: { name } }` | ✅ Works |
 | Default values `{ x = 10 }`, `[a = 1]` | ✅ Works |
+| Computed property destructuring `{ [key]: value }` | ✅ Works |
 | Array rest `[first, ...rest] = arr` | ✅ Works |
+| Object rest `{ id, ...rest }` | ✅ Works |
 | Object spread `{...obj, newProp}` | ✅ Works |
 | Array spread `[...arr]` | ✅ Works |
 | `for-of` with arrays, Map, Set, generators | ✅ Works |
@@ -139,6 +89,9 @@ f();  // Returns NaN instead of throwing ReferenceError
 
 ### ✅ Recently Fixed
 
+- **Computed Property Names in Destructuring**: `const { [key]: value } = obj;` now works (11 tests)
+- **Object Rest in Destructuring**: `const { id, ...rest } = obj;` now works
+- **`const` Destructuring in `for` Loop Init**: Fixed NPE crash (48 tests)
 - **ES6 Modules**: All 49/49 tests passing
 - **Generator Method Destructuring**: Fixed 359 tests (destructuring now runs before generator creation)
 - **For-of Destructuring**: Fixed ~90 tests (iterator protocol, empty arrays, object patterns)
