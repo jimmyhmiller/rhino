@@ -7232,7 +7232,7 @@ public class Parser {
         if (iteratorName != null && lastResultName != null) {
             // Allocate temp for return method
             String returnMethodName = currentScriptOrFn.getNextTempName();
-            defineSymbol(Token.LET, returnMethodName, true);
+            defineSymbol(Token.VAR, returnMethodName, true);
 
             // Check if iterator is done: !lastResult.done
             Node getDone =
@@ -7311,15 +7311,7 @@ public class Parser {
 
         // ES6+ array destructuring should use iterator protocol (ES6 12.15.5)
         // Pre-ES6 used index-based access for backwards compatibility
-        // Use iterator protocol for:
-        // - Function parameters (isFunctionParameter=true): scope handling works correctly
-        // - Assignment expressions (variableType=-1): e.g., [a, b] = iterable
-        // Variable declarations (LET/CONST/VAR) currently use index-based access due to
-        // scoping issues with iterator temp variables in strict mode.
-        // TODO: Fix scoping for variable declarations to use iterator protocol
-        boolean useIteratorProtocol =
-                compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
-                        && (isFunctionParameter || variableType == -1);
+        boolean useIteratorProtocol = compilerEnv.getLanguageVersion() >= Context.VERSION_ES6;
 
         List<AstNode> elements = array.getElements();
         for (int elemIndex = 0; elemIndex < elements.size(); elemIndex++) {
@@ -7409,8 +7401,8 @@ public class Parser {
                     if (!iteratorSetup) {
                         iteratorName = currentScriptOrFn.getNextTempName();
                         lastResultName = currentScriptOrFn.getNextTempName();
-                        defineSymbol(Token.LET, iteratorName, true);
-                        defineSymbol(Token.LET, lastResultName, true);
+                        defineSymbol(Token.VAR, iteratorName, true);
+                        defineSymbol(Token.VAR, lastResultName, true);
 
                         Node symbolName = createName("Symbol");
                         Node getIteratorProp =
@@ -7459,8 +7451,8 @@ public class Parser {
                 iteratorName = currentScriptOrFn.getNextTempName();
                 lastResultName = currentScriptOrFn.getNextTempName();
                 // Define the iterator temp variables for strict mode
-                defineSymbol(Token.LET, iteratorName, true);
-                defineSymbol(Token.LET, lastResultName, true);
+                defineSymbol(Token.VAR, iteratorName, true);
+                defineSymbol(Token.VAR, lastResultName, true);
 
                 // Generate: iterator = tempName[Symbol.iterator]()
                 // Pure AST: CALL(GETELEM(tempName, GETPROP(NAME("Symbol"), "iterator")))
@@ -7495,7 +7487,7 @@ public class Parser {
                 // Extract .value from the result
                 String elemTempName = currentScriptOrFn.getNextTempName();
                 // Define the element temp variable for strict mode
-                defineSymbol(Token.LET, elemTempName, true);
+                defineSymbol(Token.VAR, elemTempName, true);
                 Node getValue =
                         new Node(
                                 Token.GETPROP, createName(lastResultName), Node.newString("value"));
@@ -7557,8 +7549,8 @@ public class Parser {
             // Set up iterator to verify the value is iterable (throws TypeError if not)
             iteratorName = currentScriptOrFn.getNextTempName();
             lastResultName = currentScriptOrFn.getNextTempName();
-            defineSymbol(Token.LET, iteratorName, true);
-            defineSymbol(Token.LET, lastResultName, true);
+            defineSymbol(Token.VAR, iteratorName, true);
+            defineSymbol(Token.VAR, lastResultName, true);
 
             // Generate: iterator = tempName[Symbol.iterator]()
             Node symbolName = createName("Symbol");
