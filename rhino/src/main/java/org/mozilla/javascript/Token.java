@@ -703,6 +703,10 @@ public class Token {
                 return "REQ_OBJ_COERCIBLE";
             case OBJECT_REST_COPY:
                 return "OBJECT_REST_COPY";
+            case PARAM_TDZ_ERROR:
+                return "PARAM_TDZ_ERROR";
+            case REQ_ITERABLE:
+                return "REQ_ITERABLE";
         }
 
         // Token without name

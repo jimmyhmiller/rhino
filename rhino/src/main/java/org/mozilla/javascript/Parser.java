@@ -6926,26 +6926,10 @@ public class Parser {
                             right,
                             rightElem);
 
-            Node valueToAssign;
-            if (variableType != -1) {
-                // Declaration context (let/const/var): just use the inner condition.
-                // The variable doesn't exist yet, so we can't check if it's undefined.
-                // Pattern: name = (rightElem === undefined) ? defaultValue : rightElem
-                valueToAssign = cond_inner;
-            } else {
-                // Assignment context: check if variable already has a value.
-                // Pattern: name = (name === undefined) ? cond_inner : name
-                // This preserves existing values when reassigning.
-                valueToAssign =
-                        new Node(
-                                Token.HOOK,
-                                new Node(
-                                        Token.SHEQ,
-                                        new KeywordLiteral().setType(Token.UNDEFINED),
-                                        createName(name)),
-                                cond_inner,
-                                left);
-            }
+            // Both declaration and assignment contexts use the same logic:
+            // Check if the destructured value (rightElem) is undefined → use default.
+            // Pattern: name = (rightElem === undefined) ? defaultValue : rightElem
+            Node valueToAssign = cond_inner;
 
             // store it to be transformed later
             if (transformer == null) {
