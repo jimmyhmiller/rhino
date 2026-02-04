@@ -502,9 +502,15 @@ public class Parser {
     /**
      * Checks if the given token can be used as an identifier in the current context. In non-strict
      * mode, 'let' and 'yield' can be used as identifiers. In strict mode, they are reserved.
+     * 'async' is always a contextual keyword and can be used as an identifier.
      */
     private boolean isIdentifierToken(int tt) {
         if (tt == Token.NAME) {
+            return true;
+        }
+        // ES2017: 'async' is a contextual keyword, can always be used as identifier
+        // (async function declarations are handled by lookahead in statementHelper)
+        if (tt == Token.ASYNC && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
             return true;
         }
         // In ES6 non-strict mode, 'let' and 'yield' can be used as identifiers
@@ -2350,9 +2356,54 @@ public class Parser {
                 return function(FunctionNode.FUNCTION_EXPRESSION_STATEMENT);
 
             case Token.ASYNC:
-                // async function declaration
+                // Check if this is 'async function' (with no line terminator between)
                 if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
-                    return asyncFunctionOrExpression();
+                    // Look ahead to determine if this is 'async function'
+                    // We need to check without consuming 'async' first
+                    consumeToken();
+                    int asyncTT = peekTokenOrEOL();
+                    if (asyncTT != Token.EOL && peekToken() == Token.FUNCTION) {
+                        // This is 'async function' - parse as async function declaration
+                        consumeToken();
+                        boolean isGenerator = matchToken(Token.MUL, true);
+                        return function(
+                                FunctionNode.FUNCTION_EXPRESSION_STATEMENT,
+                                false,
+                                isGenerator,
+                                true);
+                    }
+
+                    // Not 'async function' - put back the async token by restarting
+                    // expression parsing will see 'async' as ASYNC token in primaryExpr
+                    // Since we already consumed 'async', we need to handle this specially
+                    int asyncPos = ts.tokenBeg;
+                    int asyncLineno = ts.getLineno();
+                    int asyncColumn = ts.getTokenColumn();
+
+                    // Create name node for 'async'
+                    saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
+                    AstNode asyncName = createNameNode(true, Token.NAME);
+
+                    // Continue with member expression parsing (handles (...) for calls)
+                    AstNode memberResult = memberExprTail(true, asyncName);
+
+                    // Handle postfix ++/-- (from unaryExpr)
+                    asyncTT = peekTokenOrEOL();
+                    if (asyncTT == Token.INC || asyncTT == Token.DEC) {
+                        consumeToken();
+                        memberResult =
+                                new UpdateExpression(asyncTT, ts.tokenBeg, memberResult, true);
+                        ((UpdateExpression) memberResult)
+                                .setLineColumnNumber(
+                                        memberResult.getLineno(), memberResult.getColumn());
+                        checkBadIncDec((UpdateExpression) memberResult);
+                    }
+
+                    // Chain through binary operators via the expr continuation method
+                    pn = exprContinuation(memberResult);
+                    pn = new ExpressionStatement(pn, !insideFunctionBody());
+                    pn.setLineColumnNumber(asyncLineno, asyncColumn);
+                    break;
                 }
                 // Fall through to default if not ES6+
                 lineno = ts.getLineno();
@@ -4564,6 +4615,242 @@ public class Parser {
         if (pn.getType() == Token.GETPROP)
             return isNotValidSimpleAssignmentTarget(((PropertyGet) pn).getLeft());
         return pn.getType() == Token.QUESTION_DOT;
+    }
+
+    /**
+     * Continues expression parsing from a pre-parsed unary expression. This chains through all
+     * binary operators and handles assignment operators and arrow functions. Used when we've
+     * already consumed and parsed the leftmost part of an expression (e.g., after consuming 'async'
+     * and parsing 'async()').
+     */
+    private AstNode exprContinuation(AstNode pn) throws IOException {
+        // Chain through binary operators (from lowest to highest precedence going up,
+        // but we're going down from unary level through each operator level)
+        pn = expExprContinuation(pn);
+        pn = mulExprContinuation(pn);
+        pn = addExprContinuation(pn);
+        pn = shiftExprContinuation(pn);
+        pn = relExprContinuation(pn);
+        pn = eqExprContinuation(pn);
+        pn = bitAndExprContinuation(pn);
+        pn = bitXorExprContinuation(pn);
+        pn = bitOrExprContinuation(pn);
+        pn = andExprContinuation(pn);
+        pn = orExprContinuation(pn);
+        pn = nullishCoalescingExprContinuation(pn);
+        pn = condExprContinuation(pn);
+
+        // Now handle assignment operators and arrow functions (like in assignExpr)
+        int startLine = pn.getLineno(), startColumn = pn.getColumn();
+        boolean hasEOL = false;
+        int tt = peekTokenOrEOL();
+        if (tt == Token.EOL) {
+            hasEOL = true;
+            tt = peekToken();
+        }
+        if (Token.FIRST_ASSIGN <= tt && tt <= Token.LAST_ASSIGN) {
+            consumeToken();
+            Comment jsdocNode = getAndResetJsDoc();
+            markDestructuring(pn);
+            int opPos = ts.tokenBeg;
+            if (isNotValidSimpleAssignmentTarget(pn))
+                reportError("msg.syntax.invalid.assignment.lhs");
+            pn = new Assignment(tt, pn, assignExpr(), opPos);
+            if (jsdocNode != null) {
+                pn.setJsDocNode(jsdocNode);
+            }
+        } else if (tt == Token.SEMI) {
+            if (currentJsDocComment != null) {
+                pn.setJsDocNode(getAndResetJsDoc());
+            }
+        } else if (!hasEOL && tt == Token.ARROW) {
+            consumeToken();
+            if (isAsyncArrowFunctionCall(pn)) {
+                pn = asyncArrowFunction(pn, startLine, startColumn);
+            } else {
+                pn = arrowFunction(pn, startLine, startColumn);
+            }
+        }
+
+        return pn;
+    }
+
+    // Binary operator continuation methods - continue parsing from a pre-parsed left operand
+
+    private AstNode expExprContinuation(AstNode pn) throws IOException {
+        for (; ; ) {
+            int tt = peekToken(), opPos = ts.tokenBeg;
+            if (tt == Token.EXP) {
+                if (pn instanceof UnaryExpression) {
+                    reportError(
+                            "msg.no.unary.expr.on.left.exp",
+                            AstNode.operatorToString(pn.getType()));
+                    return makeErrorNode();
+                }
+                consumeToken();
+                pn = new InfixExpression(tt, pn, expExpr(), opPos);
+                continue;
+            }
+            break;
+        }
+        return pn;
+    }
+
+    private AstNode mulExprContinuation(AstNode pn) throws IOException {
+        for (; ; ) {
+            int tt = peekToken(), opPos = ts.tokenBeg;
+            switch (tt) {
+                case Token.MUL:
+                case Token.DIV:
+                case Token.MOD:
+                    consumeToken();
+                    pn = new InfixExpression(tt, pn, expExpr(), opPos);
+                    continue;
+            }
+            break;
+        }
+        return pn;
+    }
+
+    private AstNode addExprContinuation(AstNode pn) throws IOException {
+        for (; ; ) {
+            int tt = peekToken(), opPos = ts.tokenBeg;
+            if (tt == Token.ADD || tt == Token.SUB) {
+                consumeToken();
+                pn = new InfixExpression(tt, pn, mulExpr(), opPos);
+                continue;
+            }
+            break;
+        }
+        return pn;
+    }
+
+    private AstNode shiftExprContinuation(AstNode pn) throws IOException {
+        for (; ; ) {
+            int tt = peekToken(), opPos = ts.tokenBeg;
+            switch (tt) {
+                case Token.LSH:
+                case Token.URSH:
+                case Token.RSH:
+                    consumeToken();
+                    pn = new InfixExpression(tt, pn, addExpr(), opPos);
+                    continue;
+            }
+            break;
+        }
+        return pn;
+    }
+
+    private AstNode relExprContinuation(AstNode pn) throws IOException {
+        for (; ; ) {
+            int tt = peekToken(), opPos = ts.tokenBeg;
+            switch (tt) {
+                case Token.IN:
+                    if (inForInit) break;
+                // fall through
+                case Token.INSTANCEOF:
+                case Token.LE:
+                case Token.LT:
+                case Token.GE:
+                case Token.GT:
+                    consumeToken();
+                    pn = new InfixExpression(tt, pn, shiftExpr(), opPos);
+                    continue;
+            }
+            break;
+        }
+        return pn;
+    }
+
+    private AstNode eqExprContinuation(AstNode pn) throws IOException {
+        for (; ; ) {
+            int tt = peekToken(), opPos = ts.tokenBeg;
+            switch (tt) {
+                case Token.EQ:
+                case Token.NE:
+                case Token.SHEQ:
+                case Token.SHNE:
+                    consumeToken();
+                    pn = new InfixExpression(tt, pn, relExpr(), opPos);
+                    continue;
+            }
+            break;
+        }
+        return pn;
+    }
+
+    private AstNode bitAndExprContinuation(AstNode pn) throws IOException {
+        while (matchToken(Token.BITAND, true)) {
+            int opPos = ts.tokenBeg;
+            pn = new InfixExpression(Token.BITAND, pn, eqExpr(), opPos);
+        }
+        return pn;
+    }
+
+    private AstNode bitXorExprContinuation(AstNode pn) throws IOException {
+        while (matchToken(Token.BITXOR, true)) {
+            int opPos = ts.tokenBeg;
+            pn = new InfixExpression(Token.BITXOR, pn, bitAndExpr(), opPos);
+        }
+        return pn;
+    }
+
+    private AstNode bitOrExprContinuation(AstNode pn) throws IOException {
+        while (matchToken(Token.BITOR, true)) {
+            int opPos = ts.tokenBeg;
+            pn = new InfixExpression(Token.BITOR, pn, bitXorExpr(), opPos);
+        }
+        return pn;
+    }
+
+    private AstNode andExprContinuation(AstNode pn) throws IOException {
+        while (matchToken(Token.AND, true)) {
+            int opPos = ts.tokenBeg;
+            pn = new InfixExpression(Token.AND, pn, bitOrExpr(), opPos);
+        }
+        return pn;
+    }
+
+    private AstNode orExprContinuation(AstNode pn) throws IOException {
+        while (matchToken(Token.OR, true)) {
+            int opPos = ts.tokenBeg;
+            pn = new InfixExpression(Token.OR, pn, andExpr(), opPos);
+        }
+        return pn;
+    }
+
+    private AstNode nullishCoalescingExprContinuation(AstNode pn) throws IOException {
+        while (matchToken(Token.NULLISH_COALESCING, true)) {
+            int opPos = ts.tokenBeg;
+            pn = new InfixExpression(Token.NULLISH_COALESCING, pn, orExpr(), opPos);
+        }
+        return pn;
+    }
+
+    private AstNode condExprContinuation(AstNode pn) throws IOException {
+        if (matchToken(Token.HOOK, true)) {
+            int qmarkPos = ts.tokenBeg, colonPos = -1;
+            boolean wasInForInit = inForInit;
+            inForInit = false;
+            AstNode ifTrue;
+            try {
+                ifTrue = assignExpr();
+            } finally {
+                inForInit = wasInForInit;
+            }
+            if (mustMatchToken(Token.COLON, "msg.no.colon.cond", true)) colonPos = ts.tokenBeg;
+            AstNode ifFalse = assignExpr();
+            int beg = pn.getPosition(), len = getNodeEnd(ifFalse) - beg;
+            ConditionalExpression ce = new ConditionalExpression(beg, len);
+            ce.setLineColumnNumber(pn.getLineno(), pn.getColumn());
+            ce.setTestExpression(pn);
+            ce.setTrueExpression(ifTrue);
+            ce.setFalseExpression(ifFalse);
+            ce.setQuestionMarkPosition(qmarkPos - beg);
+            ce.setColonPosition(colonPos - beg);
+            pn = ce;
+        }
+        return pn;
     }
 
     private AstNode condExpr() throws IOException {
