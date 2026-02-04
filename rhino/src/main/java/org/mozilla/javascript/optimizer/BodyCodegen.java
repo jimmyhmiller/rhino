@@ -693,7 +693,37 @@ class BodyCodegen {
                                 + ")Ljava/lang/Object;");
                 // Stack: promise
             }
+
+            // Mark end of try block for async exception handling
+            int asyncTryEnd = -1;
+            if (isAsync) {
+                asyncTryEnd = cfw.acquireLabel();
+                cfw.markLabel(asyncTryEnd);
+            }
+
             cfw.add(ByteCode.ARETURN);
+
+            // For async functions, add exception handler to wrap exceptions in rejected Promise
+            if (isAsync) {
+                int asyncHandler = cfw.acquireLabel();
+                cfw.markHandler(asyncHandler);
+                // Stack: exception
+                short exceptionLocal = getNewWordLocal();
+                cfw.addAStore(exceptionLocal);
+                cfw.addALoad(contextLocal); // Stack: cx
+                cfw.addALoad(variableObjectLocal); // Stack: cx, scope
+                cfw.addALoad(exceptionLocal); // Stack: cx, scope, exception
+                releaseWordLocal(exceptionLocal);
+                addScriptRuntimeInvoke(
+                        "wrapInRejectedPromise",
+                        "(Lorg/mozilla/javascript/Context;"
+                                + "Lorg/mozilla/javascript/Scriptable;"
+                                + "Ljava/lang/Object;"
+                                + ")Ljava/lang/Object;");
+                // Stack: rejectedPromise
+                cfw.add(ByteCode.ARETURN);
+                cfw.addExceptionHandler(enterAreaStartLabel, asyncTryEnd, asyncHandler, null);
+            }
 
         } else if (fnCurrent == null) {
             cfw.addALoad(popvLocal);
@@ -752,10 +782,26 @@ class BodyCodegen {
             // takes less space then full-featured ByteCode.JSR/ByteCode.RET
             generateActivationExit();
 
-            cfw.addALoad(exceptionObject);
-            releaseWordLocal(exceptionObject);
-            // rethrow
-            cfw.add(ByteCode.ATHROW);
+            if (isAsync) {
+                // For async functions, wrap exception in rejected Promise
+                cfw.addALoad(contextLocal); // Stack: cx
+                cfw.addALoad(variableObjectLocal); // Stack: cx, scope
+                cfw.addALoad(exceptionObject); // Stack: cx, scope, exception
+                releaseWordLocal(exceptionObject);
+                addScriptRuntimeInvoke(
+                        "wrapInRejectedPromise",
+                        "(Lorg/mozilla/javascript/Context;"
+                                + "Lorg/mozilla/javascript/Scriptable;"
+                                + "Ljava/lang/Object;"
+                                + ")Ljava/lang/Object;");
+                // Stack: rejectedPromise
+                cfw.add(ByteCode.ARETURN);
+            } else {
+                cfw.addALoad(exceptionObject);
+                releaseWordLocal(exceptionObject);
+                // rethrow
+                cfw.add(ByteCode.ATHROW);
+            }
 
             // mark the handler - now covers the epilogue TDZ check as well
             cfw.addExceptionHandler(
