@@ -7218,17 +7218,6 @@ public class Parser {
                 // Use REQ_OBJ_COERCIBLE which checks without accessing any properties.
                 Node checkNode = new Node(Token.REQ_OBJ_COERCIBLE, createName(tempName));
                 comma.addChildToBack(checkNode);
-            } else if (left instanceof ArrayLiteral
-                    && !isFunctionParameter
-                    && !isForOfDestructuring
-                    && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
-                // For empty array patterns like `[] = value` in assignment expressions,
-                // we need to check that value is iterable (has Symbol.iterator).
-                // Function parameters and for-of loops handle this differently via iterator
-                // protocol.
-                // Only check in ES6+ since older versions allowed non-iterable destructuring.
-                Node checkNode = new Node(Token.REQ_ITERABLE, createName(tempName));
-                comma.addChildToBack(checkNode);
             } else {
                 // Don't want a COMMA node with no children. Just add a zero.
                 comma.addChildToBack(createNumber(0));
@@ -7240,7 +7229,7 @@ public class Parser {
         // Generate: !lastResult.done ? ((f = iterator.return) !== undefined ? f.call(iterator) :
         // undefined) : undefined
         // TODO: Add check that return() result is an object per ES6 7.4.6 step 9
-        if (isFunctionParameter && iteratorName != null && lastResultName != null) {
+        if (iteratorName != null && lastResultName != null) {
             // Allocate temp for return method
             String returnMethodName = currentScriptOrFn.getNextTempName();
             defineSymbol(Token.LET, returnMethodName, true);
@@ -7320,17 +7309,17 @@ public class Parser {
         String iteratorName = null;
         String lastResultName = null;
 
-        // For non-iterator-based array destructuring (regular assignment) in ES6+,
-        // we need to check that the value is iterable before doing index access.
-        // Iterator-based destructuring (function params, for-of) handles this internally.
-        // Only check in ES6+ since older versions allowed non-iterable destructuring.
-        if (!isFunctionParameter
-                && !isForOfDestructuring
-                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
-            // Add REQ_ITERABLE check: throws TypeError if value is not iterable
-            Node checkNode = new Node(Token.REQ_ITERABLE, createName(tempName));
-            parent.addChildToBack(checkNode);
-        }
+        // ES6+ array destructuring should use iterator protocol (ES6 12.15.5)
+        // Pre-ES6 used index-based access for backwards compatibility
+        // Use iterator protocol for:
+        // - Function parameters (isFunctionParameter=true): scope handling works correctly
+        // - Assignment expressions (variableType=-1): e.g., [a, b] = iterable
+        // Variable declarations (LET/CONST/VAR) currently use index-based access due to
+        // scoping issues with iterator temp variables in strict mode.
+        // TODO: Fix scoping for variable declarations to use iterator protocol
+        boolean useIteratorProtocol =
+                compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && (isFunctionParameter || variableType == -1);
 
         List<AstNode> elements = array.getElements();
         for (int elemIndex = 0; elemIndex < elements.size(); elemIndex++) {
@@ -7408,10 +7397,8 @@ public class Parser {
             }
 
             if (n.getType() == Token.EMPTY) {
-                // For function parameters with ES6+ iterator protocol, elisions must advance the
-                // iterator
-                if (isFunctionParameter
-                        && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                // For ES6+ iterator protocol, elisions must advance the iterator
+                if (useIteratorProtocol) {
                     // Apply default value first if not done yet - this is critical for patterns
                     // like [,] = iter where the default should be used when arg is undefined
                     if (defaultValue != null && !defaultValuesSetup) {
@@ -7465,11 +7452,9 @@ public class Parser {
                 defaultValuesSetup = true;
             }
 
-            // Set up iterator for function parameters (after default value is applied)
-            // Only use iterator protocol in ES6+; older versions use index-based access
-            if (isFunctionParameter
-                    && !iteratorSetup
-                    && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+            // Set up iterator for ES6+ array destructuring (after default value is applied)
+            // ES6 12.15.5 requires iterator protocol for array destructuring
+            if (useIteratorProtocol && !iteratorSetup) {
                 // Allocate temp names for iterator tracking
                 iteratorName = currentScriptOrFn.getNextTempName();
                 lastResultName = currentScriptOrFn.getNextTempName();
@@ -7496,7 +7481,7 @@ public class Parser {
             }
 
             // Generate code to get element
-            if (isFunctionParameter && iteratorName != null) {
+            if (useIteratorProtocol && iteratorName != null) {
                 // ES6+: Call iterator.next() and store the full result to check done later
                 Node getNextProp =
                         new Node(Token.GETPROP, createName(iteratorName), Node.newString("next"));
@@ -7524,7 +7509,7 @@ public class Parser {
                 rightElem = createName(elemTempName);
                 empty = false;
             } else {
-                // Regular index-based access for var/let/const
+                // Pre-ES6: index-based access
                 rightElem = new Node(Token.GETELEM, createName(tempName), createNumber(index));
             }
 
@@ -7563,14 +7548,12 @@ public class Parser {
             empty = false;
         }
 
-        // For for-of with empty array patterns, we still need to call GetIterator and IteratorClose
-        // ES6 12.15.5.2: ArrayAssignmentPattern : [ ]
-        //   1. Let iterator be GetIterator(value).
-        //   2. ReturnIfAbrupt(iterator).
-        //   3. Return IteratorClose(iterator, NormalCompletion(empty)).
-        if (empty
-                && isForOfDestructuring
-                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+        // For ES6+ empty array patterns in ASSIGNMENT/FOR-OF context, we need to call
+        // GetIterator and IteratorClose. But for function parameters (not for-of), empty
+        // pattern = no iteration.
+        // ES6 12.15.5.2 ArrayAssignmentPattern : [ ] requires GetIterator + IteratorClose
+        // ES6 13.3.3.6 ArrayBindingPattern : [ ] just returns NormalCompletion(empty)
+        if (empty && useIteratorProtocol && (!isFunctionParameter || isForOfDestructuring)) {
             // Set up iterator to verify the value is iterable (throws TypeError if not)
             iteratorName = currentScriptOrFn.getNextTempName();
             lastResultName = currentScriptOrFn.getNextTempName();

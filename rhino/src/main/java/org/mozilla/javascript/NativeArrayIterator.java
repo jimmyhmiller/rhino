@@ -58,7 +58,9 @@ public final class NativeArrayIterator extends ES6Iterator {
             return Integer.valueOf(index++);
         }
 
-        Object value = arrayLike.get(index, arrayLike);
+        // Use getProperty to properly traverse prototype chain for sparse arrays
+        // ES6 23.1.5.2.1 step 7.a: Let elementValue be ? Get(array, Pk)
+        Object value = ScriptableObject.getProperty(arrayLike, index);
         if (value == Scriptable.NOT_FOUND) {
             value = Undefined.instance;
         }
