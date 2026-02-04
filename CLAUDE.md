@@ -12,6 +12,131 @@ The goal is to achieve 100% passing rate for ES6 test262 tests. This is non-nego
 node scripts/test-status.js 6  # See current status
 ```
 
+---
+
+## 🔴 High-Impact Broken Features (Real-World Priority)
+
+These are the features most likely to break real JavaScript code. Fix these first!
+
+### 1. Object Rest in Destructuring (HIGH IMPACT)
+
+**Status:** Not supported - syntax error
+
+```javascript
+// BROKEN - extremely common pattern in modern JS
+const { id, ...rest } = { id: 1, name: 'foo', value: 42 };
+// Error: "object rest properties in destructuring are not supported"
+```
+
+**Why it matters:** This is one of the most common patterns for "removing a property" or "extracting some props" in React/modern JS. Nearly every modern codebase uses this.
+
+**Workaround:** Manually pick properties or use helper functions.
+
+**Key files:** `Parser.java` - needs to parse `...rest` in object patterns
+
+---
+
+### 2. Destructuring from Set/Map/Custom Iterables (HIGH IMPACT)
+
+**Status:** Broken - returns undefined
+
+```javascript
+// BROKEN - iterator protocol not used for destructuring
+const set = new Set([1, 2, 3]);
+const [first] = set;           // first is undefined! Should be 1
+
+const map = new Map([['a', 1], ['b', 2]]);
+const [[key, val]] = map;      // doesn't work!
+
+// Custom iterables also broken
+const [x] = customIterable;    // undefined
+```
+
+**Workaround:** Use spread or Array.from first:
+```javascript
+const [first] = [...set];        // works
+const [first] = Array.from(set); // works
+```
+
+**Why it matters:** Getting first element of a Set, destructuring Map entries, working with generators via destructuring - all common patterns.
+
+**Key files:** `IRFactory.java` - destructuring code generation doesn't use iterator protocol
+
+---
+
+### 3. Computed Property Names in Destructuring (MEDIUM IMPACT)
+
+**Status:** Not supported - syntax error
+
+```javascript
+// BROKEN
+const key = 'dynamicProp';
+const { [key]: value } = obj;  // Syntax error: "Unsupported computed property in destructuring"
+```
+
+**Workaround:** `const value = obj[key];`
+
+**Why it matters:** Used in dynamic property access patterns, especially in libraries and when working with variable property names.
+
+**Key files:** `Parser.java`, `IRFactory.java` - need to support ComputedPropertyKey in destructuring patterns
+
+---
+
+### 4. `const` Destructuring in `for` Loop Init (MEDIUM IMPACT)
+
+**Status:** Crashes with NullPointerException
+
+```javascript
+// CRASHES the entire runtime!
+for (const [a, b] = getCoords(); condition; update) { }
+// java.lang.NullPointerException in ScriptableObject.putConstProperty
+```
+
+**Workaround:** Use `let` instead of `const`
+
+**Why it matters:** This is a Java exception crash, not a JS error - could crash your entire application.
+
+**Key files:** `ScriptRuntime.java` - `setConst()` has null scope issue
+
+---
+
+### 5. Default Parameter TDZ Violations (LOW-MEDIUM IMPACT)
+
+**Status:** Wrong behavior - should throw, returns NaN
+
+```javascript
+// BROKEN - should throw ReferenceError due to TDZ
+function f(x = y, y = 1) { return x + y; }
+f();  // Returns NaN instead of throwing ReferenceError
+```
+
+**Why it matters:** Code with subtle bugs won't fail fast, leading to hard-to-debug NaN values.
+
+**Key files:** `IRFactory.java` - parameter initialization order and TDZ checks
+
+---
+
+## ✅ Working Well (Common patterns that are fine)
+
+| Feature | Status |
+|---------|--------|
+| Basic destructuring `{a, b} = obj`, `[x, y] = arr` | ✅ Works |
+| Nested destructuring `{ user: { name } }` | ✅ Works |
+| Default values `{ x = 10 }`, `[a = 1]` | ✅ Works |
+| Array rest `[first, ...rest] = arr` | ✅ Works |
+| Object spread `{...obj, newProp}` | ✅ Works |
+| Array spread `[...arr]` | ✅ Works |
+| `for-of` with arrays, Map, Set, generators | ✅ Works |
+| Promises (basic, all, race) | ✅ Works |
+| Classes with inheritance, static methods | ✅ Works |
+| Arrow functions | ✅ Works |
+| Template literals | ✅ Works |
+| Generators | ✅ Works |
+| Symbol, Map, Set, WeakMap, WeakSet | ✅ Works |
+| Proxy (basic) | ✅ Works |
+
+---
+
 ### ✅ Recently Fixed
 
 - **ES6 Modules**: All 49/49 tests passing
@@ -21,24 +146,11 @@ node scripts/test-status.js 6  # See current status
 
 ---
 
-### NEXT PRIORITY: for-of Statement Tests (56 failures)
+### Remaining Test262 Failures (for-of focus)
 
-**Total for-of failures: 56/619 (9.0%)**
+**Total for-of failures: 56/619 (9.0%)** - Run: `node scripts/test-status.js 6 --all | grep for-of`
 
-Run: `node scripts/test-status.js 6 --all | grep for-of`
-
-#### Breakdown by Issue Type
-
-| Issue | Count | Description |
-|-------|-------|-------------|
-| **Iterator Close** | ~25 | `*-close-*` tests (return() not called or wrong) |
-| **Init Evaluation** | 3 | `array-elem-init-evaluation.js` etc |
-| **Simple Strict** | 4 | `*-simple-no-strict.js`, `*-simple-strict.js` |
-| **Property Eval** | 4 | `obj-prop-name-evaluation*`, `*-prop-eval-err*` |
-| **Object Literal Prop Ref** | 4 | `*-obj-literal-prop-ref-init*.js` |
-| **Lref/Rest** | 4 | `array-rest-lref*.js`, rest handling |
-
-#### Priority 1: Iterator Close Behavior (~25 tests)
+#### Iterator Close Behavior (~25 tests)
 
 The biggest issue: Rhino doesn't properly call `IteratorClose` (the iterator's `return()` method) when:
 - Array destructuring doesn't exhaust the iterator
