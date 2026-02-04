@@ -2723,7 +2723,15 @@ public class ScriptRuntime {
         throw constructError("ReferenceError", msg);
     }
 
-    public static Object setConst(Scriptable bound, Object value, Context cx, String id) {
+    public static Object setConst(
+            Scriptable bound, Object value, Context cx, Scriptable scope, String id) {
+        if (bound == null) {
+            // Fallback: find the top scope (same as setLetInit)
+            bound = ScriptableObject.getTopLevelScope(scope);
+            if (cx.useDynamicScope) {
+                bound = checkDynamicScope(cx.topCallScope, bound);
+            }
+        }
         if (bound instanceof XMLObject) {
             bound.put(id, bound, value);
         } else {

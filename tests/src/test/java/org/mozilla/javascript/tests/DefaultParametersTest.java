@@ -67,7 +67,7 @@ public class DefaultParametersTest {
 
     @Test
     public void ObjIdInitSimpleStrictForOf() throws Exception {
-        final String script = "for ({ eval = 0 } of [{}]) ;";
+        final String script = "'use strict'; for ({ eval = 0 } of [{}]) ;";
         Utils.assertEvaluatorExceptionES6("syntax error", script);
     }
 

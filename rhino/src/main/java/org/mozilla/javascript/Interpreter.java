@@ -3209,7 +3209,8 @@ public final class Interpreter extends Icode implements Evaluator {
             Object rhs = stack[state.stackTop];
             if (rhs == DOUBLE_MARK) rhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
             Scriptable lhs = (Scriptable) stack[state.stackTop - 1];
-            stack[state.stackTop - 1] = ScriptRuntime.setConst(lhs, rhs, cx, state.stringReg);
+            stack[state.stackTop - 1] =
+                    ScriptRuntime.setConst(lhs, rhs, cx, frame.scope, state.stringReg);
             --state.stackTop;
             return null;
         }

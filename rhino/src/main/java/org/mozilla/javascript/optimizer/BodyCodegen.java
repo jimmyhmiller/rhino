@@ -5563,6 +5563,7 @@ class BodyCodegen {
             child = child.getNext();
         }
         cfw.addALoad(contextLocal);
+        cfw.addALoad(variableObjectLocal);
         addDynamicInvoke("NAME:SETCONST:" + name, Signatures.NAME_SET_CONST);
     }
 

@@ -203,6 +203,7 @@ interface Signatures {
             "(Lorg/mozilla/javascript/Scriptable;"
                     + "Ljava/lang/Object;"
                     + "Lorg/mozilla/javascript/Context;"
+                    + "Lorg/mozilla/javascript/Scriptable;"
                     + ")Ljava/lang/Object;";
 
     /**
