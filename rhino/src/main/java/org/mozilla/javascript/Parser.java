@@ -7203,8 +7203,25 @@ public class Parser {
                 Node s = createNumber((int) ((NumberLiteral) id).getNumber());
                 rightElem = new Node(Token.GETELEM, createName(tempName), s);
             } else if (id instanceof ComputedPropertyKey) {
-                reportError("msg.bad.computed.property.in.destruct");
-                return false;
+                // Computed property: { [expr]: value } = obj
+                // Transform the expression and use GETELEM
+                ComputedPropertyKey cpk = (ComputedPropertyKey) id;
+                AstNode keyExpr = cpk.getExpression();
+                Node transformedKey;
+                if (transformer != null) {
+                    transformedKey = transformer.transform(keyExpr);
+                } else {
+                    // Fallback: create a simple name reference if it's a Name
+                    if (keyExpr instanceof Name) {
+                        transformedKey = createName(((Name) keyExpr).getIdentifier());
+                    } else {
+                        reportError("msg.bad.computed.property.in.destruct");
+                        return false;
+                    }
+                }
+                rightElem = new Node(Token.GETELEM, createName(tempName), transformedKey);
+                // Can't statically know the key for object rest exclusion
+                // keyName stays null - computed keys not excluded from rest
             } else {
                 throw codeBug();
             }
