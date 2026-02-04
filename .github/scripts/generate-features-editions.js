@@ -327,6 +327,116 @@ function extractFeatures(content) {
     return [];
 }
 
+// Extract edition markers from test content
+function extractEditionMarker(content) {
+    if (/^es5id:/m.test(content)) return 5;
+    if (/^es6id:/m.test(content)) return 6;
+    return null;
+}
+
+// Directory patterns that indicate ES6+ features
+// These are used as fallback when no features or edition markers are present
+const ES6_PATH_PATTERNS = [
+    /built-ins\/Map\//,
+    /built-ins\/Set\//,
+    /built-ins\/WeakMap\//,
+    /built-ins\/WeakSet\//,
+    /built-ins\/Promise\//,
+    /built-ins\/Symbol\//,
+    /built-ins\/Proxy\//,
+    /built-ins\/Reflect\//,
+    /built-ins\/ArrayBuffer\//,
+    /built-ins\/DataView\//,
+    /built-ins\/TypedArray/,
+    /built-ins\/Float32Array\//,
+    /built-ins\/Float64Array\//,
+    /built-ins\/Int8Array\//,
+    /built-ins\/Int16Array\//,
+    /built-ins\/Int32Array\//,
+    /built-ins\/Uint8Array\//,
+    /built-ins\/Uint16Array\//,
+    /built-ins\/Uint32Array\//,
+    /built-ins\/Uint8ClampedArray\//,
+    /built-ins\/Array\/from/,
+    /built-ins\/Array\/of/,
+    /built-ins\/Array\/prototype\/copyWithin/,
+    /built-ins\/Array\/prototype\/fill/,
+    /built-ins\/Array\/prototype\/find/,
+    /built-ins\/Array\/prototype\/findIndex/,
+    /built-ins\/Array\/prototype\/keys/,
+    /built-ins\/Array\/prototype\/values/,
+    /built-ins\/Array\/prototype\/entries/,
+    /built-ins\/Object\/assign/,
+    /built-ins\/Object\/is\//,
+    /built-ins\/Object\/getOwnPropertySymbols/,
+    /built-ins\/Object\/setPrototypeOf/,
+    /built-ins\/String\/fromCodePoint/,
+    /built-ins\/String\/raw/,
+    /built-ins\/String\/prototype\/codePointAt/,
+    /built-ins\/String\/prototype\/endsWith/,
+    /built-ins\/String\/prototype\/includes/,
+    /built-ins\/String\/prototype\/startsWith/,
+    /built-ins\/String\/prototype\/repeat/,
+    /built-ins\/String\/prototype\/normalize/,
+    /built-ins\/Number\/isFinite/,
+    /built-ins\/Number\/isInteger/,
+    /built-ins\/Number\/isNaN/,
+    /built-ins\/Number\/isSafeInteger/,
+    /built-ins\/Number\/parseFloat/,
+    /built-ins\/Number\/parseInt/,
+    /built-ins\/Math\/acosh/,
+    /built-ins\/Math\/asinh/,
+    /built-ins\/Math\/atanh/,
+    /built-ins\/Math\/cbrt/,
+    /built-ins\/Math\/clz32/,
+    /built-ins\/Math\/cosh/,
+    /built-ins\/Math\/expm1/,
+    /built-ins\/Math\/fround/,
+    /built-ins\/Math\/hypot/,
+    /built-ins\/Math\/imul/,
+    /built-ins\/Math\/log10/,
+    /built-ins\/Math\/log1p/,
+    /built-ins\/Math\/log2/,
+    /built-ins\/Math\/sign/,
+    /built-ins\/Math\/sinh/,
+    /built-ins\/Math\/tanh/,
+    /built-ins\/Math\/trunc/,
+    /language\/module-code\//,
+    /language\/expressions\/class\//,
+    /language\/statements\/class\//,
+    /language\/expressions\/arrow-function/,
+    /language\/expressions\/generators/,
+    /language\/statements\/generators/,
+    /language\/expressions\/template-literal/,
+    /language\/expressions\/spread/,
+    /language\/expressions\/object\/method-definition/,
+    /language\/statements\/for-of\//,
+    /language\/statements\/let\//,
+    /language\/statements\/const\//,
+    /language\/block-scope\//,
+    /language\/computed-property-names\//,
+    /language\/destructuring\//,
+    /language\/default-parameters\//,
+    /language\/rest-parameters\//,
+];
+
+// Staging tests are typically ESNext
+const ESNEXT_PATH_PATTERNS = [
+    /^staging\//,
+];
+
+function getEditionFromPath(testPath) {
+    // Check for ESNext patterns first
+    for (const pattern of ESNEXT_PATH_PATTERNS) {
+        if (pattern.test(testPath)) return 99;
+    }
+    // Check for ES6 patterns
+    for (const pattern of ES6_PATH_PATTERNS) {
+        if (pattern.test(testPath)) return 6;
+    }
+    return null;
+}
+
 function collectTestResults(resultsDir, engineName) {
     // Recursively find all JSON files and extract test results
     const results = {};
@@ -392,23 +502,77 @@ function main() {
 
     console.log(`Found ${features.length} features in features.txt`);
 
-    // Map tests to their features
-    const testsWithFeatures = {};
+    // Map tests to their features and metadata
+    const testsWithFeatures = {};  // Tests that have features: tag
+    const allTestMetadata = {};    // All tests with their determined edition
     const testDir = path.join(test262Path, 'test');
+
+    let testsWithFeaturesCount = 0;
+    let testsWithEs5idCount = 0;
+    let testsWithEs6idCount = 0;
+    let testsWithPathHeuristicCount = 0;
+    let testsDefaultedToEs5Count = 0;
 
     walkDir(testDir, (fullPath, relPath) => {
         try {
             const content = fs.readFileSync(fullPath, 'utf8');
             const testFeatures = extractFeatures(content);
+
             if (testFeatures.length > 0) {
                 testsWithFeatures[relPath] = testFeatures;
+                testsWithFeaturesCount++;
             }
+
+            // Determine edition for this test using fallback logic
+            let edition = null;
+            let source = null;
+
+            if (testFeatures.length > 0) {
+                // Use highest edition from features
+                edition = 5;
+                for (const feature of testFeatures) {
+                    const featureEdition = featureByEdition.get(feature);
+                    if (featureEdition !== undefined && featureEdition > edition) {
+                        edition = featureEdition;
+                    }
+                }
+                source = 'features';
+            } else {
+                // Fallback: check for es5id/es6id markers
+                const editionMarker = extractEditionMarker(content);
+                if (editionMarker !== null) {
+                    edition = editionMarker;
+                    source = editionMarker === 5 ? 'es5id' : 'es6id';
+                    if (editionMarker === 5) testsWithEs5idCount++;
+                    else testsWithEs6idCount++;
+                } else {
+                    // Fallback: use path-based heuristics
+                    const pathEdition = getEditionFromPath(relPath);
+                    if (pathEdition !== null) {
+                        edition = pathEdition;
+                        source = 'path';
+                        testsWithPathHeuristicCount++;
+                    } else {
+                        // Default to ES5
+                        edition = 5;
+                        source = 'default';
+                        testsDefaultedToEs5Count++;
+                    }
+                }
+            }
+
+            allTestMetadata[relPath] = { edition, source };
         } catch (e) {
             // Skip files we can't read
         }
     });
 
-    console.log(`Parsed features for ${Object.keys(testsWithFeatures).length} tests`);
+    console.log(`Parsed ${Object.keys(allTestMetadata).length} total tests`);
+    console.log(`  With features tag: ${testsWithFeaturesCount}`);
+    console.log(`  With es5id (no features): ${testsWithEs5idCount}`);
+    console.log(`  With es6id (no features): ${testsWithEs6idCount}`);
+    console.log(`  Via path heuristics: ${testsWithPathHeuristicCount}`);
+    console.log(`  Defaulted to ES5: ${testsDefaultedToEs5Count}`);
 
     // Build feature results (per-feature, tests can count toward multiple features)
     // Use Object.create(null) to avoid issues with __proto__ as a key
@@ -435,29 +599,13 @@ function main() {
         }
     }
 
-    // Build edition results - each test counts toward ONE edition (highest feature)
-    // This means a test with [class, async-functions] counts toward ES8, not ES6
+    // Build edition results - each test counts toward ONE edition
+    // Uses allTestMetadata which includes fallback logic for tests without features
     const editionResults = Object.create(null);
 
-    // Helper to get edition for a feature
-    function getEdition(feature) {
-        let edition = featureByEdition.get(feature);
-        if (edition === undefined) edition = 99;
-        return edition;
-    }
-
-    // Process each test once, assigning to highest edition
-    for (const [testPath, testFeatures] of Object.entries(testsWithFeatures)) {
-        // Find the highest edition among this test's features
-        let maxEdition = 5; // Default to ES5 if no features match
-        for (const feature of testFeatures) {
-            const edition = getEdition(feature);
-            if (edition > maxEdition) {
-                maxEdition = edition;
-            }
-        }
-
-        const editionKey = maxEdition === 99 ? 'undefined' : String(maxEdition);
+    // Process ALL tests, using the pre-determined edition from metadata
+    for (const [testPath, metadata] of Object.entries(allTestMetadata)) {
+        const editionKey = metadata.edition === 99 ? 'undefined' : String(metadata.edition);
 
         if (!editionResults[editionKey]) {
             editionResults[editionKey] = { total: 0, engines: {} };
@@ -494,11 +642,25 @@ function main() {
     }
     console.log(`Features: ${totalFeaturePassed}/${totalFeatureTests} tests passed`);
 
-    for (const [edition, result] of Object.entries(editionResults)) {
+    // Sort editions numerically for display
+    const sortedEditions = Object.keys(editionResults).sort((a, b) => {
+        if (a === 'undefined') return 1;
+        if (b === 'undefined') return -1;
+        return parseInt(a) - parseInt(b);
+    });
+
+    let totalEditionTests = 0;
+    let totalEditionPassed = 0;
+    console.log('Edition results:');
+    for (const edition of sortedEditions) {
+        const result = editionResults[edition];
         const passed = result.engines[engineName] || 0;
         const editionName = edition === 'undefined' ? 'ESNext' : `ES${edition}`;
         console.log(`  ${editionName}: ${passed}/${result.total}`);
+        totalEditionTests += result.total;
+        totalEditionPassed += passed;
     }
+    console.log(`Total: ${totalEditionPassed}/${totalEditionTests} tests passed`);
 }
 
 main();
