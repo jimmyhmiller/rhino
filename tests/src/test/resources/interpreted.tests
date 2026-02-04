@@ -1915,9 +1915,6 @@ js1_7/block/regress-376410.js
 js1_7/block/regress-396900.js
 js1_7/decompilation/regress-349633.js
 js1_7/decompilation/regress-350810.js
-js1_7/decompilation/regress-352015.js
-js1_7/decompilation/regress-352025.js
-js1_7/decompilation/regress-352198.js
 js1_7/decompilation/regress-352269.js
 js1_7/decompilation/regress-352272.js
 js1_7/decompilation/regress-352402.js
@@ -1982,17 +1979,11 @@ js1_7/geniter/builtin-Iterator-function.js
 js1_7/geniter/evens.js
 js1_7/geniter/fibonacci-matrix-generator.js
 js1_7/geniter/iterator-toString.js
-js1_7/geniter/message-value-passing.js
 js1_7/geniter/multiple-close.js
-js1_7/geniter/nested-yield.js
 js1_7/geniter/pi-generator.js
 js1_7/geniter/regress-345736.js
-js1_7/geniter/regress-345855.js
 js1_7/geniter/regress-345879-01.js
-js1_7/geniter/regress-345879-02.js
 js1_7/geniter/regress-349012-02.js
-js1_7/geniter/regress-349012-03.js
-js1_7/geniter/regress-349012-04.js
 js1_7/geniter/regress-349012-05.js
 js1_7/geniter/regress-349023-01.js
 js1_7/geniter/regress-349023-02.js
@@ -2004,7 +1995,6 @@ js1_7/geniter/regress-350809.js
 js1_7/geniter/regress-351120.js
 js1_7/geniter/regress-351514.js
 js1_7/geniter/regress-352197.js
-js1_7/geniter/regress-352605.js
 js1_7/geniter/regress-352876.js
 js1_7/geniter/regress-355834.js
 js1_7/geniter/regress-359062.js

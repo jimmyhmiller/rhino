@@ -1377,6 +1377,16 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 stackChange(1);
                 break;
 
+            case Token.PARAM_TDZ_ERROR:
+                {
+                    // Throw ReferenceError for accessing a parameter before initialization
+                    // in a default parameter expression
+                    String paramName = (String) node.getProp(Node.NAME_PROP);
+                    addStringOp(Icode_PARAM_TDZ_ERROR, paramName);
+                    stackChange(1); // Technically doesn't return, but maintains stack consistency
+                }
+                break;
+
             case Token.REQ_OBJ_COERCIBLE:
                 // Check that the value is object-coercible (throws for null/undefined)
                 visitExpression(node.getFirstChild(), 0);

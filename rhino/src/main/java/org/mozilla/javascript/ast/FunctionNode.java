@@ -82,6 +82,7 @@ public class FunctionNode extends ScriptNode {
     private int rp = -1;
     private boolean hasRestParameter;
     private boolean isShorthand;
+    private boolean hasParameterTdz;
 
     @Override
     public List<Object> getDefaultParams() {
@@ -349,6 +350,20 @@ public class FunctionNode extends ScriptNode {
 
     public void setIsShorthand() {
         isShorthand = true;
+    }
+
+    /**
+     * Returns true if this function has default parameters that need TDZ checking. When true,
+     * parameters that are not provided by the caller should be initialized to TDZ_VALUE, and
+     * accessing a parameter from within its own default initializer or a later parameter's default
+     * initializer should throw ReferenceError.
+     */
+    public boolean hasParameterTdz() {
+        return hasParameterTdz;
+    }
+
+    public void setHasParameterTdz(boolean hasParameterTdz) {
+        this.hasParameterTdz = hasParameterTdz;
     }
 
     public void addResumptionPoint(Node target) {

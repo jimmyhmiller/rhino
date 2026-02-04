@@ -56,6 +56,10 @@ public class DoctestsTest {
                                 // reassignment)
                                 // which is incompatible with ES6-compliant const (throws TypeError)
                                 && !name.contains("784358")
+                                // 757410.doctest tests old SpiderMonkey JS1.7
+                                // yield-in-array-literal
+                                // syntax [yield expr] which is not standard ES6
+                                && !name.contains("757410")
                                 && name.endsWith(doctestsExtension);
                     }
                 });

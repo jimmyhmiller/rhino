@@ -275,6 +275,10 @@ public class ScriptNode extends Scope {
         return false;
     }
 
+    public boolean hasParameterTdz() {
+        return false;
+    }
+
     // Overridden in FunctionNode
     public void putDestructuringRvalues(Node left, Node right) {}
 

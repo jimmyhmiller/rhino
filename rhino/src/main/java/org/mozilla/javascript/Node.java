@@ -81,7 +81,9 @@ public class Node implements Iterable<Node> {
                     40, // Marks a call as a super() constructor call in a derived class
             DEFAULT_CTOR_SUPER_CALL =
                     41, // Marks a super() call that should forward all function arguments
-            LAST_PROP = DEFAULT_CTOR_SUPER_CALL,
+            PARAM_TDZ_NAME_PROP =
+                    42, // Marks a Name node as a TDZ violation in default param expressions
+            LAST_PROP = PARAM_TDZ_NAME_PROP,
             FIRST_PROP = FUNCTION_PROP;
 
     // values of ISNUMBER_PROP to specify

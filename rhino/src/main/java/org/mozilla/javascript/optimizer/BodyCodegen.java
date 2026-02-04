@@ -1363,6 +1363,17 @@ class BodyCodegen {
                 Codegen.pushTDZ(cfw);
                 break;
 
+            case Token.PARAM_TDZ_ERROR:
+                {
+                    // Throw ReferenceError for accessing a parameter before initialization
+                    // in a default parameter expression
+                    String paramName = (String) node.getProp(Node.NAME_PROP);
+                    cfw.addPush(paramName);
+                    addScriptRuntimeInvoke(
+                            "throwParamTdzError", "(Ljava/lang/String;)Ljava/lang/Object;");
+                }
+                break;
+
             case Token.REQ_OBJ_COERCIBLE:
                 // Generate code for the value expression
                 generateExpression(child, node);

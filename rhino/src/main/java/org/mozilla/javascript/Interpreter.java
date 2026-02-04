@@ -1803,6 +1803,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_SUPER_CALL_SPREAD] = new DoSuperCallSpread();
         instructionObjs[base + Icode_DEFAULT_CTOR_SUPER_CALL] = new DoDefaultCtorSuperCall();
         instructionObjs[base + Icode_CHECK_THIS_TDZ] = new DoCheckThisTdz();
+        instructionObjs[base + Icode_PARAM_TDZ_ERROR] = new DoParamTdzError();
         instructionObjs[base + Token.ENTERWITH] = new DoEnterWith();
         instructionObjs[base + Icode_ENTERWITH_CONST] = new DoEnterWithConst();
         instructionObjs[base + Token.LEAVEWITH] = new DoLeaveWith();
@@ -5550,6 +5551,17 @@ public final class Interpreter extends Icode implements Evaluator {
                         "Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
             }
             return null;
+        }
+    }
+
+    private static class DoParamTdzError extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Throws ReferenceError for accessing a parameter before initialization
+            // in a default parameter expression
+            String paramName = state.stringReg;
+            throw ScriptRuntime.constructError(
+                    "ReferenceError", "Cannot access '" + paramName + "' before initialization");
         }
     }
 

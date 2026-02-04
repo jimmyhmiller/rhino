@@ -265,7 +265,9 @@ public class Token {
             STATIC = EXTENDS + 1, // ES6 static keyword
             FIELD = STATIC + 1, // ES2022 class field definition
             PRIVATE_NAME = FIELD + 1, // ES2022 private name (#identifier)
-            LAST_TOKEN = PRIVATE_NAME + 1;
+            PARAM_TDZ_ERROR =
+                    PRIVATE_NAME + 1, // TDZ error for accessing param in default expression
+            LAST_TOKEN = PARAM_TDZ_ERROR + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in

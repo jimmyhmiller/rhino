@@ -222,8 +222,12 @@ abstract class Icode {
             // uninitialized
             Icode_CHECK_THIS_TDZ = Icode_DEFAULT_CTOR_SUPER_CALL - 1,
 
+            // Throws ReferenceError for accessing a parameter before initialization
+            // in a default parameter expression
+            Icode_PARAM_TDZ_ERROR = Icode_CHECK_THIS_TDZ - 1,
+
             // Last icode
-            MIN_ICODE = Icode_CHECK_THIS_TDZ;
+            MIN_ICODE = Icode_PARAM_TDZ_ERROR;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -461,6 +465,8 @@ abstract class Icode {
                 return "DEFAULT_CTOR_SUPER_CALL";
             case Icode_CHECK_THIS_TDZ:
                 return "CHECK_THIS_TDZ";
+            case Icode_PARAM_TDZ_ERROR:
+                return "PARAM_TDZ_ERROR";
         }
 
         // icode without name

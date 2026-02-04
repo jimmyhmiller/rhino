@@ -6083,6 +6083,16 @@ public class ScriptRuntime {
         return value;
     }
 
+    /**
+     * Throws a ReferenceError for accessing a parameter in its own default expression or a later
+     * parameter's default expression. This is called from generated code for TDZ enforcement in
+     * default parameter expressions.
+     */
+    public static Object throwParamTdzError(String paramName) {
+        throw constructError(
+                "ReferenceError", "Cannot access '" + paramName + "' before initialization");
+    }
+
     public static Scriptable enterDotQuery(Object value, Scriptable scope) {
         if (!(value instanceof XMLObject)) {
             throw notXmlError(value);

@@ -682,12 +682,32 @@ public final class IRFactory {
             /* Process simple default parameters */
             List<Object> defaultParams = fn.getDefaultParams();
             if (defaultParams != null) {
+                // Build a map from param name to param index for TDZ checking
+                java.util.Map<String, Integer> paramIndices = new java.util.HashMap<>();
+                List<AstNode> params = fn.getParams();
+                for (int pi = 0; pi < params.size(); pi++) {
+                    AstNode param = params.get(pi);
+                    if (param instanceof Name) {
+                        paramIndices.put(((Name) param).getIdentifier(), pi);
+                    }
+                }
+
                 Node paramInitBlock = null;
                 for (int i = defaultParams.size() - 1; i > 0; ) {
                     if (defaultParams.get(i) instanceof AstNode
                             && defaultParams.get(i - 1) instanceof String) {
                         AstNode rhs = (AstNode) defaultParams.get(i);
                         String name = (String) defaultParams.get(i - 1);
+
+                        // Get the index of the current parameter
+                        Integer currentParamIndex = paramIndices.get(name);
+
+                        // Apply TDZ transformation: inject error for references to
+                        // current param or later params in the default expression
+                        if (currentParamIndex != null) {
+                            rhs = applyParamTdzTransform(rhs, paramIndices, currentParamIndex);
+                        }
+
                         Node paramInit =
                                 createIf(
                                         createBinary(
@@ -1576,6 +1596,16 @@ public final class IRFactory {
     }
 
     private Node transformName(Name node) {
+        // Check if this Name is marked for TDZ error (in a default param expression
+        // referencing current or later parameter)
+        Object tdzName = node.getProp(Node.PARAM_TDZ_NAME_PROP);
+        if (tdzName != null) {
+            // Generate a special node that will throw ReferenceError when executed
+            Node errorNode = new Node(Token.PARAM_TDZ_ERROR);
+            errorNode.putProp(Node.NAME_PROP, tdzName);
+            errorNode.setLineColumnNumber(node.getLineno(), node.getColumn());
+            return errorNode;
+        }
         return node;
     }
 
@@ -3461,6 +3491,39 @@ public final class IRFactory {
             return transform(fn.getMemberExprNode());
         }
         return null;
+    }
+
+    /**
+     * Transforms a default parameter expression to enforce TDZ (Temporal Dead Zone) semantics.
+     * References to the current parameter or later parameters are replaced with calls to
+     * ScriptRuntime.throwParamTdzError() that throw ReferenceError.
+     *
+     * @param expr the default parameter expression AST
+     * @param paramIndices map from parameter name to its index in the parameter list
+     * @param currentParamIndex the index of the parameter whose default is being processed
+     * @return the transformed expression with TDZ checks
+     */
+    private AstNode applyParamTdzTransform(
+            AstNode expr, java.util.Map<String, Integer> paramIndices, int currentParamIndex) {
+        // Use a visitor to find and mark Name nodes that reference later params
+        expr.visit(
+                new org.mozilla.javascript.ast.NodeVisitor() {
+                    @Override
+                    public boolean visit(AstNode node) {
+                        if (node instanceof Name) {
+                            Name name = (Name) node;
+                            String identifier = name.getIdentifier();
+                            Integer paramIndex = paramIndices.get(identifier);
+                            // Check if this name references the current param or a later param
+                            if (paramIndex != null && paramIndex >= currentParamIndex) {
+                                // Mark this node to trigger TDZ error during transformation
+                                name.putProp(Node.PARAM_TDZ_NAME_PROP, identifier);
+                            }
+                        }
+                        return true; // continue visiting children
+                    }
+                });
+        return expr;
     }
 
     public static class AstNodePosition implements Parser.CurrentPositionReporter {
