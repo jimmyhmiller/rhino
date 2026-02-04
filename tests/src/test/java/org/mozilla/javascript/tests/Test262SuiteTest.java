@@ -303,8 +303,15 @@ public class Test262SuiteTest {
         }
     }
 
-    private Scriptable buildScope(Context cx, Test262Case testCase, boolean interpretedMode) {
+    private Scriptable buildScope(
+            Context cx, Test262Case testCase, boolean interpretedMode, StringBuilder printOutput) {
         ScriptableObject scope = (ScriptableObject) cx.initSafeStandardObjects(new TopLevel());
+
+        // Add a print function that captures output (needed for async tests)
+        scope.defineFunctionProperties(
+                new String[] {"print"}, PrintCapture.class, ScriptableObject.DONTENUM);
+        // Store the output buffer on the scope for the print function to access
+        scope.associateValue("printOutput", printOutput);
 
         for (String harnessFile : testCase.harnessFiles) {
             String harnessKey = harnessFile + '-' + interpretedMode;
@@ -328,6 +335,25 @@ public class Test262SuiteTest {
         $262 proto = $262.init(cx, scope);
         $262.install(scope, proto);
         return scope;
+    }
+
+    /** Helper class to provide a print function that captures output. */
+    public static class PrintCapture {
+        public static void print(
+                Context cx,
+                Scriptable thisObj,
+                Object[] args,
+                org.mozilla.javascript.Function funObj) {
+            StringBuilder sb =
+                    (StringBuilder) ((ScriptableObject) thisObj).getAssociatedValue("printOutput");
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) {
+                    sb.append(" ");
+                }
+                sb.append(Context.toString(args[i]));
+            }
+            sb.append("\n");
+        }
     }
 
     private static String extractJSErrorName(RhinoException ex) {
@@ -373,8 +399,11 @@ public class Test262SuiteTest {
             cx.setGeneratingDebug(true);
 
             boolean failedEarly = false;
+            boolean isAsync = testCase.hasFlag("async");
+            StringBuilder printOutput = new StringBuilder();
             try {
-                Scriptable scope = buildScope(cx, testCase, testMode == TestMode.INTERPRETED);
+                Scriptable scope =
+                        buildScope(cx, testCase, testMode == TestMode.INTERPRETED, printOutput);
                 String str = testCase.source;
                 int line = 1;
 
@@ -412,6 +441,26 @@ public class Test262SuiteTest {
 
                     failedEarly = false; // not after this line
                     caseScript.exec(cx, scope, scope);
+                }
+
+                // For async tests, check if $DONE was called with success or failure
+                if (isAsync) {
+                    String output = printOutput.toString();
+                    if (output.contains("Test262:AsyncTestFailure")) {
+                        // Extract the error message
+                        int idx = output.indexOf("Test262:AsyncTestFailure:");
+                        String errorMsg =
+                                idx >= 0
+                                        ? output.substring(
+                                                        idx + "Test262:AsyncTestFailure:".length())
+                                                .trim()
+                                        : "Async test failed";
+                        fail("Async test failed: " + errorMsg);
+                    } else if (!output.contains("Test262:AsyncTestComplete")) {
+                        fail(
+                                "Async test did not call $DONE() - output was: "
+                                        + (output.isEmpty() ? "(empty)" : output));
+                    }
                 }
 
                 if (testCase.isNegative()) {
@@ -851,6 +900,11 @@ public class Test262SuiteTest {
                 // present by default harness files
                 harnessFiles.add("assert.js");
                 harnessFiles.add("sta.js");
+
+                // Add async test harness for tests with the 'async' flag
+                if (flags.contains("async")) {
+                    harnessFiles.add("doneprintHandle.js");
+                }
 
                 if (metadata.containsKey("includes")) {
                     harnessFiles.addAll((List<String>) metadata.get("includes"));

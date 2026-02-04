@@ -561,6 +561,10 @@ public class Codegen implements Evaluator {
         return (node.getType() == Token.FUNCTION) && ((FunctionNode) node).isGenerator();
     }
 
+    static boolean isAsync(ScriptNode node) {
+        return (node.getType() == Token.FUNCTION) && ((FunctionNode) node).isAsync();
+    }
+
     private void generateLookupAccessor(ClassFileWriter cfw) {
         cfw.startMethod(
                 "getLookup",

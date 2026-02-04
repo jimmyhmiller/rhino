@@ -27,6 +27,7 @@ import org.mozilla.javascript.ast.ScriptNode;
 class BodyCodegen {
     void generateBodyCode() {
         isGenerator = Codegen.isGenerator(scriptOrFn);
+        isAsync = Codegen.isAsync(scriptOrFn);
 
         // generate the body of the current function or script object
         initBodyGeneration();
@@ -675,6 +676,23 @@ class BodyCodegen {
                         "(Ljava/lang/Object;Lorg/mozilla/javascript/Scriptable;I)Ljava/lang/Object;");
                 // Stack: transformedReturnValue
             }
+            // For async functions, wrap the return value in a resolved Promise
+            if (isAsync) {
+                // Stack: returnValue
+                short tempLocal = getNewWordLocal();
+                cfw.addAStore(tempLocal); // Store value temporarily
+                cfw.addALoad(contextLocal); // Stack: cx
+                cfw.addALoad(variableObjectLocal); // Stack: cx, scope
+                cfw.addALoad(tempLocal); // Stack: cx, scope, value
+                releaseWordLocal(tempLocal);
+                addScriptRuntimeInvoke(
+                        "wrapInResolvedPromise",
+                        "(Lorg/mozilla/javascript/Context;"
+                                + "Lorg/mozilla/javascript/Scriptable;"
+                                + "Ljava/lang/Object;"
+                                + ")Ljava/lang/Object;");
+                // Stack: promise
+            }
             cfw.add(ByteCode.ARETURN);
 
         } else if (fnCurrent == null) {
@@ -700,6 +718,23 @@ class BodyCodegen {
                         "getDerivedConstructorReturn",
                         "(Ljava/lang/Object;Lorg/mozilla/javascript/Scriptable;I)Ljava/lang/Object;");
                 // Stack: transformedReturnValue
+            }
+            // For async functions, wrap the return value in a resolved Promise
+            if (isAsync) {
+                // Stack: returnValue
+                short tempLocal = getNewWordLocal();
+                cfw.addAStore(tempLocal); // Store value temporarily
+                cfw.addALoad(contextLocal); // Stack: cx
+                cfw.addALoad(variableObjectLocal); // Stack: cx, scope
+                cfw.addALoad(tempLocal); // Stack: cx, scope, value
+                releaseWordLocal(tempLocal);
+                addScriptRuntimeInvoke(
+                        "wrapInResolvedPromise",
+                        "(Lorg/mozilla/javascript/Context;"
+                                + "Lorg/mozilla/javascript/Scriptable;"
+                                + "Ljava/lang/Object;"
+                                + ")Ljava/lang/Object;");
+                // Stack: promise
             }
 
             // Mark end of try block (before activation exit)
@@ -6366,6 +6401,7 @@ class BodyCodegen {
     private int superCalledLocal;
 
     private boolean isGenerator;
+    private boolean isAsync;
     private boolean isDerivedClassConstructor;
     private int generatorSwitch;
     private int generatorInitLabel;
