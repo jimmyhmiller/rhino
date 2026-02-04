@@ -182,6 +182,7 @@ public class Parser {
     private String prevNameTokenString = "";
     private int prevNameTokenLineno;
     private int prevNameTokenColumn;
+    private boolean prevNameTokenContainsEscape;
     private int lastTokenLineno = -1;
     private int lastTokenColumn = -1;
 
@@ -1327,20 +1328,22 @@ public class Parser {
         int asyncPos = ts.tokenBeg;
         int asyncLineno = lineNumber();
         int asyncColumn = columnNumber();
+        boolean asyncContainsEscape = ts.identifierContainsEscape();
 
         // Check for line terminator between async and function (not allowed)
         int tt = peekTokenOrEOL();
         if (tt == Token.EOL) {
             // Line terminator after async - treat 'async' as identifier
-            saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
+            saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn, asyncContainsEscape);
             AstNode name = createNameNode(true, Token.NAME);
             AstNode pn = new ExpressionStatement(name, !insideFunctionBody());
             pn.setLineColumnNumber(asyncLineno, asyncColumn);
             return pn;
         }
 
+        // If async was written with escapes, it's not the async keyword
         tt = peekToken();
-        if (tt == Token.FUNCTION) {
+        if (!asyncContainsEscape && tt == Token.FUNCTION) {
             consumeToken();
             // Check for async generator: async function*
             boolean isGenerator = false;
@@ -1352,7 +1355,7 @@ public class Parser {
 
         // Not followed by 'function' - could be async arrow function or just identifier
         // Treat 'async' as identifier
-        saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
+        saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn, asyncContainsEscape);
         AstNode name = createNameNode(true, Token.NAME);
         AstNode pn = new ExpressionStatement(name, !insideFunctionBody());
         pn.setLineColumnNumber(asyncLineno, asyncColumn);
@@ -1822,8 +1825,15 @@ public class Parser {
                 return false;
             }
             AstNode target = call.getTarget();
-            if (target instanceof Name && "async".equals(((Name) target).getIdentifier())) {
-                return true;
+            if (target instanceof Name) {
+                Name name = (Name) target;
+                // async written with escape sequences is not the async keyword
+                if (name.containsEscape()) {
+                    return false;
+                }
+                if ("async".equals(name.getIdentifier())) {
+                    return true;
+                }
             }
         }
         return false;
@@ -2370,8 +2380,12 @@ public class Parser {
                     // Look ahead to determine if this is 'async function'
                     // We need to check without consuming 'async' first
                     consumeToken();
+                    boolean asyncContainsEscape = ts.identifierContainsEscape();
                     int asyncTT = peekTokenOrEOL();
-                    if (asyncTT != Token.EOL && peekToken() == Token.FUNCTION) {
+                    // Only treat as async function if async was not escaped
+                    if (!asyncContainsEscape
+                            && asyncTT != Token.EOL
+                            && peekToken() == Token.FUNCTION) {
                         // This is 'async function' - parse as async function declaration
                         consumeToken();
                         boolean isGenerator = matchToken(Token.MUL, true);
@@ -2390,7 +2404,8 @@ public class Parser {
                     int asyncColumn = ts.getTokenColumn();
 
                     // Create name node for 'async'
-                    saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
+                    saveNameTokenData(
+                            asyncPos, "async", asyncLineno, asyncColumn, asyncContainsEscape);
                     AstNode asyncName = createNameNode(true, Token.NAME);
 
                     // Continue with member expression parsing (handles (...) for calls)
@@ -5854,8 +5869,11 @@ public class Parser {
                     int asyncPos = ts.tokenBeg;
                     int asyncLineno = lineNumber();
                     int asyncColumn = columnNumber();
+                    boolean asyncContainsEscape = ts.identifierContainsEscape();
                     // Check if followed by 'function' for async function expression
-                    if (peekToken() == Token.FUNCTION
+                    // Only allow if async was not written with escapes
+                    if (!asyncContainsEscape
+                            && peekToken() == Token.FUNCTION
                             && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
                         consumeToken();
                         boolean isGenerator = matchToken(Token.MUL, true);
@@ -5863,8 +5881,10 @@ public class Parser {
                     }
                     // Check for async arrow function with single identifier param: async x => ...
                     // Must check for no line terminator between async and the identifier
+                    // Only allow if async was not written with escapes
                     int peekTT = peekTokenOrEOL();
-                    if (peekTT == Token.NAME
+                    if (!asyncContainsEscape
+                            && peekTT == Token.NAME
                             && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
                         // Speculatively parse the identifier and check for =>
                         consumeToken();
@@ -5893,7 +5913,8 @@ public class Parser {
                         return makeErrorNode();
                     }
                     // Treat 'async' as an identifier
-                    saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
+                    saveNameTokenData(
+                            asyncPos, "async", asyncLineno, asyncColumn, asyncContainsEscape);
                     return createNameNode(true, Token.NAME);
                 }
 
@@ -6714,15 +6735,18 @@ public class Parser {
         String s = ts.getString();
         int lineno = lineNumber();
         int column = columnNumber();
+        boolean containsEscape = ts.identifierContainsEscape();
         if (!"".equals(prevNameTokenString)) {
             beg = prevNameTokenStart;
             s = prevNameTokenString;
             lineno = prevNameTokenLineno;
             column = prevNameTokenColumn;
+            containsEscape = prevNameTokenContainsEscape;
             prevNameTokenStart = 0;
             prevNameTokenString = "";
             prevNameTokenLineno = 0;
             prevNameTokenColumn = 0;
+            prevNameTokenContainsEscape = false;
         }
         if (s == null) {
             if (compilerEnv.isIdeMode()) {
@@ -6733,6 +6757,7 @@ public class Parser {
         }
         Name name = new Name(beg, s);
         name.setLineColumnNumber(lineno, column);
+        name.setContainsEscape(containsEscape);
         if (checkActivation) {
             checkActivationName(s, token);
         }
@@ -6906,10 +6931,16 @@ public class Parser {
     }
 
     private void saveNameTokenData(int pos, String name, int lineno, int column) {
+        saveNameTokenData(pos, name, lineno, column, false);
+    }
+
+    private void saveNameTokenData(
+            int pos, String name, int lineno, int column, boolean containsEscape) {
         prevNameTokenStart = pos;
         prevNameTokenString = name;
         prevNameTokenLineno = lineno;
         prevNameTokenColumn = column;
+        prevNameTokenContainsEscape = containsEscape;
     }
 
     /**

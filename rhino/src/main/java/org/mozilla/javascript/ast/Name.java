@@ -21,6 +21,7 @@ public class Name extends AstNode {
 
     private String identifier;
     private Scope scope;
+    private boolean containsEscape;
 
     {
         type = Token.NAME;
@@ -68,6 +69,16 @@ public class Name extends AstNode {
         assertNotNull(identifier);
         this.identifier = identifier;
         setLength(identifier.length());
+    }
+
+    /** Returns true if this identifier was written with Unicode escape sequences. */
+    public boolean containsEscape() {
+        return containsEscape;
+    }
+
+    /** Sets whether this identifier was written with Unicode escape sequences. */
+    public void setContainsEscape(boolean containsEscape) {
+        this.containsEscape = containsEscape;
     }
 
     /**
