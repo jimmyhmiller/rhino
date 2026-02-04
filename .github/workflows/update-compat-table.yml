@@ -110,25 +110,35 @@ jobs:
             # Run tests without ES6 flag (use load() as original script does)
             echo "supportVersion=200; load('rhinotest.js');" > /tmp/test.js
             echo "Running: java -jar $jar -version 200 /tmp/test.js"
-            if ! java -jar "$jar" -version 200 /tmp/test.js > rhino-results/${ver}.json 2>/tmp/rhino-err.log; then
-              echo "ERROR: Test failed for $ver"
+            if ! java -jar "$jar" -version 200 /tmp/test.js > /tmp/rhino-out.log 2>/tmp/rhino-err.log; then
+              echo "ERROR: Test failed for $ver (exit code: $?)"
+              echo "=== stdout output (first 1000 chars) ==="
+              head -c 1000 /tmp/rhino-out.log
+              echo ""
               echo "=== stderr output ==="
               cat /tmp/rhino-err.log
-              echo "=== end stderr ==="
+              echo "=== end ==="
               echo '{}' > rhino-results/${ver}.json
+            else
+              cp /tmp/rhino-out.log rhino-results/${ver}.json
             fi
 
             # Run tests with ES6 flag
             echo "var defined = 'RHINO_VERSION_ES6'; supportVersion=200; load('rhinotest.js');" > /tmp/test.js
             echo "Running ES6: java -jar $jar -version 200 /tmp/test.js"
-            if ! java -jar "$jar" -version 200 /tmp/test.js > rhino-results/${ver}-es6.json 2>/tmp/rhino-err.log; then
-              echo "ERROR: ES6 test failed for $ver"
+            if ! java -jar "$jar" -version 200 /tmp/test.js > /tmp/rhino-out.log 2>/tmp/rhino-err.log; then
+              echo "ERROR: ES6 test failed for $ver (exit code: $?)"
+              echo "=== stdout output (first 1000 chars) ==="
+              head -c 1000 /tmp/rhino-out.log
+              echo ""
               echo "=== stderr output ==="
               cat /tmp/rhino-err.log
-              echo "=== end stderr ==="
+              echo "=== end ==="
               echo '{}' > rhino-results/${ver}-es6.json
+            else
+              cp /tmp/rhino-out.log rhino-results/${ver}-es6.json
             fi
-            rm -f /tmp/test.js /tmp/rhino-err.log
+            rm -f /tmp/test.js /tmp/rhino-err.log /tmp/rhino-out.log
 
             # Ensure files have valid JSON
             for f in rhino-results/${ver}.json rhino-results/${ver}-es6.json; do
