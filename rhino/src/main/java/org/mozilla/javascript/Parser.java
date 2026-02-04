@@ -2080,6 +2080,11 @@ public class Parser {
             String paramName = ((Name) params).getIdentifier();
             defineSymbol(Token.LP, paramName);
 
+            // await cannot be used as parameter name in async functions
+            if (fnNode.isAsync() && "await".equals(paramName)) {
+                reportError("msg.syntax");
+            }
+
             // eval/arguments check only in strict mode
             if (this.inUseStrictDirective) {
                 if ("eval".equals(paramName) || "arguments".equals(paramName)) {
