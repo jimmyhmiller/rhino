@@ -42,7 +42,6 @@ import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.SymbolKey;
 import org.mozilla.javascript.TopLevel;
 import org.mozilla.javascript.Undefined;
-import org.mozilla.javascript.es6module.ModuleRecord;
 import org.mozilla.javascript.tools.SourceReader;
 import org.mozilla.javascript.tools.shell.ShellContextFactory;
 import org.mozilla.javascript.typedarrays.NativeArrayBuffer;
@@ -68,6 +67,20 @@ public class Test262JsonRunner {
     private static final int TEST_TIMEOUT_SECONDS = 10;
 
     private static final Map<String, Script> HARNESS_SCRIPT_CACHE = new ConcurrentHashMap<>();
+
+    // Check if module support is available (fork has it, upstream doesn't)
+    private static final boolean MODULES_SUPPORTED = checkModuleSupport();
+
+    private static boolean checkModuleSupport() {
+        try {
+            Class.forName("org.mozilla.javascript.es6module.ModuleRecord");
+            Context.class.getMethod(
+                    "compileModule", String.class, String.class, int.class, Object.class);
+            return true;
+        } catch (ClassNotFoundException | NoSuchMethodException e) {
+            return false;
+        }
+    }
 
     private static ShellContextFactory CTX_FACTORY =
             new ShellContextFactory() {
@@ -240,8 +253,9 @@ public class Test262JsonRunner {
                 return;
             }
 
-            // Check for unsupported flags (async is not supported, but modules are)
-            if (testCase.hasFlag("async")) {
+            // Check for unsupported flags
+            // async is not supported; modules require the fork's module support
+            if (testCase.hasFlag("async") || (testCase.hasFlag("module") && !MODULES_SUPPORTED)) {
                 skipCount.incrementAndGet();
                 return;
             }
@@ -337,26 +351,14 @@ public class Test262JsonRunner {
 
                 failedEarly = true;
 
-                if (isModule) {
-                    // Set up module loader for resolving imports
-                    File testFile = testCase.file;
-                    File testDir = testFile.getParentFile();
-                    Test262ModuleLoader moduleLoader = new Test262ModuleLoader(testDir);
-                    cx.setModuleLoader(moduleLoader);
-
-                    // Use the actual file path as the module specifier
-                    String moduleSpecifier = testFile.getAbsolutePath();
-
-                    // Parse and compile as a module
-                    ModuleRecord moduleRecord = cx.compileModule(str, moduleSpecifier, line, null);
-
-                    // Cache the module so self-referential imports work
-                    moduleLoader.cacheModule(moduleSpecifier, moduleRecord);
-
+                if (isModule && MODULES_SUPPORTED) {
+                    // Use reflection to avoid compile-time dependency on module classes
+                    // This allows the code to compile against upstream Rhino (no modules)
+                    runModuleTest(cx, scope, testCase, str, line);
                     failedEarly = false;
-
-                    // Execute the module
-                    cx.linkAndEvaluateModule(scope, moduleRecord);
+                } else if (isModule) {
+                    // Modules not supported - should have been skipped earlier
+                    return false;
                 } else {
                     Script caseScript = cx.compileString(str, testFilePath, line, null);
 
@@ -386,6 +388,58 @@ public class Test262JsonRunner {
                 return false;
             }
         }
+    }
+
+    /**
+     * Run a module test using reflection to avoid compile-time dependency on module classes. This
+     * allows the code to compile against upstream Rhino which doesn't have module support.
+     */
+    private void runModuleTest(
+            Context cx, Scriptable scope, Test262Case testCase, String source, int line)
+            throws Exception {
+        File testFile = testCase.file;
+        File testDir = testFile.getParentFile();
+
+        // Create Test262ModuleLoader via reflection
+        Class<?> loaderClass = Class.forName("org.mozilla.javascript.tests.Test262ModuleLoader");
+        Object moduleLoader = loaderClass.getConstructor(File.class).newInstance(testDir);
+
+        // Set the module loader on the context
+        Context.class
+                .getMethod(
+                        "setModuleLoader",
+                        Class.forName("org.mozilla.javascript.es6module.ModuleLoader"))
+                .invoke(cx, moduleLoader);
+
+        // Use the actual file path as the module specifier
+        String moduleSpecifier = testFile.getAbsolutePath();
+
+        // Compile the module
+        Object moduleRecord =
+                Context.class
+                        .getMethod(
+                                "compileModule",
+                                String.class,
+                                String.class,
+                                int.class,
+                                Object.class)
+                        .invoke(cx, source, moduleSpecifier, line, null);
+
+        // Cache the module so self-referential imports work
+        loaderClass
+                .getMethod(
+                        "cacheModule",
+                        String.class,
+                        Class.forName("org.mozilla.javascript.es6module.ModuleRecord"))
+                .invoke(moduleLoader, moduleSpecifier, moduleRecord);
+
+        // Execute the module
+        Context.class
+                .getMethod(
+                        "linkAndEvaluateModule",
+                        Scriptable.class,
+                        Class.forName("org.mozilla.javascript.es6module.ModuleRecord"))
+                .invoke(cx, scope, moduleRecord);
     }
 
     private Scriptable buildScope(Context cx, Test262Case testCase, boolean interpretedMode) {
