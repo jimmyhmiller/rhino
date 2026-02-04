@@ -1875,6 +1875,9 @@ public class Parser {
 
         PerFunctionVariables savedVars = new PerFunctionVariables(fnNode);
         try {
+            // Set async context so await expressions are recognized in the body
+            inAsyncFunction = true;
+
             if (params instanceof ParenthesizedExpression) {
                 fnNode.setParens(0, params.getLength());
                 if (params.getIntProp(Node.TRAILING_COMMA, 0) == 1) {
@@ -1925,6 +1928,53 @@ public class Parser {
         fnNode.setBaseLineno(baseLineno);
         fnNode.setEndLineno(lineNumber());
         fnNode.setLineColumnNumber(startLine, startColumn);
+
+        return fnNode;
+    }
+
+    /**
+     * Parses an async arrow function with a single unparenthesized identifier parameter. Called
+     * when we've seen "async x =>" pattern. The => has already been consumed.
+     */
+    private AstNode asyncArrowFunctionWithParam(
+            AstNode param, int asyncPos, int asyncLineno, int asyncColumn) throws IOException {
+        int baseLineno = lineNumber();
+        int functionSourceStart = asyncPos;
+
+        FunctionNode fnNode = new FunctionNode(functionSourceStart);
+        fnNode.setFunctionType(FunctionNode.ARROW_FUNCTION);
+        fnNode.setJsDocNode(getAndResetJsDoc());
+        fnNode.setIsAsync();
+
+        Map<String, Node> destructuring = new HashMap<>();
+        Map<String, AstNode> destructuringDefault = new HashMap<>();
+        Set<String> paramNames = new HashSet<>();
+
+        PerFunctionVariables savedVars = new PerFunctionVariables(fnNode);
+        try {
+            inAsyncFunction = true;
+
+            // Single identifier parameter
+            arrowFunctionParams(fnNode, param, destructuring, destructuringDefault, paramNames);
+
+            AstNode body = parseFunctionBody(FunctionNode.ARROW_FUNCTION, fnNode);
+            fnNode.setBody(body);
+            int end = functionSourceStart + body.getPosition() + body.getLength();
+            fnNode.setRawSourceBounds(functionSourceStart, end);
+            fnNode.setLength(end - functionSourceStart);
+        } finally {
+            savedVars.restore();
+        }
+
+        if (fnNode.isGenerator()) {
+            reportError("msg.arrowfunction.generator");
+            return makeErrorNode();
+        }
+
+        fnNode.setSourceName(sourceURI);
+        fnNode.setBaseLineno(baseLineno);
+        fnNode.setEndLineno(lineNumber());
+        fnNode.setLineColumnNumber(asyncLineno, asyncColumn);
 
         return fnNode;
     }
@@ -4455,11 +4505,6 @@ public class Parser {
             return returnOrYield(tt, true);
         }
 
-        // Handle await inside async functions
-        if (tt == Token.AWAIT && inAsyncFunction) {
-            return awaitExpr();
-        }
-
         // Intentionally not calling lineNumber/columnNumber here!
         // We have not consumed any token yet, so the position would be invalid
         int startLine = ts.lineno, startColumn = ts.getTokenColumn();
@@ -4763,6 +4808,25 @@ public class Parser {
                 node = new UnaryExpression(tt, ts.tokenBeg, unaryExpr());
                 node.setLineColumnNumber(line, column);
                 return node;
+
+            case Token.AWAIT:
+                // await is a unary operator in async functions
+                if (inAsyncFunction) {
+                    return awaitExpr();
+                }
+                // Outside async functions, treat as identifier - go through memberExpr
+                {
+                    AstNode pn = memberExpr(true);
+                    tt = peekTokenOrEOL();
+                    if (!(tt == Token.INC || tt == Token.DEC)) {
+                        return pn;
+                    }
+                    consumeToken();
+                    UpdateExpression uexpr = new UpdateExpression(tt, ts.tokenBeg, pn, true);
+                    uexpr.setLineColumnNumber(pn.getLineno(), pn.getColumn());
+                    checkBadIncDec(uexpr);
+                    return uexpr;
+                }
 
             case Token.ADD:
                 consumeToken();
@@ -5497,6 +5561,37 @@ public class Parser {
                         consumeToken();
                         boolean isGenerator = matchToken(Token.MUL, true);
                         return function(FunctionNode.FUNCTION_EXPRESSION, false, isGenerator, true);
+                    }
+                    // Check for async arrow function with single identifier param: async x => ...
+                    // Must check for no line terminator between async and the identifier
+                    int peekTT = peekTokenOrEOL();
+                    if (peekTT == Token.NAME
+                            && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                        // Speculatively parse the identifier and check for =>
+                        consumeToken();
+                        int paramPos = ts.tokenBeg;
+                        String paramName = ts.getString();
+                        int paramLineno = lineNumber();
+                        int paramColumn = columnNumber();
+                        // Check if => follows (without line terminator)
+                        int arrowTT = peekTokenOrEOL();
+                        if (arrowTT == Token.ARROW) {
+                            // This is async x => ... - parse as async arrow function
+                            consumeToken(); // consume =>
+                            saveNameTokenData(paramPos, paramName, paramLineno, paramColumn);
+                            AstNode param = createNameNode(true, Token.NAME);
+                            return asyncArrowFunctionWithParam(
+                                    param, asyncPos, asyncLineno, asyncColumn);
+                        }
+                        // Not an async arrow function - backtrack
+                        // We consumed the identifier, need to put it back somehow
+                        // Actually, we can't easily backtrack in this parser
+                        // So we'll create a synthetic FunctionCall node for async(x)
+                        // But this isn't quite right either...
+                        // For now, let's report an error or handle differently
+                        // Actually, async x where x is not followed by => is a syntax error anyway
+                        reportError("msg.syntax");
+                        return makeErrorNode();
                     }
                     // Treat 'async' as an identifier
                     saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
