@@ -268,7 +268,9 @@ public class Token {
             PARAM_TDZ_ERROR =
                     PRIVATE_NAME + 1, // TDZ error for accessing param in default expression
             REQ_ITERABLE = PARAM_TDZ_ERROR + 1, // RequireIterable check for array destructuring
-            LAST_TOKEN = REQ_ITERABLE + 1;
+            ASYNC = REQ_ITERABLE + 1, // ES2017 async keyword
+            AWAIT = ASYNC + 1, // ES2017 await keyword
+            LAST_TOKEN = AWAIT + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -707,6 +709,10 @@ public class Token {
                 return "PARAM_TDZ_ERROR";
             case REQ_ITERABLE:
                 return "REQ_ITERABLE";
+            case ASYNC:
+                return "ASYNC";
+            case AWAIT:
+                return "AWAIT";
         }
 
         // Token without name
@@ -800,6 +806,10 @@ public class Token {
                 return "throw";
             case Token.TRY:
                 return "try";
+            case Token.ASYNC:
+                return "async";
+            case Token.AWAIT:
+                return "await";
             default:
                 return null;
         }

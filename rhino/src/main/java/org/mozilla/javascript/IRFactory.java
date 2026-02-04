@@ -18,6 +18,7 @@ import org.mozilla.javascript.ast.ArrayLiteral;
 import org.mozilla.javascript.ast.Assignment;
 import org.mozilla.javascript.ast.AstNode;
 import org.mozilla.javascript.ast.AstRoot;
+import org.mozilla.javascript.ast.Await;
 import org.mozilla.javascript.ast.BigIntLiteral;
 import org.mozilla.javascript.ast.Block;
 import org.mozilla.javascript.ast.BreakStatement;
@@ -252,6 +253,8 @@ public final class IRFactory {
             case Token.YIELD:
             case Token.YIELD_STAR:
                 return transformYield((Yield) node);
+            case Token.AWAIT:
+                return transformAwait((Await) node);
             default:
                 if (node instanceof ExpressionStatement) {
                     return transformExprStmt((ExpressionStatement) node);
@@ -2052,6 +2055,12 @@ public final class IRFactory {
         Node kid = node.getValue() == null ? null : transform(node.getValue());
         if (kid != null) return new Node(node.getType(), kid, node.getLineno(), node.getColumn());
         return new Node(node.getType(), node.getLineno(), node.getColumn());
+    }
+
+    private Node transformAwait(Await node) {
+        Node kid = node.getValue() == null ? null : transform(node.getValue());
+        if (kid != null) return new Node(Token.AWAIT, kid, node.getLineno(), node.getColumn());
+        return new Node(Token.AWAIT, node.getLineno(), node.getColumn());
     }
 
     private Node transformSpread(Spread node) {

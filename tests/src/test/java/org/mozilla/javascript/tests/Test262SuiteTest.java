@@ -102,7 +102,7 @@ public class Test262SuiteTest {
                     Arrays.asList(
                             "Atomics",
                             "IsHTMLDDA",
-                            "async-functions",
+                            // "async-functions" - now supported!
                             "async-iteration",
                             "regexp-dotall",
                             "regexp-unicode-property-escapes",
@@ -716,22 +716,6 @@ public class Test262SuiteTest {
 
                     continue fileLoop;
                 }
-            }
-            // 2. it runs in an unsupported environment (async only - modules are now supported)
-            if (testCase.hasFlag("async")) {
-                if (includeUnsupported) {
-                    TestResultTracker tracker =
-                            RESULT_TRACKERS.computeIfAbsent(
-                                    testCase, k -> new TestResultTracker(comment));
-                    tracker.setExpectations(
-                            TestMode.SKIPPED,
-                            true,
-                            testCase.hasFlag(FLAG_ONLY_STRICT),
-                            testCase.hasFlag(FLAG_NO_STRICT),
-                            true);
-                }
-
-                continue;
             }
 
             // In raw mode, ignore expected failures and show actual results

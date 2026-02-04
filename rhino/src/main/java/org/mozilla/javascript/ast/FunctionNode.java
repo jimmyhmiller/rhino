@@ -124,6 +124,7 @@ public class FunctionNode extends ScriptNode {
     private boolean requiresArgumentObject;
     private boolean isGenerator;
     private boolean isES6Generator;
+    private boolean isAsync;
     private boolean skipAnnexBHoisting;
     private List<Node> generatorResumePoints;
     private Map<Node, int[]> liveLocals;
@@ -334,6 +335,21 @@ public class FunctionNode extends ScriptNode {
         needsActivation = true;
     }
 
+    public boolean isAsync() {
+        return isAsync;
+    }
+
+    public void setIsAsync() {
+        isAsync = true;
+        // Async functions always need activation, similar to generators
+        needsActivation = true;
+    }
+
+    /** Returns true if this is an async generator function (async function*) */
+    public boolean isAsyncGenerator() {
+        return isAsync && isES6Generator;
+    }
+
     @Override
     public boolean hasRestParameter() {
         return hasRestParameter;
@@ -477,9 +493,17 @@ public class FunctionNode extends ScriptNode {
         boolean isArrow = functionType == ARROW_FUNCTION;
         if (!isMethod()) {
             sb.append(makeIndent(depth));
+            if (isAsync) {
+                sb.append("async ");
+            }
             if (!isArrow) {
                 sb.append("function");
+                if (isES6Generator) {
+                    sb.append("*");
+                }
             }
+        } else if (isAsync) {
+            sb.append("async ");
         }
         if (functionName != null) {
             sb.append(" ");

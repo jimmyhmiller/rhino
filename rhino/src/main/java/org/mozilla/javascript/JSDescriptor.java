@@ -33,6 +33,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
     private static final int SKIP_ANNEX_B_HOISTING_FLAG = 1 << 13;
     private static final int IS_DERIVED_CLASS_CONSTRUCTOR_FLAG = 1 << 14;
     private static final int IS_CLASS_CONSTRUCTOR_FLAG = 1 << 15;
+    private static final int IS_ASYNC_FLAG = 1 << 16;
 
     private final JSCode<T> code;
     private final JSCode<T> constructor;
@@ -87,6 +88,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
             boolean skipAnnexBHoisting,
             boolean isDerivedClassConstructor,
             boolean isClassConstructor,
+            boolean isAsync,
             SecurityController securityController,
             Object securityDomain,
             int functionType) {
@@ -114,6 +116,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         flags = flags | (skipAnnexBHoisting ? SKIP_ANNEX_B_HOISTING_FLAG : 0);
         flags = flags | (isDerivedClassConstructor ? IS_DERIVED_CLASS_CONSTRUCTOR_FLAG : 0);
         flags = flags | (isClassConstructor ? IS_CLASS_CONSTRUCTOR_FLAG : 0);
+        flags = flags | (isAsync ? IS_ASYNC_FLAG : 0);
         this.flags = flags;
 
         this.sourceFile = sourceFile;
@@ -305,6 +308,11 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         return (flags & IS_CLASS_CONSTRUCTOR_FLAG) != 0;
     }
 
+    /** Returns true if this is an async function. */
+    public boolean isAsync() {
+        return (flags & IS_ASYNC_FLAG) != 0;
+    }
+
     public SecurityController getSecurityController() {
         return securityController;
     }
@@ -360,6 +368,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         public boolean skipAnnexBHoisting;
         public boolean isDerivedClassConstructor;
         public boolean isClassConstructor;
+        public boolean isAsync;
         public SecurityController securityController;
         public Object securityDomain;
         public int functionType;
@@ -434,6 +443,7 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
                             skipAnnexBHoisting,
                             isDerivedClassConstructor,
                             isClassConstructor,
+                            isAsync,
                             securityController,
                             securityDomain,
                             functionType);

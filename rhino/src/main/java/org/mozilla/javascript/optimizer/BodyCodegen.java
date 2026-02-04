@@ -2039,6 +2039,28 @@ class BodyCodegen {
                 generateYieldPoint(node, true);
                 break;
 
+            case Token.AWAIT:
+                {
+                    // Generate code for await expression
+                    // Stack before: empty
+                    // Stack after: result
+
+                    // Push context first
+                    cfw.addALoad(contextLocal);
+                    // Push scope
+                    cfw.addALoad(variableObjectLocal);
+                    // Push the awaited value
+                    generateExpression(child, node);
+                    // Call ScriptRuntime.awaitValue(cx, scope, value)
+                    addScriptRuntimeInvoke(
+                            "awaitValue",
+                            "(Lorg/mozilla/javascript/Context;"
+                                    + "Lorg/mozilla/javascript/Scriptable;"
+                                    + "Ljava/lang/Object;"
+                                    + ")Ljava/lang/Object;");
+                    break;
+                }
+
             case Token.WITHEXPR:
                 {
                     Node with = child.getNext();

@@ -61,6 +61,9 @@ public class CodeGenUtils {
         if (fn.isShorthand()) {
             builder.isShorthand = true;
         }
+        if (fn.isAsync()) {
+            builder.isAsync = true;
+        }
         fillInCommon(builder, fn);
     }
 

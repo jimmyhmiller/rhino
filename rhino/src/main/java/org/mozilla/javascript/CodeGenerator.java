@@ -1522,6 +1522,17 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 addUint16(node.getLineno() & 0xFFFF);
                 break;
 
+            case Token.AWAIT:
+                if (child != null) {
+                    visitExpression(child, 0);
+                } else {
+                    addIcode(Icode_UNDEF);
+                    stackChange(1);
+                }
+                addIcode(Icode_AWAIT);
+                addUint16(node.getLineno() & 0xFFFF);
+                break;
+
             case Token.WITHEXPR:
                 {
                     Node enterWith = node.getFirstChild();

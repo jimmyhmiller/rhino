@@ -7995,4 +7995,81 @@ public class ScriptRuntime {
 
     /** This value holds the current android API version (or -1) if not running on android */
     static final int androidApi = detectAndroidApi();
+
+    /**
+     * Handle the await expression. If the value is a Promise, returns its resolved value (for
+     * fulfilled) or throws (for rejected). If the value is not a Promise, it is returned as-is (per
+     * spec, await wraps non-Promises in Promise.resolve).
+     *
+     * <p>Note: This is a simplified synchronous implementation. True async/await requires a more
+     * complex implementation with Promise callback scheduling.
+     */
+    public static Object awaitValue(Context cx, Scriptable scope, Object value) {
+        // If not a Promise, return as-is (per spec, await x is equivalent to await
+        // Promise.resolve(x))
+        if (!(value instanceof NativePromise)) {
+            return value;
+        }
+
+        NativePromise promise = (NativePromise) value;
+
+        if (promise.isFulfilled()) {
+            return promise.getResult();
+        } else if (promise.isRejected()) {
+            // Throw the rejection value
+            Object reason = promise.getResult();
+            throw new JavaScriptException(reason, "", 0);
+        } else {
+            // Promise is still pending - this is a limitation of the synchronous implementation
+            // In a proper async implementation, we would suspend and resume when resolved
+            // For now, return undefined to avoid blocking
+            return Undefined.instance;
+        }
+    }
+
+    /**
+     * Wrap a value in a resolved Promise. Used by async functions to wrap their return values.
+     *
+     * @param cx the current context
+     * @param scope the current scope
+     * @param value the value to wrap
+     * @return a Promise resolved with the given value
+     */
+    public static Object wrapInResolvedPromise(Context cx, Scriptable scope, Object value) {
+        // If already a Promise from our constructor, return as-is
+        if (value instanceof NativePromise) {
+            return value;
+        }
+        return NativePromise.resolveValue(cx, scope, value);
+    }
+
+    /**
+     * Wrap a throwable in a rejected Promise. Used by async functions when they throw.
+     *
+     * @param cx the current context
+     * @param scope the current scope
+     * @param throwable the exception to wrap (can be Throwable or Object for Interpreter
+     *     compatibility)
+     * @return a Promise rejected with the given exception
+     */
+    public static Object wrapInRejectedPromise(Context cx, Scriptable scope, Object throwable) {
+        Object reason;
+        if (throwable instanceof JavaScriptException) {
+            reason = ((JavaScriptException) throwable).getValue();
+            if (reason == null) {
+                reason = getExceptionMessage(throwable);
+            }
+        } else {
+            reason = getExceptionMessage(throwable);
+        }
+        return NativePromise.rejectValue(cx, scope, reason);
+    }
+
+    private static String getExceptionMessage(Object ex) {
+        if (ex instanceof Throwable) {
+            String msg = ((Throwable) ex).getMessage();
+            return msg != null ? msg : ex.getClass().getName();
+        }
+        return String.valueOf(ex);
+    }
 }

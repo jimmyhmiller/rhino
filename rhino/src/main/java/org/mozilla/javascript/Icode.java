@@ -141,8 +141,11 @@ abstract class Icode {
             Icode_GENERATOR_RETURN = Icode_DEBUGGER - 1,
             Icode_YIELD_STAR = Icode_GENERATOR_RETURN - 1,
 
+            // Async function opcodes
+            Icode_AWAIT = Icode_YIELD_STAR - 1,
+
             // Load BigInt register to prepare for the following BigInt operation
-            Icode_REG_BIGINT_C0 = Icode_YIELD_STAR - 1,
+            Icode_REG_BIGINT_C0 = Icode_AWAIT - 1,
             Icode_REG_BIGINT_C1 = Icode_REG_BIGINT_C0 - 1,
             Icode_REG_BIGINT_C2 = Icode_REG_BIGINT_C1 - 1,
             Icode_REG_BIGINT_C3 = Icode_REG_BIGINT_C2 - 1,
@@ -398,6 +401,8 @@ abstract class Icode {
                 return "GENERATOR_RETURN";
             case Icode_YIELD_STAR:
                 return "YIELD_STAR";
+            case Icode_AWAIT:
+                return "AWAIT";
             case Icode_REG_BIGINT_C0:
                 return "REG_BIGINT_C0";
             case Icode_REG_BIGINT_C1:

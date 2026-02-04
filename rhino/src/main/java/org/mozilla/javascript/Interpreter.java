@@ -966,6 +966,7 @@ public final class Interpreter extends Icode implements Evaluator {
                 case Token.THROW:
                 case Token.YIELD:
                 case Icode_YIELD_STAR:
+                case Icode_AWAIT:
                 case Icode_GENERATOR:
                 case Icode_GENERATOR_END:
                 case Icode_GENERATOR_RETURN:
@@ -1168,6 +1169,7 @@ public final class Interpreter extends Icode implements Evaluator {
             case Token.THROW:
             case Token.YIELD:
             case Icode_YIELD_STAR:
+            case Icode_AWAIT:
             case Icode_GENERATOR:
             case Icode_GENERATOR_END:
             case Icode_GENERATOR_RETURN:
@@ -1670,6 +1672,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_YIELD_STAR] = new DoYield();
         instructionObjs[base + Icode_GENERATOR_END] = new DoGeneratorEnd();
         instructionObjs[base + Icode_GENERATOR_RETURN] = new DoGeneratorReturn();
+        instructionObjs[base + Icode_AWAIT] = new DoAwait();
         instructionObjs[base + Token.THROW] = new DoThrow();
         instructionObjs[base + Token.RETHROW] = new DoRethrow();
         instructionObjs[base + Token.GE] = new DoCompare();
@@ -1958,6 +1961,17 @@ public final class Interpreter extends Icode implements Evaluator {
                                 && interpreterResult == Undefined.instance) {
                             interpreterResult = frame.thisObj;
                         }
+                        // For async functions, wrap the return value in a Promise
+                        if (desc != null && desc.isAsync()) {
+                            Object returnValue =
+                                    (interpreterResult != DOUBLE_MARK)
+                                            ? interpreterResult
+                                            : ScriptRuntime.wrapNumber(interpreterResultDbl);
+                            interpreterResult =
+                                    ScriptRuntime.wrapInResolvedPromise(
+                                            cx, frame.scope, returnValue);
+                            interpreterResultDbl = 0.0;
+                        }
                         break StateLoop;
                     } else if (result instanceof YieldResult) {
                         return ((YieldResult) result).yielding;
@@ -2067,6 +2081,35 @@ public final class Interpreter extends Icode implements Evaluator {
                     }
                     // No allowed exception handlers in this frame, unwind
                     // to parent and try to look there
+
+                    // For async functions, convert uncaught exceptions to rejected Promises
+                    JSDescriptor<?> frameDesc = frame.fnOrScript.getDescriptor();
+                    if (frameDesc != null && frameDesc.isAsync() && cjump == null) {
+                        // Async function with uncaught exception - return a rejected Promise
+                        Object rejectedPromise =
+                                ScriptRuntime.wrapInRejectedPromise(cx, frame.scope, throwable);
+
+                        if (frame.parentFrame != null) {
+                            // Return rejected Promise to parent frame
+                            CallFrame newFrame = frame.parentFrame;
+                            if (newFrame.frozen) {
+                                newFrame = newFrame.cloneFrozen();
+                            }
+                            exitFrame(cx, frame, null);
+                            setCallResult(newFrame, rejectedPromise, 0.0);
+                            frame = newFrame;
+                            throwable = null;
+                            continue StateLoop;
+                        } else {
+                            // Top-level async function
+                            interpreterResult = rejectedPromise;
+                            interpreterResultDbl = 0.0;
+                            exitFrame(cx, frame, null);
+                            throwable = null;
+                            frame = null;
+                            break StateLoop;
+                        }
+                    }
 
                     exitFrame(cx, frame, throwable);
 
@@ -2217,6 +2260,13 @@ public final class Interpreter extends Icode implements Evaluator {
                         && frame.superCalled
                         && result == Undefined.instance) {
                     result = frame.thisObj;
+                }
+                // For async functions, wrap the return value in a Promise
+                if (desc != null && desc.isAsync()) {
+                    Object returnValue =
+                            (result != DOUBLE_MARK) ? result : ScriptRuntime.wrapNumber(resultDbl);
+                    result = ScriptRuntime.wrapInResolvedPromise(cx, frame.scope, returnValue);
+                    resultDbl = 0.0;
                 }
                 setCallResult(newFrame, result, resultDbl);
                 return new StateContinueResult(newFrame, state.indexReg);
@@ -2372,6 +2422,27 @@ public final class Interpreter extends Icode implements Evaluator {
                 state.throwable = obj;
                 return BREAK_WITHOUT_EXTENSION;
             }
+            return null;
+        }
+    }
+
+    private static class DoAwait extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Get the awaited value from the stack
+            Object value = frame.stack[state.stackTop];
+            if (value == DOUBLE_MARK) {
+                value = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            }
+
+            // For now, implement synchronous await:
+            // If value is a Promise, get its result
+            // Otherwise, treat it as an already-resolved value
+            Object result = ScriptRuntime.awaitValue(cx, frame.scope, value);
+            frame.stack[state.stackTop] = result;
+
+            // Skip the line number data (2 bytes)
+            frame.pc += 2;
             return null;
         }
     }

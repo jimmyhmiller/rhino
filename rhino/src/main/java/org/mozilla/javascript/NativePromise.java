@@ -96,6 +96,30 @@ public class NativePromise extends ScriptableObject {
         return result;
     }
 
+    /** Returns the current state of this Promise. Used by async/await implementation. */
+    public State getState() {
+        return state;
+    }
+
+    /**
+     * Returns true if this Promise is in the fulfilled state. Used by async/await implementation.
+     */
+    public boolean isFulfilled() {
+        return state == State.FULFILLED;
+    }
+
+    /**
+     * Returns true if this Promise is in the rejected state. Used by async/await implementation.
+     */
+    public boolean isRejected() {
+        return state == State.REJECTED;
+    }
+
+    /** Returns true if this Promise is in the pending state. Used by async/await implementation. */
+    public boolean isPending() {
+        return state == State.PENDING;
+    }
+
     // Promise.resolve
     private static Object resolve(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
         if (!ScriptRuntime.isObject(thisObj)) {
@@ -127,6 +151,40 @@ public class NativePromise extends ScriptableObject {
         Object arg = (args.length > 0 ? args[0] : Undefined.instance);
         Capability cap = new Capability(cx, scope, thisObj);
         cap.reject.call(cx, scope, Undefined.SCRIPTABLE_UNDEFINED, new Object[] {arg});
+        return cap.promise;
+    }
+
+    /**
+     * Create a resolved Promise with the given value. Used internally by async functions.
+     *
+     * @param cx the current context
+     * @param scope the current scope
+     * @param value the value to resolve with
+     * @return a Promise resolved with the given value
+     */
+    public static Object resolveValue(Context cx, Scriptable scope, Object value) {
+        Object promiseConstructor = ScriptRuntime.getTopLevelProp(scope, "Promise");
+        if (!(promiseConstructor instanceof Scriptable)) {
+            throw ScriptRuntime.typeErrorById("msg.arg.not.object", "Promise");
+        }
+        return resolveInternal(cx, scope, promiseConstructor, value);
+    }
+
+    /**
+     * Create a rejected Promise with the given reason. Used internally by async functions.
+     *
+     * @param cx the current context
+     * @param scope the current scope
+     * @param reason the rejection reason
+     * @return a Promise rejected with the given reason
+     */
+    public static Object rejectValue(Context cx, Scriptable scope, Object reason) {
+        Object promiseConstructor = ScriptRuntime.getTopLevelProp(scope, "Promise");
+        if (!(promiseConstructor instanceof Scriptable)) {
+            throw ScriptRuntime.typeErrorById("msg.arg.not.object", "Promise");
+        }
+        Capability cap = new Capability(cx, scope, promiseConstructor);
+        cap.reject.call(cx, scope, Undefined.SCRIPTABLE_UNDEFINED, new Object[] {reason});
         return cap.promise;
     }
 

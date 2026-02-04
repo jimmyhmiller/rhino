@@ -21,6 +21,7 @@ import org.mozilla.javascript.ast.ArrayLiteral;
 import org.mozilla.javascript.ast.Assignment;
 import org.mozilla.javascript.ast.AstNode;
 import org.mozilla.javascript.ast.AstRoot;
+import org.mozilla.javascript.ast.Await;
 import org.mozilla.javascript.ast.BigIntLiteral;
 import org.mozilla.javascript.ast.Block;
 import org.mozilla.javascript.ast.BreakStatement;
@@ -171,6 +172,7 @@ public class Parser {
     private List<Loop> loopSet;
     private List<Jump> loopAndSwitchSet;
     private boolean hasUndefinedBeenRedefined = false;
+    private boolean inAsyncFunction = false; // Track if we're inside an async function for await
     // end of per function variables
 
     // Lacking 2-token lookahead, labels become a problem.
@@ -1153,14 +1155,20 @@ public class Parser {
     }
 
     private FunctionNode function(int type) throws IOException {
-        return function(type, false, false);
+        return function(type, false, false, false);
     }
 
     private FunctionNode function(int type, boolean isMethodDefiniton) throws IOException {
-        return function(type, isMethodDefiniton, false);
+        return function(type, isMethodDefiniton, false, false);
     }
 
     private FunctionNode function(int type, boolean isMethodDefiniton, boolean isGeneratorMethod)
+            throws IOException {
+        return function(type, isMethodDefiniton, isGeneratorMethod, false);
+    }
+
+    private FunctionNode function(
+            int type, boolean isMethodDefiniton, boolean isGeneratorMethod, boolean isAsync)
             throws IOException {
         boolean isGenerator = isGeneratorMethod;
         int syntheticType = type;
@@ -1234,6 +1242,9 @@ public class Parser {
         if (isGenerator) {
             fnNode.setIsES6Generator();
         }
+        if (isAsync) {
+            fnNode.setIsAsync();
+        }
         if (lpPos != -1) fnNode.setLp(lpPos - functionSourceStart);
 
         fnNode.setJsDocNode(getAndResetJsDoc());
@@ -1248,6 +1259,10 @@ public class Parser {
         boolean wasInsideMethod = insideMethod;
         insideMethod = isMethodDefiniton;
         try {
+            // Set async context after saving variables so await can be recognized
+            if (isAsync) {
+                inAsyncFunction = true;
+            }
             parseFunctionParams(fnNode);
             AstNode body = parseFunctionBody(type, fnNode);
             fnNode.setBody(body);
@@ -1294,6 +1309,48 @@ public class Parser {
             fnNode.setParentScope(currentScope);
         }
         return fnNode;
+    }
+
+    /**
+     * Parses async function declaration or async expression. Called when Token.ASYNC is seen. The
+     * async keyword is a contextual keyword - it only acts as a keyword when followed by function
+     * (or an arrow function parameter list).
+     */
+    private AstNode asyncFunctionOrExpression() throws IOException {
+        consumeToken(); // consume 'async'
+        int asyncPos = ts.tokenBeg;
+        int asyncLineno = lineNumber();
+        int asyncColumn = columnNumber();
+
+        // Check for line terminator between async and function (not allowed)
+        int tt = peekTokenOrEOL();
+        if (tt == Token.EOL) {
+            // Line terminator after async - treat 'async' as identifier
+            saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
+            AstNode name = createNameNode(true, Token.NAME);
+            AstNode pn = new ExpressionStatement(name, !insideFunctionBody());
+            pn.setLineColumnNumber(asyncLineno, asyncColumn);
+            return pn;
+        }
+
+        tt = peekToken();
+        if (tt == Token.FUNCTION) {
+            consumeToken();
+            // Check for async generator: async function*
+            boolean isGenerator = false;
+            if (matchToken(Token.MUL, true)) {
+                isGenerator = true;
+            }
+            return function(FunctionNode.FUNCTION_EXPRESSION_STATEMENT, false, isGenerator, true);
+        }
+
+        // Not followed by 'function' - could be async arrow function or just identifier
+        // Treat 'async' as identifier
+        saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
+        AstNode name = createNameNode(true, Token.NAME);
+        AstNode pn = new ExpressionStatement(name, !insideFunctionBody());
+        pn.setLineColumnNumber(asyncLineno, asyncColumn);
+        return pn;
     }
 
     /**
@@ -2116,6 +2173,18 @@ public class Parser {
             case Token.FUNCTION:
                 consumeToken();
                 return function(FunctionNode.FUNCTION_EXPRESSION_STATEMENT);
+
+            case Token.ASYNC:
+                // async function declaration
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                    return asyncFunctionOrExpression();
+                }
+                // Fall through to default if not ES6+
+                lineno = ts.getLineno();
+                column = ts.getTokenColumn();
+                pn = new ExpressionStatement(expr(false), !insideFunctionBody());
+                pn.setLineColumnNumber(lineno, column);
+                break;
 
             case Token.CLASS:
                 consumeToken();
@@ -3606,6 +3675,31 @@ public class Parser {
         return ret;
     }
 
+    /**
+     * Parse an await expression. Called when Token.AWAIT is seen inside an async function.
+     *
+     * <pre>
+     * AwaitExpression:
+     *     await UnaryExpression
+     * </pre>
+     */
+    private AstNode awaitExpr() throws IOException {
+        if (!insideFunctionBody()) {
+            reportError("msg.bad.await");
+        }
+        consumeToken();
+        int lineno = lineNumber(), column = columnNumber(), pos = ts.tokenBeg, end = ts.tokenEnd;
+
+        // await requires an operand
+        AstNode e = unaryExpr();
+        end = getNodeEnd(e);
+
+        Await ret = new Await(pos, end - pos, e);
+        ret.setLineColumnNumber(lineno, column);
+        setRequiresActivation();
+        return ret;
+    }
+
     private AstNode block() throws IOException {
         if (currentToken != Token.LC) codeBug();
         consumeToken();
@@ -4234,6 +4328,11 @@ public class Parser {
         // In ES6 non-strict mode outside generators, yield is a valid identifier
         if (tt == Token.YIELD && isCurrentFunctionGenerator()) {
             return returnOrYield(tt, true);
+        }
+
+        // Handle await inside async functions
+        if (tt == Token.AWAIT && inAsyncFunction) {
+            return awaitExpr();
         }
 
         // Intentionally not calling lineNumber/columnNumber here!
@@ -5236,6 +5335,43 @@ public class Parser {
                 consumeToken();
                 reportError("msg.syntax");
                 break;
+
+            case Token.AWAIT:
+                // Outside async functions, 'await' can be used as an identifier
+                // Inside async functions, await should go through assignExpr -> awaitExpr
+                if (!inAsyncFunction) {
+                    consumeToken();
+                    int awaitPos = ts.tokenBeg;
+                    int awaitLineno = lineNumber();
+                    int awaitColumn = columnNumber();
+                    // Treat 'await' as an identifier
+                    saveNameTokenData(awaitPos, "await", awaitLineno, awaitColumn);
+                    return createNameNode(true, Token.NAME);
+                }
+                // Inside async functions, should not reach here
+                consumeToken();
+                reportError("msg.syntax");
+                break;
+
+            case Token.ASYNC:
+                // 'async' can be used as an identifier in expression context
+                // async function expressions are handled elsewhere
+                consumeToken();
+                {
+                    int asyncPos = ts.tokenBeg;
+                    int asyncLineno = lineNumber();
+                    int asyncColumn = columnNumber();
+                    // Check if followed by 'function' for async function expression
+                    if (peekToken() == Token.FUNCTION
+                            && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                        consumeToken();
+                        boolean isGenerator = matchToken(Token.MUL, true);
+                        return function(FunctionNode.FUNCTION_EXPRESSION, false, isGenerator, true);
+                    }
+                    // Treat 'async' as an identifier
+                    saveNameTokenData(asyncPos, "async", asyncLineno, asyncColumn);
+                    return createNameNode(true, Token.NAME);
+                }
 
             case Token.LP:
                 consumeToken();
@@ -6323,6 +6459,7 @@ public class Parser {
         private List<Loop> savedLoopSet;
         private List<Jump> savedLoopAndSwitchSet;
         private boolean savedHasUndefinedBeenRedefined;
+        private boolean savedInAsyncFunction;
 
         PerFunctionVariables(FunctionNode fnNode) {
             savedCurrentScriptOrFn = Parser.this.currentScriptOrFn;
@@ -6348,6 +6485,10 @@ public class Parser {
 
             savedHasUndefinedBeenRedefined = Parser.this.hasUndefinedBeenRedefined;
             // we want to inherit the current value
+
+            savedInAsyncFunction = Parser.this.inAsyncFunction;
+            // Reset for nested functions - will be set appropriately when parsing async functions
+            Parser.this.inAsyncFunction = false;
         }
 
         void restore() {
@@ -6359,6 +6500,7 @@ public class Parser {
             Parser.this.endFlags = savedEndFlags;
             Parser.this.inForInit = savedInForInit;
             Parser.this.hasUndefinedBeenRedefined = savedHasUndefinedBeenRedefined;
+            Parser.this.inAsyncFunction = savedInAsyncFunction;
         }
     }
 
