@@ -859,7 +859,11 @@ public class BaseFunction extends ScriptableObject implements Function {
             obj.setPrototype(proto);
         }
 
-        obj.defineProperty("constructor", this, DONTENUM);
+        // ES6 25.2.4.2: GeneratorFunction instances' prototype objects should have
+        // no own properties (not even 'constructor'). Regular functions get 'constructor'.
+        if (!isGeneratorFunction()) {
+            obj.defineProperty("constructor", this, DONTENUM);
+        }
         return obj;
     }
 
