@@ -258,7 +258,9 @@ public class Token {
                             + 1, // Switch to new per-iteration scope (leave old, enter new)
             REQ_OBJ_COERCIBLE =
                     SWITCH_PER_ITER_SCOPE + 1, // RequireObjectCoercible check for destructuring
-            CLASS = REQ_OBJ_COERCIBLE + 1, // ES6 class keyword
+            OBJECT_REST_COPY =
+                    REQ_OBJ_COERCIBLE + 1, // Object rest destructuring: copy props except excluded
+            CLASS = OBJECT_REST_COPY + 1, // ES6 class keyword
             EXTENDS = CLASS + 1, // ES6 extends keyword
             STATIC = EXTENDS + 1, // ES6 static keyword
             FIELD = STATIC + 1, // ES2022 class field definition
@@ -696,6 +698,8 @@ public class Token {
                 return "SWITCH_PER_ITER_SCOPE";
             case REQ_OBJ_COERCIBLE:
                 return "REQ_OBJ_COERCIBLE";
+            case OBJECT_REST_COPY:
+                return "OBJECT_REST_COPY";
         }
 
         // Token without name

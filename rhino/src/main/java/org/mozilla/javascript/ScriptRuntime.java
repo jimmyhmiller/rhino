@@ -952,6 +952,72 @@ public class ScriptRuntime {
         return result;
     }
 
+    /**
+     * Create a new object with all own enumerable properties from source, excluding the specified
+     * keys. Used for object rest destructuring: const { a, b, ...rest } = obj;
+     *
+     * @param cx the context
+     * @param scope the scope
+     * @param source the source object to copy from
+     * @param excludedKeysObj array (NativeArray or Object[]) of property names to exclude
+     * @return a new object with copied properties
+     */
+    public static Scriptable objectRestCopy(
+            Context cx, Scriptable scope, Object source, Object excludedKeysObj) {
+        if (source == null || Undefined.isUndefined(source)) {
+            throw typeErrorById("msg.null.to.object");
+        }
+
+        Scriptable sourceObj = toObject(cx, scope, source);
+        Scriptable result = cx.newObject(scope);
+
+        // Build a set of excluded keys for fast lookup
+        java.util.Set<Object> excluded = new java.util.HashSet<>();
+        if (excludedKeysObj instanceof NativeArray) {
+            NativeArray arr = (NativeArray) excludedKeysObj;
+            for (int i = 0; i < arr.getLength(); i++) {
+                Object key = arr.get(i, arr);
+                if (key != Scriptable.NOT_FOUND) {
+                    excluded.add(key);
+                }
+            }
+        } else if (excludedKeysObj instanceof Object[]) {
+            for (Object key : (Object[]) excludedKeysObj) {
+                excluded.add(key);
+            }
+        }
+
+        // Copy all own enumerable properties except excluded ones
+        // Use Object.keys() semantics - own enumerable string properties
+        Object[] ids = sourceObj.getIds();
+        for (Object id : ids) {
+            if (excluded.contains(id)) {
+                continue;
+            }
+
+            Object value;
+            if (id instanceof String) {
+                value = sourceObj.get((String) id, sourceObj);
+                if (value != Scriptable.NOT_FOUND) {
+                    result.put((String) id, result, value);
+                }
+            } else if (id instanceof Integer) {
+                value = sourceObj.get((Integer) id, sourceObj);
+                if (value != Scriptable.NOT_FOUND) {
+                    result.put((Integer) id, result, value);
+                }
+            } else if (id instanceof Symbol) {
+                // Symbols are included in rest properties per ES2018
+                value = ScriptableObject.getProperty(sourceObj, (Symbol) id);
+                if (value != Scriptable.NOT_FOUND) {
+                    ScriptableObject.putProperty(result, (Symbol) id, value);
+                }
+            }
+        }
+
+        return result;
+    }
+
     public static String escapeString(String s) {
         return escapeString(s, '"');
     }

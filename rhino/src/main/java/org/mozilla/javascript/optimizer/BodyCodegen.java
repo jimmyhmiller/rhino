@@ -1371,6 +1371,28 @@ class BodyCodegen {
                         "requireObjectCoercible", "(Ljava/lang/Object;)Ljava/lang/Object;");
                 break;
 
+            case Token.OBJECT_REST_COPY:
+                {
+                    // Object rest destructuring: copy all own enumerable props except excluded
+                    // Stack before: (empty)
+                    // Stack after: newObject
+                    cfw.addALoad(contextLocal);
+                    cfw.addALoad(variableObjectLocal);
+                    // Generate source expression (first child)
+                    generateExpression(child, node);
+                    // Generate excluded keys array (second child)
+                    generateExpression(child.getNext(), node);
+                    // Call: objectRestCopy(cx, scope, source, excludedKeys)
+                    addScriptRuntimeInvoke(
+                            "objectRestCopy",
+                            "(Lorg/mozilla/javascript/Context;"
+                                    + "Lorg/mozilla/javascript/Scriptable;"
+                                    + "Ljava/lang/Object;"
+                                    + "Ljava/lang/Object;"
+                                    + ")Lorg/mozilla/javascript/Scriptable;");
+                }
+                break;
+
             case Token.TRUE:
                 cfw.add(ByteCode.GETSTATIC, "java/lang/Boolean", "TRUE", "Ljava/lang/Boolean;");
                 break;

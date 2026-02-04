@@ -1793,6 +1793,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_UNDEF] = new DoUndef();
         instructionObjs[base + Icode_TDZ] = new DoTdz();
         instructionObjs[base + Icode_REQ_OBJ_COERCIBLE] = new DoReqObjCoercible();
+        instructionObjs[base + Icode_OBJECT_REST_COPY] = new DoObjectRestCopy();
         instructionObjs[base + Icode_CALL_SPREAD] = new DoCallSpread();
         instructionObjs[base + Icode_NEW_SPREAD] = new DoNewSpread();
         instructionObjs[base + Icode_CALLSPECIAL_SPREAD] = new DoCallSpecialSpread();
@@ -4681,6 +4682,27 @@ public final class Interpreter extends Icode implements Evaluator {
             // Check that value is object-coercible (throws TypeError for null/undefined)
             ScriptRuntime.requireObjectCoercible(value);
             // Value stays on stack unchanged
+            return null;
+        }
+    }
+
+    private static class DoObjectRestCopy extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Stack: source, excludedArray -> newObject
+            Object excludedArray = frame.stack[state.stackTop];
+            if (excludedArray == DOUBLE_MARK)
+                excludedArray = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            --state.stackTop;
+            Object source = frame.stack[state.stackTop];
+            if (source == DOUBLE_MARK)
+                source = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+
+            // Call the runtime function to create the rest object
+            // objectRestCopy handles NativeArray and Object[] internally
+            Scriptable result =
+                    ScriptRuntime.objectRestCopy(cx, frame.scope, source, excludedArray);
+            frame.stack[state.stackTop] = result;
             return null;
         }
     }

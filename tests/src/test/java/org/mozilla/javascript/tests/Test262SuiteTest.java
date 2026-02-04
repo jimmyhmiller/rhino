@@ -104,7 +104,6 @@ public class Test262SuiteTest {
                             "IsHTMLDDA",
                             "async-functions",
                             "async-iteration",
-                            "object-rest",
                             "regexp-dotall",
                             "regexp-unicode-property-escapes",
                             "resizable-arraybuffer",

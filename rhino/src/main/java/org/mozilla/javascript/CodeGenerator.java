@@ -1384,6 +1384,16 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 // Stack: value -> value (unchanged)
                 break;
 
+            case Token.OBJECT_REST_COPY:
+                // Object rest destructuring: copy all own enumerable properties except excluded
+                // First child is source object, second child is ARRAYLIT of excluded keys
+                visitExpression(node.getFirstChild(), 0); // source
+                visitExpression(node.getLastChild(), 0); // excluded keys array
+                addIcode(Icode_OBJECT_REST_COPY);
+                // Stack: source, excludedArray -> newObject
+                stackChange(-1);
+                break;
+
             case Token.ENUM_NEXT:
             case Token.ENUM_ID:
                 addIndexOp(type, getLocalBlockRef(node));

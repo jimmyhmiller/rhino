@@ -193,8 +193,11 @@ abstract class Icode {
             // RequireObjectCoercible check for destructuring (throws for null/undefined)
             Icode_REQ_OBJ_COERCIBLE = Icode_ENTERWITH_CONST - 1,
 
+            // Object rest copy - copies object properties excluding specified keys
+            Icode_OBJECT_REST_COPY = Icode_REQ_OBJ_COERCIBLE - 1,
+
             // Call/new with spread arguments - args are in NewLiteralStorage on stack
-            Icode_CALL_SPREAD = Icode_REQ_OBJ_COERCIBLE - 1,
+            Icode_CALL_SPREAD = Icode_OBJECT_REST_COPY - 1,
             Icode_NEW_SPREAD = Icode_CALL_SPREAD - 1,
 
             // Special call (eval) with spread arguments
@@ -438,6 +441,8 @@ abstract class Icode {
                 return "ENTERWITH_CONST";
             case Icode_REQ_OBJ_COERCIBLE:
                 return "REQ_OBJ_COERCIBLE";
+            case Icode_OBJECT_REST_COPY:
+                return "OBJECT_REST_COPY";
             case Icode_CALL_SPREAD:
                 return "CALL_SPREAD";
             case Icode_NEW_SPREAD:

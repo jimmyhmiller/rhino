@@ -7117,11 +7117,64 @@ public class Parser {
             defaultValuesSetup = true;
         }
 
-        for (AbstractObjectProperty abstractProp : node.getElements()) {
+        // Track property names for object rest
+        List<String> excludedKeys = new ArrayList<>();
+
+        List<AbstractObjectProperty> elements = node.getElements();
+        for (int i = 0; i < elements.size(); i++) {
+            AbstractObjectProperty abstractProp = elements.get(i);
+
             if (abstractProp instanceof SpreadObjectProperty) {
-                reportError("msg.no.object.rest");
-                return false;
+                // Object rest must be last element
+                if (i != elements.size() - 1) {
+                    reportError("msg.parm.after.rest");
+                    return false;
+                }
+
+                SpreadObjectProperty spreadProp = (SpreadObjectProperty) abstractProp;
+                AstNode restTarget = spreadProp.getSpreadNode().getExpression();
+
+                if (defaultValue != null && !defaultValuesSetup) {
+                    setupDefaultValues(tempName, parent, defaultValue, setOp, transformer);
+                    defaultValuesSetup = true;
+                }
+
+                // Generate object rest copy using Token.OBJECT_REST_COPY
+                // This creates a new object with all own enumerable properties except excluded keys
+                Node excludedArray = new Node(Token.ARRAYLIT);
+                for (String key : excludedKeys) {
+                    excludedArray.addChildToBack(Node.newString(key));
+                }
+
+                // Create OBJECT_REST_COPY node: source, excludedKeysArray
+                Node restCopyNode = new Node(Token.OBJECT_REST_COPY);
+                restCopyNode.addChildToBack(createName(tempName));
+                restCopyNode.addChildToBack(excludedArray);
+
+                if (restTarget.getType() == Token.NAME) {
+                    String name = ((Name) restTarget).getIdentifier();
+                    parent.addChildToBack(
+                            new Node(setOp, createName(Token.BINDNAME, name, null), restCopyNode));
+                    if (variableType != -1) {
+                        defineSymbol(variableType, name, true);
+                        destructuringNames.add(name);
+                    }
+                } else {
+                    // Nested destructuring in rest: { ...{a, b} } = obj
+                    parent.addChildToBack(
+                            destructuringAssignmentHelper(
+                                    variableType,
+                                    restTarget,
+                                    restCopyNode,
+                                    currentScriptOrFn.getNextTempName(),
+                                    null,
+                                    transformer,
+                                    isFunctionParameter));
+                }
+                empty = false;
+                break;
             }
+
             ObjectProperty prop = (ObjectProperty) abstractProp;
 
             int lineno = 0, column = 0;
@@ -7134,14 +7187,19 @@ public class Parser {
             }
             AstNode id = prop.getKey();
 
+            // Track the key name for object rest exclusion
+            String keyName = null;
             Node rightElem = null;
             if (id instanceof Name) {
-                Node s = Node.newString(((Name) id).getIdentifier());
+                keyName = ((Name) id).getIdentifier();
+                Node s = Node.newString(keyName);
                 rightElem = new Node(Token.GETPROP, createName(tempName), s);
             } else if (id instanceof StringLiteral) {
-                Node s = Node.newString(((StringLiteral) id).getValue());
+                keyName = ((StringLiteral) id).getValue();
+                Node s = Node.newString(keyName);
                 rightElem = new Node(Token.GETPROP, createName(tempName), s);
             } else if (id instanceof NumberLiteral) {
+                keyName = String.valueOf((int) ((NumberLiteral) id).getNumber());
                 Node s = createNumber((int) ((NumberLiteral) id).getNumber());
                 rightElem = new Node(Token.GETELEM, createName(tempName), s);
             } else if (id instanceof ComputedPropertyKey) {
@@ -7149,6 +7207,10 @@ public class Parser {
                 return false;
             } else {
                 throw codeBug();
+            }
+
+            if (keyName != null) {
+                excludedKeys.add(keyName);
             }
 
             rightElem.setLineColumnNumber(lineno, column);

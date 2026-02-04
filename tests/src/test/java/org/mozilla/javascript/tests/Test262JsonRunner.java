@@ -16,7 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -43,6 +42,7 @@ import org.mozilla.javascript.ScriptableObject;
 import org.mozilla.javascript.SymbolKey;
 import org.mozilla.javascript.TopLevel;
 import org.mozilla.javascript.Undefined;
+import org.mozilla.javascript.es6module.ModuleRecord;
 import org.mozilla.javascript.tools.SourceReader;
 import org.mozilla.javascript.tools.shell.ShellContextFactory;
 import org.mozilla.javascript.typedarrays.NativeArrayBuffer;
@@ -66,26 +66,6 @@ public class Test262JsonRunner {
 
     // Timeout for each test execution (per mode) in seconds
     private static final int TEST_TIMEOUT_SECONDS = 10;
-
-    private static final Set<String> UNSUPPORTED_FEATURES =
-            new HashSet<>(
-                    Arrays.asList(
-                            "Atomics",
-                            "IsHTMLDDA",
-                            "async-functions",
-                            "async-iteration",
-                            "class-fields-private",
-                            "class-fields-public",
-                            "default-arg",
-                            "new.target",
-                            "object-rest",
-                            "regexp-dotall",
-                            "regexp-unicode-property-escapes",
-                            "resizable-arraybuffer",
-                            "SharedArrayBuffer",
-                            "tail-call-optimization",
-                            "Temporal",
-                            "upsert"));
 
     private static final Map<String, Script> HARNESS_SCRIPT_CACHE = new ConcurrentHashMap<>();
 
@@ -260,42 +240,43 @@ public class Test262JsonRunner {
                 return;
             }
 
-            // Check for unsupported features
-            for (String feature : testCase.features) {
-                if (UNSUPPORTED_FEATURES.contains(feature)) {
-                    skipCount.incrementAndGet();
-                    return; // Don't add to results - skipped tests not counted
-                }
-            }
-
-            // Check for unsupported flags
-            if (testCase.hasFlag("module") || testCase.hasFlag("async")) {
+            // Check for unsupported flags (async is not supported, but modules are)
+            if (testCase.hasFlag("async")) {
                 skipCount.incrementAndGet();
                 return;
             }
 
-            // Try all 4 modes - pass if ANY succeeds
+            // Try all modes - pass if ANY succeeds
             boolean passed = false;
+            boolean isModule = testCase.hasFlag("module");
 
             for (boolean interpreted : new boolean[] {true, false}) {
                 if (passed) break;
 
-                boolean canRunStrict =
-                        !testCase.hasFlag(FLAG_NO_STRICT) && !testCase.hasFlag(FLAG_RAW);
-                boolean canRunNonStrict =
-                        !testCase.hasFlag(FLAG_ONLY_STRICT) || testCase.hasFlag(FLAG_RAW);
-
-                if (canRunNonStrict) {
-                    if (runSingleTest(testCase, relativePath, interpreted, false)) {
-                        passed = true;
-                        break;
-                    }
-                }
-
-                if (canRunStrict) {
+                if (isModule) {
+                    // Modules are always strict - only try once per interpretation mode
                     if (runSingleTest(testCase, relativePath, interpreted, true)) {
                         passed = true;
                         break;
+                    }
+                } else {
+                    boolean canRunStrict =
+                            !testCase.hasFlag(FLAG_NO_STRICT) && !testCase.hasFlag(FLAG_RAW);
+                    boolean canRunNonStrict =
+                            !testCase.hasFlag(FLAG_ONLY_STRICT) || testCase.hasFlag(FLAG_RAW);
+
+                    if (canRunNonStrict) {
+                        if (runSingleTest(testCase, relativePath, interpreted, false)) {
+                            passed = true;
+                            break;
+                        }
+                    }
+
+                    if (canRunStrict) {
+                        if (runSingleTest(testCase, relativePath, interpreted, true)) {
+                            passed = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -341,20 +322,47 @@ public class Test262JsonRunner {
             cx.setGeneratingDebug(true);
 
             boolean failedEarly = false;
+            boolean isModule = testCase.hasFlag("module");
+
             try {
                 Scriptable scope = buildScope(cx, testCase, interpretedMode);
                 String str = testCase.source;
                 int line = 1;
-                if (useStrict) {
+
+                // Modules are always strict, don't prepend "use strict"
+                if (useStrict && !isModule) {
                     str = "\"use strict\";\n" + str;
                     line--;
                 }
 
                 failedEarly = true;
-                Script caseScript = cx.compileString(str, testFilePath, line, null);
 
-                failedEarly = false;
-                caseScript.exec(cx, scope, scope);
+                if (isModule) {
+                    // Set up module loader for resolving imports
+                    File testFile = testCase.file;
+                    File testDir = testFile.getParentFile();
+                    Test262ModuleLoader moduleLoader = new Test262ModuleLoader(testDir);
+                    cx.setModuleLoader(moduleLoader);
+
+                    // Use the actual file path as the module specifier
+                    String moduleSpecifier = testFile.getAbsolutePath();
+
+                    // Parse and compile as a module
+                    ModuleRecord moduleRecord = cx.compileModule(str, moduleSpecifier, line, null);
+
+                    // Cache the module so self-referential imports work
+                    moduleLoader.cacheModule(moduleSpecifier, moduleRecord);
+
+                    failedEarly = false;
+
+                    // Execute the module
+                    cx.linkAndEvaluateModule(scope, moduleRecord);
+                } else {
+                    Script caseScript = cx.compileString(str, testFilePath, line, null);
+
+                    failedEarly = false;
+                    caseScript.exec(cx, scope, scope);
+                }
 
                 // If we get here without exception, check if test expected an error
                 if (testCase.isNegative()) {
