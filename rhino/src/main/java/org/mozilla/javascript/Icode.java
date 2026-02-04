@@ -226,8 +226,11 @@ abstract class Icode {
             // in a default parameter expression
             Icode_PARAM_TDZ_ERROR = Icode_CHECK_THIS_TDZ - 1,
 
+            // RequireIterable check for array destructuring - throws TypeError if not iterable
+            Icode_REQ_ITERABLE = Icode_PARAM_TDZ_ERROR - 1,
+
             // Last icode
-            MIN_ICODE = Icode_PARAM_TDZ_ERROR;
+            MIN_ICODE = Icode_REQ_ITERABLE;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -467,6 +470,8 @@ abstract class Icode {
                 return "CHECK_THIS_TDZ";
             case Icode_PARAM_TDZ_ERROR:
                 return "PARAM_TDZ_ERROR";
+            case Icode_REQ_ITERABLE:
+                return "REQ_ITERABLE";
         }
 
         // icode without name

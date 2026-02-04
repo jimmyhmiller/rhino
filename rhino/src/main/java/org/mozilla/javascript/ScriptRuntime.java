@@ -1443,6 +1443,28 @@ public class ScriptRuntime {
     }
 
     /**
+     * ES6 RequireIterable - throws TypeError if value is not iterable. Used by array destructuring
+     * patterns to validate the source value has Symbol.iterator.
+     */
+    public static Object requireIterable(Context cx, Scriptable scope, Object val) {
+        if (val == null) {
+            throw typeErrorById("msg.not.iterable", "null");
+        }
+        if (Undefined.isUndefined(val)) {
+            throw typeErrorById("msg.not.iterable", "undefined");
+        }
+        // Check if object has Symbol.iterator
+        Scriptable sVal = toObjectOrNull(cx, val, scope);
+        if (sVal != null) {
+            Object iteratorMethod = ScriptableObject.getProperty(sVal, SymbolKey.ITERATOR);
+            if (iteratorMethod != Scriptable.NOT_FOUND && !Undefined.isUndefined(iteratorMethod)) {
+                return val;
+            }
+        }
+        throw typeErrorById("msg.not.iterable", toString(val));
+    }
+
+    /**
      * @deprecated Use {@link #toObject(Context, Scriptable, Object)} instead.
      */
     @Deprecated

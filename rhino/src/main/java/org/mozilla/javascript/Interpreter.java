@@ -1793,6 +1793,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_UNDEF] = new DoUndef();
         instructionObjs[base + Icode_TDZ] = new DoTdz();
         instructionObjs[base + Icode_REQ_OBJ_COERCIBLE] = new DoReqObjCoercible();
+        instructionObjs[base + Icode_REQ_ITERABLE] = new DoReqIterable();
         instructionObjs[base + Icode_OBJECT_REST_COPY] = new DoObjectRestCopy();
         instructionObjs[base + Icode_CALL_SPREAD] = new DoCallSpread();
         instructionObjs[base + Icode_NEW_SPREAD] = new DoNewSpread();
@@ -4682,6 +4683,18 @@ public final class Interpreter extends Icode implements Evaluator {
             if (value == DOUBLE_MARK) value = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
             // Check that value is object-coercible (throws TypeError for null/undefined)
             ScriptRuntime.requireObjectCoercible(value);
+            // Value stays on stack unchanged
+            return null;
+        }
+    }
+
+    private static class DoReqIterable extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            Object value = frame.stack[state.stackTop];
+            if (value == DOUBLE_MARK) value = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            // Check that value is iterable (has Symbol.iterator)
+            ScriptRuntime.requireIterable(cx, frame.scope, value);
             // Value stays on stack unchanged
             return null;
         }

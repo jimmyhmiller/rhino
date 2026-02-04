@@ -1382,6 +1382,19 @@ class BodyCodegen {
                         "requireObjectCoercible", "(Ljava/lang/Object;)Ljava/lang/Object;");
                 break;
 
+            case Token.REQ_ITERABLE:
+                // Generate: requireIterable(cx, scope, value)
+                cfw.addALoad(contextLocal);
+                cfw.addALoad(variableObjectLocal);
+                generateExpression(child, node);
+                // Call requireIterable which throws TypeError if not iterable, returns value
+                addScriptRuntimeInvoke(
+                        "requireIterable",
+                        "(Lorg/mozilla/javascript/Context;"
+                                + "Lorg/mozilla/javascript/Scriptable;"
+                                + "Ljava/lang/Object;)Ljava/lang/Object;");
+                break;
+
             case Token.OBJECT_REST_COPY:
                 {
                     // Object rest destructuring: copy all own enumerable props except excluded

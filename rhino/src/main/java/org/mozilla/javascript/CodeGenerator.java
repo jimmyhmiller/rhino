@@ -1394,6 +1394,13 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 // Stack: value -> value (unchanged)
                 break;
 
+            case Token.REQ_ITERABLE:
+                // Check that the value is iterable (has Symbol.iterator)
+                visitExpression(node.getFirstChild(), 0);
+                addIcode(Icode_REQ_ITERABLE);
+                // Stack: value -> value (unchanged)
+                break;
+
             case Token.OBJECT_REST_COPY:
                 // Object rest destructuring: copy all own enumerable properties except excluded
                 // First child is source object, second child is ARRAYLIT of excluded keys

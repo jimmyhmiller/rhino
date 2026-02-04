@@ -267,7 +267,8 @@ public class Token {
             PRIVATE_NAME = FIELD + 1, // ES2022 private name (#identifier)
             PARAM_TDZ_ERROR =
                     PRIVATE_NAME + 1, // TDZ error for accessing param in default expression
-            LAST_TOKEN = PARAM_TDZ_ERROR + 1;
+            REQ_ITERABLE = PARAM_TDZ_ERROR + 1, // RequireIterable check for array destructuring
+            LAST_TOKEN = REQ_ITERABLE + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in

@@ -6497,6 +6497,17 @@ public class Parser {
                 // Use REQ_OBJ_COERCIBLE which checks without accessing any properties.
                 Node checkNode = new Node(Token.REQ_OBJ_COERCIBLE, createName(tempName));
                 comma.addChildToBack(checkNode);
+            } else if (left instanceof ArrayLiteral
+                    && !isFunctionParameter
+                    && !isForOfDestructuring
+                    && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                // For empty array patterns like `[] = value` in assignment expressions,
+                // we need to check that value is iterable (has Symbol.iterator).
+                // Function parameters and for-of loops handle this differently via iterator
+                // protocol.
+                // Only check in ES6+ since older versions allowed non-iterable destructuring.
+                Node checkNode = new Node(Token.REQ_ITERABLE, createName(tempName));
+                comma.addChildToBack(checkNode);
             } else {
                 // Don't want a COMMA node with no children. Just add a zero.
                 comma.addChildToBack(createNumber(0));
@@ -6587,6 +6598,18 @@ public class Parser {
         boolean iteratorSetup = false;
         String iteratorName = null;
         String lastResultName = null;
+
+        // For non-iterator-based array destructuring (regular assignment) in ES6+,
+        // we need to check that the value is iterable before doing index access.
+        // Iterator-based destructuring (function params, for-of) handles this internally.
+        // Only check in ES6+ since older versions allowed non-iterable destructuring.
+        if (!isFunctionParameter
+                && !isForOfDestructuring
+                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+            // Add REQ_ITERABLE check: throws TypeError if value is not iterable
+            Node checkNode = new Node(Token.REQ_ITERABLE, createName(tempName));
+            parent.addChildToBack(checkNode);
+        }
 
         List<AstNode> elements = array.getElements();
         for (int elemIndex = 0; elemIndex < elements.size(); elemIndex++) {
