@@ -95,57 +95,38 @@ public abstract class NewLiteralStorage {
 
     private void spreadArray(Context cx, Scriptable scope, Object source) {
         // See ecma-262 2026, 13.2.5.5 (Array Spread)
+        // ES6 12.2.5.2 Runtime Semantics: ArrayAccumulation
+        // SpreadElement: ... AssignmentExpression
+        // 3. Let iteratorRecord be ? GetIterator(spreadObj, sync).
+        // GetIterator (7.4.2): If method is undefined, throw a TypeError exception.
         if (source != null && !Undefined.isUndefined(source)) {
             Scriptable src = ScriptRuntime.toObject(cx, scope, source);
 
             // Check if the object has Symbol.iterator
             Object iteratorProp = ScriptableObject.getProperty(src, SymbolKey.ITERATOR);
-            if ((iteratorProp != Scriptable.NOT_FOUND) && !Undefined.isUndefined(iteratorProp)) {
-                // Per spec, if Symbol.iterator exists, use it. Let exceptions propagate.
-                final Object iterator = ScriptRuntime.callIterator(src, cx, scope);
-                if (!Undefined.isUndefined(iterator)) {
-                    List<Object> spreadValues = new ArrayList<>();
-                    try (IteratorLikeIterable it = new IteratorLikeIterable(cx, scope, iterator)) {
-                        for (Object temp : it) {
-                            spreadValues.add(temp);
-                        }
-                    }
-
-                    // Resize arrays
-                    int spreadSize = spreadValues.size();
-                    int newLen = values.length + spreadSize;
-                    getterSetters = Arrays.copyOf(getterSetters, newLen);
-                    values = Arrays.copyOf(values, newLen);
-
-                    // Push all values
-                    for (Object value : spreadValues) {
-                        pushValue(value);
-                    }
-                    return;
-                }
+            if (iteratorProp == Scriptable.NOT_FOUND || Undefined.isUndefined(iteratorProp)) {
+                // ES6 spec requires TypeError for non-iterables in array spread
+                throw ScriptRuntime.typeErrorById("msg.not.iterable", ScriptRuntime.typeof(source));
             }
-            // Fallback for objects without Symbol.iterator
-            int spreadSize =
-                    (src instanceof NativeArray)
-                            ? (int) ((NativeArray) src).getLength()
-                            : src.getIds().length;
-            int newLen = values.length + spreadSize;
-            getterSetters = Arrays.copyOf(getterSetters, newLen);
-            values = Arrays.copyOf(values, newLen);
 
-            if (src instanceof NativeArray) { // TODO: check if it's dense
-                NativeArray arr = (NativeArray) src;
-                long length = arr.getLength();
-
-                for (int i = 0; i < length; i++) {
-                    Object value = NativeArray.getElem(cx, arr, i);
-                    pushValue(value);
+            // Per spec, if Symbol.iterator exists, use it. Let exceptions propagate.
+            final Object iterator = ScriptRuntime.callIterator(src, cx, scope);
+            if (!Undefined.isUndefined(iterator)) {
+                List<Object> spreadValues = new ArrayList<>();
+                try (IteratorLikeIterable it = new IteratorLikeIterable(cx, scope, iterator)) {
+                    for (Object temp : it) {
+                        spreadValues.add(temp);
+                    }
                 }
-            } else {
-                Object[] ids = src.getIds();
 
-                for (Object id : ids) {
-                    Object value = getPropertyById(src, id);
+                // Resize arrays
+                int spreadSize = spreadValues.size();
+                int newLen = values.length + spreadSize;
+                getterSetters = Arrays.copyOf(getterSetters, newLen);
+                values = Arrays.copyOf(values, newLen);
+
+                // Push all values
+                for (Object value : spreadValues) {
                     pushValue(value);
                 }
             }

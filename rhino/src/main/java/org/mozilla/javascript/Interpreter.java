@@ -5254,6 +5254,9 @@ public final class Interpreter extends Icode implements Evaluator {
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
             // stack: [..., NewLiteralStorage, sourceObj]
             Object source = frame.stack[state.stackTop];
+            if (source == DOUBLE_MARK) {
+                source = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            }
             --state.stackTop;
             NewLiteralStorage store = (NewLiteralStorage) frame.stack[state.stackTop];
 
