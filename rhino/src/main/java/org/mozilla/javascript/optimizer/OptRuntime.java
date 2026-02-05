@@ -8,6 +8,7 @@ import java.util.List;
 import org.mozilla.javascript.Callable;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ContextFactory;
+import org.mozilla.javascript.ES6AsyncGenerator;
 import org.mozilla.javascript.ES6Generator;
 import org.mozilla.javascript.JSFunction;
 import org.mozilla.javascript.JavaScriptException;
@@ -276,6 +277,10 @@ public final class OptRuntime extends ScriptRuntime {
             int maxStack) {
         GeneratorState gs = new GeneratorState(scope, thisObj, maxLocals, maxStack);
         if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
+            if (funObj.getDescriptor().isAsyncGenerator()) {
+                // Async generator: returns Promise<{value, done}>
+                return new ES6AsyncGenerator(scope, funObj, gs);
+            }
             return new ES6Generator(scope, funObj, gs);
         } else {
             return new NativeGenerator(scope, funObj, gs);

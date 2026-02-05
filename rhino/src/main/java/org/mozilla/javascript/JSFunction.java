@@ -167,6 +167,11 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
     }
 
     @Override
+    protected boolean isAsyncGeneratorFunction() {
+        return descriptor != null && descriptor.isAsyncGenerator();
+    }
+
+    @Override
     public int getLength() {
         int arity = descriptor.getArity();
         if (getLanguageVersion() != Context.VERSION_1_2) {

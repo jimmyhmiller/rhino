@@ -425,6 +425,11 @@ public class BaseFunction extends ScriptableObject implements Function {
     }
 
     // Generated code will override this
+    protected boolean isAsyncGeneratorFunction() {
+        return false;
+    }
+
+    // Generated code will override this
     protected boolean hasDefaultParameters() {
         return false;
     }
@@ -840,7 +845,18 @@ public class BaseFunction extends ScriptableObject implements Function {
         // get an infinite loop trying to find the prototype.
         prototypeProperty = obj;
         Scriptable proto;
-        if (isGeneratorFunction()) {
+        if (isAsyncGeneratorFunction()) {
+            // For async generator functions, the .prototype property's [[Prototype]]
+            // should be %AsyncGeneratorPrototype%
+            Scriptable top = ScriptableObject.getTopLevelScope(scope);
+            Object asyncGeneratorProto =
+                    ScriptableObject.getTopScopeValue(top, ES6AsyncGenerator.ASYNC_GENERATOR_TAG);
+            if (asyncGeneratorProto instanceof Scriptable) {
+                proto = (Scriptable) asyncGeneratorProto;
+            } else {
+                proto = getObjectPrototype(this); // fallback
+            }
+        } else if (isGeneratorFunction()) {
             // For generator functions, the .prototype property's [[Prototype]]
             // should be %GeneratorPrototype%, not Object.prototype
             Scriptable top = ScriptableObject.getTopLevelScope(scope);

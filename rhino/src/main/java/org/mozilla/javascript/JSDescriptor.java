@@ -313,6 +313,11 @@ public final class JSDescriptor<T extends ScriptOrFn<T>> implements Serializable
         return (flags & IS_ASYNC_FLAG) != 0;
     }
 
+    /** Returns true if this is an async generator function (async function*). */
+    public boolean isAsyncGenerator() {
+        return isAsync() && isES6Generator();
+    }
+
     public SecurityController getSecurityController() {
         return securityController;
     }

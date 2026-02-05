@@ -103,7 +103,7 @@ public class Test262SuiteTest {
                             "Atomics",
                             "IsHTMLDDA",
                             // "async-functions" - now supported!
-                            "async-iteration",
+                            // "async-iteration" - now supported!
                             // "regexp-dotall" - now supported!
                             "regexp-unicode-property-escapes",
                             "resizable-arraybuffer",

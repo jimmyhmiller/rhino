@@ -2339,12 +2339,14 @@ public final class Interpreter extends Icode implements Evaluator {
             frame.savedStackTop = frame.emptyStackTop;
             CallFrame generatorFrame = captureFrameForGenerator(frame);
             generatorFrame.frozen = true;
+            JSFunction fn = (JSFunction) generatorFrame.fnOrScript;
             if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
-                frame.result =
-                        new ES6Generator(
-                                frame.scope,
-                                (JSFunction) generatorFrame.fnOrScript,
-                                generatorFrame);
+                if (fn.getDescriptor().isAsyncGenerator()) {
+                    // Async generator: returns Promise<{value, done}>
+                    frame.result = new ES6AsyncGenerator(frame.scope, fn, generatorFrame);
+                } else {
+                    frame.result = new ES6Generator(frame.scope, fn, generatorFrame);
+                }
             } else {
                 frame.result =
                         new NativeGenerator(
