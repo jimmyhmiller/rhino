@@ -1070,6 +1070,7 @@ class BodyCodegen {
             case Token.ENUM_INIT_VALUES:
             case Token.ENUM_INIT_ARRAY:
             case Token.ENUM_INIT_VALUES_IN_ORDER:
+            case Token.ENUM_INIT_ASYNC:
                 generateExpression(child, node);
                 cfw.addALoad(contextLocal);
                 cfw.addALoad(variableObjectLocal);
@@ -1080,7 +1081,9 @@ class BodyCodegen {
                                         ? ScriptRuntime.ENUMERATE_VALUES
                                         : type == Token.ENUM_INIT_VALUES_IN_ORDER
                                                 ? ScriptRuntime.ENUMERATE_VALUES_IN_ORDER
-                                                : ScriptRuntime.ENUMERATE_ARRAY;
+                                                : type == Token.ENUM_INIT_ASYNC
+                                                        ? ScriptRuntime.ENUMERATE_ASYNC
+                                                        : ScriptRuntime.ENUMERATE_ARRAY;
                 cfw.addPush(enumType);
                 addScriptRuntimeInvoke(
                         "enumInit",

@@ -2949,6 +2949,7 @@ public class ScriptRuntime {
     public static final int ENUMERATE_VALUES_NO_ITERATOR = 4;
     public static final int ENUMERATE_ARRAY_NO_ITERATOR = 5;
     public static final int ENUMERATE_VALUES_IN_ORDER = 6;
+    public static final int ENUMERATE_ASYNC = 7; // ES2018 for-await-of
 
     /**
      * @deprecated Use {@link #enumInit(Object, Context, Scriptable, int)} instead
@@ -2966,6 +2967,12 @@ public class ScriptRuntime {
             x.enumType = enumType;
             x.iterator = null;
             return enumInitInOrder(cx, x);
+        }
+        // "for await of" loop (ES2018)
+        if (enumType == ENUMERATE_ASYNC) {
+            x.enumType = enumType;
+            x.iterator = null;
+            return enumInitAsync(cx, scope, x);
         }
         if (x.obj == null) {
             // null or undefined do not cause errors but rather lead to empty
@@ -3014,6 +3021,44 @@ public class ScriptRuntime {
         return x;
     }
 
+    /**
+     * Initialize async iteration for for-await-of loops. First tries @@asyncIterator, then falls
+     * back to @@iterator.
+     */
+    private static Object enumInitAsync(Context cx, Scriptable scope, IdEnumeration x) {
+        if (!(x.obj instanceof SymbolScriptable)) {
+            throw typeErrorById("msg.not.iterable", toString(x.obj));
+        }
+
+        // First try @@asyncIterator
+        Object asyncIterator = ScriptableObject.getProperty(x.obj, SymbolKey.ASYNC_ITERATOR);
+        if (asyncIterator instanceof Callable) {
+            Callable f = (Callable) asyncIterator;
+            Scriptable fnScope =
+                    (f instanceof Function) ? ((Function) f).getDeclarationScope() : scope;
+            Object v = f.call(cx, fnScope, x.obj, emptyArgs);
+            if (v instanceof Scriptable) {
+                x.iterator = (Scriptable) v;
+                return x;
+            }
+            throw typeErrorById("msg.not.iterable", toString(x.obj));
+        }
+
+        // Fall back to @@iterator (creates a sync-to-async wrapper)
+        Object syncIterator = ScriptableObject.getProperty(x.obj, SymbolKey.ITERATOR);
+        if (!(syncIterator instanceof Callable)) {
+            throw typeErrorById("msg.not.iterable", toString(x.obj));
+        }
+        Callable f = (Callable) syncIterator;
+        Scriptable fnScope = (f instanceof Function) ? ((Function) f).getDeclarationScope() : scope;
+        Object v = f.call(cx, fnScope, x.obj, emptyArgs);
+        if (!(v instanceof Scriptable)) {
+            throw typeErrorById("msg.not.iterable", toString(x.obj));
+        }
+        x.iterator = (Scriptable) v;
+        return x;
+    }
+
     public static void setEnumNumbers(Object enumObj, boolean enumNumbers) {
         ((IdEnumeration) enumObj).enumNumbers = enumNumbers;
     }
@@ -3031,6 +3076,9 @@ public class ScriptRuntime {
         if (x.iterator != null) {
             if (x.enumType == ENUMERATE_VALUES_IN_ORDER) {
                 return enumNextInOrder(x, cx);
+            }
+            if (x.enumType == ENUMERATE_ASYNC) {
+                return enumNextAsync(x, cx);
             }
             Object v = ScriptableObject.getProperty(x.iterator, "next");
             if (!(v instanceof Callable)) return Boolean.FALSE;
@@ -3115,6 +3163,44 @@ public class ScriptRuntime {
         return Boolean.TRUE;
     }
 
+    /**
+     * Get the next value from an async iterator for for-await-of. Each iteration result is awaited.
+     */
+    private static Boolean enumNextAsync(IdEnumeration enumObj, Context cx) {
+        Object v = ScriptableObject.getProperty(enumObj.iterator, ES6Iterator.NEXT_METHOD);
+        if (!(v instanceof Callable)) {
+            throw notFunctionError(enumObj.iterator, ES6Iterator.NEXT_METHOD);
+        }
+        Callable f = (Callable) v;
+        Scriptable scope;
+        if (f instanceof Function) {
+            scope = ((Function) f).getDeclarationScope();
+        } else {
+            scope = cx.topCallScope;
+        }
+        // Call next() on the iterator
+        Object r = f.call(cx, scope, enumObj.iterator, emptyArgs);
+
+        // For async iteration, the result may be a Promise that needs to be awaited
+        Object awaited = awaitValue(cx, scope, r);
+
+        // The awaited result should be an iterator result object {value, done}
+        if (!(awaited instanceof Scriptable)) {
+            throw typeErrorById("msg.next.not.object", toString(awaited));
+        }
+        Scriptable iteratorResult = (Scriptable) awaited;
+        Object done = ScriptableObject.getProperty(iteratorResult, ES6Iterator.DONE_PROPERTY);
+        if (done != Scriptable.NOT_FOUND && toBoolean(done)) {
+            // Mark that iterator was exhausted naturally - no need to call return()
+            enumObj.done = true;
+            return Boolean.FALSE;
+        }
+        // Get the value and await it as well (in case it's a Promise)
+        Object value = ScriptableObject.getProperty(iteratorResult, ES6Iterator.VALUE_PROPERTY);
+        enumObj.currentId = awaitValue(cx, scope, value);
+        return Boolean.TRUE;
+    }
+
     public static Object enumId(Object enumObj, Context cx) {
         IdEnumeration x = (IdEnumeration) enumObj;
         if (x.iterator != null) {
@@ -3169,8 +3255,10 @@ public class ScriptRuntime {
             return;
         }
         IdEnumeration x = (IdEnumeration) enumObj;
-        // Only close ES6 for-of iterators, and only if not exhausted naturally
-        if (x.enumType != ENUMERATE_VALUES_IN_ORDER || x.iterator == null || x.done) {
+        // Only close ES6 for-of and for-await-of iterators, and only if not exhausted naturally
+        boolean isAsyncOrOrderedEnum =
+                x.enumType == ENUMERATE_VALUES_IN_ORDER || x.enumType == ENUMERATE_ASYNC;
+        if (!isAsyncOrOrderedEnum || x.iterator == null || x.done) {
             return;
         }
 

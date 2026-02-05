@@ -433,7 +433,8 @@ public final class IRFactory {
                                 body,
                                 acl,
                                 acl.isForEach(),
-                                acl.isForOf());
+                                acl.isForOf(),
+                                false); // No for-await-of in array comprehensions
             }
         } finally {
             for (int i = 0; i < pushed; i++) {
@@ -636,7 +637,15 @@ public final class IRFactory {
             Node body = transform(loop.getBody());
             Node result =
                     createForIn(
-                            declType, loop, lhs, obj, body, loop, loop.isForEach(), loop.isForOf());
+                            declType,
+                            loop,
+                            lhs,
+                            obj,
+                            body,
+                            loop,
+                            loop.isForEach(),
+                            loop.isForOf(),
+                            loop.isForAwaitOf());
             // Add ES6 completion value handling for for-in/for-of loops
             // The result is a LOCAL_BLOCK containing the loop
             if (parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
@@ -1443,7 +1452,8 @@ public final class IRFactory {
                                 body,
                                 acl,
                                 acl.isForEach(),
-                                acl.isForOf());
+                                acl.isForOf(),
+                                false); // No for-await-of in generator expressions
             }
         } finally {
             for (int i = 0; i < pushed; i++) {
@@ -2435,7 +2445,8 @@ public final class IRFactory {
             Node body,
             AstNode ast,
             boolean isForEach,
-            boolean isForOf) {
+            boolean isForOf,
+            boolean isForAwaitOf) {
         astNodePos.push(ast);
         try {
             int destructuring = -1;
@@ -2473,13 +2484,20 @@ public final class IRFactory {
 
             Node localBlock = new Node(Token.LOCAL_BLOCK);
             // ES6: for-in iterates keys (strings), for-of iterates values.
+            // ES2018: for-await-of iterates async values (awaits each iteration result).
             // ENUM_INIT_ARRAY is only for the Rhino-specific "for each (let [k,v] in map)"
             // extension which provides key-value pairs. ES6 destructuring in for-in/for-of
             // destructures the iterated value (key string or value) directly.
-            int initType =
-                    isForEach
-                            ? Token.ENUM_INIT_VALUES
-                            : isForOf ? Token.ENUM_INIT_VALUES_IN_ORDER : Token.ENUM_INIT_KEYS;
+            int initType;
+            if (isForAwaitOf) {
+                initType = Token.ENUM_INIT_ASYNC;
+            } else if (isForEach) {
+                initType = Token.ENUM_INIT_VALUES;
+            } else if (isForOf) {
+                initType = Token.ENUM_INIT_VALUES_IN_ORDER;
+            } else {
+                initType = Token.ENUM_INIT_KEYS;
+            }
             Node init = new Node(initType, obj);
             init.putProp(Node.LOCAL_BLOCK_PROP, localBlock);
             Node cond = new Node(Token.ENUM_NEXT);
@@ -2490,9 +2508,9 @@ public final class IRFactory {
             Node newBody = new Node(Token.BLOCK);
             Node assign;
             if (destructuring != -1) {
-                // ES6: for-in/for-of with destructuring is valid. The iterated value
+                // ES6: for-in/for-of/for-await-of with destructuring is valid. The iterated value
                 // (key string for for-in, value for for-of) is destructured directly.
-                if (isForOf && destructuring == Token.ARRAYLIT) {
+                if ((isForOf || isForAwaitOf) && destructuring == Token.ARRAYLIT) {
                     // For for-of with array destructuring, use iterator protocol with proper
                     // closing
                     // ES6 12.15.5.3: IteratorDestructuringAssignmentEvaluation must close iterator
@@ -2531,10 +2549,11 @@ public final class IRFactory {
                 }
             }
 
-            // ES6: for-of loops need iterator closing when exited via break/return/throw
-            // Skip iterator closing for array comprehensions - they are a legacy Mozilla extension
-            // and the try-finally wrapper causes issues with their nested structure.
-            if (isForOf && !(ast instanceof ArrayComprehensionLoop)) {
+            // ES6: for-of and for-await-of loops need iterator closing when exited via
+            // break/return/throw. Skip iterator closing for array comprehensions - they are a
+            // legacy Mozilla extension and the try-finally wrapper causes issues with their
+            // nested structure.
+            if ((isForOf || isForAwaitOf) && !(ast instanceof ArrayComprehensionLoop)) {
                 // Create ENUM_CLOSE for finally block
                 Node enumClose = new Node(Token.ENUM_CLOSE);
                 enumClose.putProp(Node.LOCAL_BLOCK_PROP, localBlock);

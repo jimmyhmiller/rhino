@@ -2838,8 +2838,8 @@ public class Parser {
         if (currentToken != Token.FOR) codeBug();
         consumeToken();
         int forPos = ts.tokenBeg, lineno = lineNumber(), column = columnNumber();
-        boolean isForEach = false, isForIn = false, isForOf = false;
-        int eachPos = -1, inPos = -1, lp = -1, rp = -1;
+        boolean isForEach = false, isForIn = false, isForOf = false, isForAwaitOf = false;
+        int eachPos = -1, inPos = -1, lp = -1, rp = -1, awaitPos = -1;
         AstNode init = null; // init is also foo in 'foo in object'
         AstNode cond = null; // cond is also object in 'foo in object'
         AstNode incr = null;
@@ -2848,11 +2848,22 @@ public class Parser {
         Scope tempScope = new Scope();
         pushScope(tempScope); // decide below what AST class to use
         try {
-            // See if this is a for each () instead of just a for ()
-            if (matchToken(Token.NAME, true)) {
-                if ("each".equals(ts.getString())) {
+            // See if this is a for each () or for await () instead of just a for ()
+            // In async functions, 'await' is tokenized as Token.AWAIT, not Token.NAME
+            if (inAsyncFunction && matchToken(Token.AWAIT, true)) {
+                // ES2018 for-await-of: for await (... of ...)
+                isForAwaitOf = true;
+                awaitPos = ts.tokenBeg - forPos;
+            } else if (matchToken(Token.NAME, true)) {
+                String name = ts.getString();
+                if ("each".equals(name)) {
                     isForEach = true;
                     eachPos = ts.tokenBeg - forPos;
+                } else if ("await".equals(name) && !ts.identifierContainsEscape()) {
+                    // for-await-of used outside async function is an error
+                    reportError("msg.bad.await");
+                    isForAwaitOf = true;
+                    awaitPos = ts.tokenBeg - forPos;
                 } else {
                     reportError("msg.no.paren.for");
                 }
@@ -2863,6 +2874,10 @@ public class Parser {
 
             init = forLoopInit(tt);
             if (matchToken(Token.IN, true)) {
+                if (isForAwaitOf) {
+                    // for-await-of requires 'of', not 'in'
+                    reportError("msg.syntax");
+                }
                 isForIn = true;
                 inPos = ts.tokenBeg - forPos;
                 markDestructuring(init);
@@ -2872,11 +2887,16 @@ public class Parser {
                     && "of".equals(ts.getString())
                     && !ts.identifierContainsEscape()) {
                 // ES6 12.1.1: The `of` keyword must not contain escape sequences
+                // isForAwaitOf implies isForOf (for-await-of is a special case of for-of)
                 isForOf = true;
                 inPos = ts.tokenBeg - forPos;
                 markDestructuring(init);
                 // ES6 13.7.5.1: for-of requires AssignmentExpression, not Expression
                 // This disallows comma expressions like: for (x of a, b)
+                cond = assignExpr();
+            } else if (isForAwaitOf) {
+                // for-await requires 'of' keyword
+                reportError("msg.syntax");
                 cond = assignExpr();
             } else { // ordinary for-loop
                 // For ordinary for loops, destructuring declarations must have initializers
@@ -2912,7 +2932,7 @@ public class Parser {
 
             if (mustMatchToken(Token.RP, "msg.no.paren.for.ctrl", true)) rp = ts.tokenBeg - forPos;
 
-            if (isForIn || isForOf) {
+            if (isForIn || isForOf || isForAwaitOf) {
                 ForInLoop fis = new ForInLoop(forPos);
                 if (init instanceof VariableDeclaration) {
                     VariableDeclaration varDecl = (VariableDeclaration) init;
@@ -2925,7 +2945,8 @@ public class Parser {
                     // (but are allowed in for-in for Annex B compatibility)
                     boolean disallowInit =
                             (varDecl.getType() == Token.LET || varDecl.getType() == Token.CONST)
-                                    || (isForOf && varDecl.getType() == Token.VAR);
+                                    || ((isForOf || isForAwaitOf)
+                                            && varDecl.getType() == Token.VAR);
                     if (disallowInit) {
                         for (VariableInitializer vi : varDecl.getVariables()) {
                             if (vi.getInitializer() != null) {
@@ -2935,7 +2956,7 @@ public class Parser {
                         }
                     }
                 }
-                if (isForOf && isForEach) {
+                if ((isForOf || isForAwaitOf) && isForEach) {
                     reportError("msg.invalid.for.each");
                 }
                 fis.setIterator(init);
@@ -2944,6 +2965,8 @@ public class Parser {
                 fis.setIsForEach(isForEach);
                 fis.setEachPosition(eachPos);
                 fis.setIsForOf(isForOf);
+                fis.setIsForAwaitOf(isForAwaitOf);
+                fis.setAwaitPosition(awaitPos);
                 pn = fis;
             } else {
                 ForLoop fl = new ForLoop(forPos);

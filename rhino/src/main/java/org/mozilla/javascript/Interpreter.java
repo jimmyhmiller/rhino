@@ -1818,7 +1818,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.ENUM_INIT_VALUES] = new DoEnumInit();
         instructionObjs[base + Token.ENUM_INIT_ARRAY] = new DoEnumInit();
         instructionObjs[base + Token.ENUM_INIT_VALUES_IN_ORDER] = new DoEnumInit();
-        instructionObjs[base + Token.ENUM_INIT_VALUES_IN_ORDER] = new DoEnumInit();
+        instructionObjs[base + Token.ENUM_INIT_ASYNC] = new DoEnumInit();
         instructionObjs[base + Token.ENUM_NEXT] = new DoEnumOp();
         instructionObjs[base + Token.ENUM_ID] = new DoEnumOp();
         instructionObjs[base + Token.ENUM_CLOSE] = new DoEnumClose();
@@ -4990,14 +4990,18 @@ public final class Interpreter extends Icode implements Evaluator {
             Object lhs = frame.stack[state.stackTop];
             if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
             state.indexReg += frame.idata.itsMaxVars;
-            int enumType =
-                    op == Token.ENUM_INIT_KEYS
-                            ? ScriptRuntime.ENUMERATE_KEYS
-                            : op == Token.ENUM_INIT_VALUES
-                                    ? ScriptRuntime.ENUMERATE_VALUES
-                                    : op == Token.ENUM_INIT_VALUES_IN_ORDER
-                                            ? ScriptRuntime.ENUMERATE_VALUES_IN_ORDER
-                                            : ScriptRuntime.ENUMERATE_ARRAY;
+            int enumType;
+            if (op == Token.ENUM_INIT_KEYS) {
+                enumType = ScriptRuntime.ENUMERATE_KEYS;
+            } else if (op == Token.ENUM_INIT_VALUES) {
+                enumType = ScriptRuntime.ENUMERATE_VALUES;
+            } else if (op == Token.ENUM_INIT_VALUES_IN_ORDER) {
+                enumType = ScriptRuntime.ENUMERATE_VALUES_IN_ORDER;
+            } else if (op == Token.ENUM_INIT_ASYNC) {
+                enumType = ScriptRuntime.ENUMERATE_ASYNC;
+            } else {
+                enumType = ScriptRuntime.ENUMERATE_ARRAY;
+            }
             frame.stack[state.indexReg] = ScriptRuntime.enumInit(lhs, cx, frame.scope, enumType);
             --state.stackTop;
             return null;

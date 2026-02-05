@@ -108,7 +108,8 @@ public class Token {
             ENUM_INIT_VALUES = ENUM_INIT_KEYS + 1,
             ENUM_INIT_ARRAY = ENUM_INIT_VALUES + 1,
             ENUM_INIT_VALUES_IN_ORDER = ENUM_INIT_ARRAY + 1,
-            ENUM_NEXT = ENUM_INIT_VALUES_IN_ORDER + 1,
+            ENUM_INIT_ASYNC = ENUM_INIT_VALUES_IN_ORDER + 1, // for-await-of async iteration
+            ENUM_NEXT = ENUM_INIT_ASYNC + 1,
             ENUM_ID = ENUM_NEXT + 1,
             ENUM_CLOSE = ENUM_ID + 1, // Close iterator for for-of loops
             THISFN = ENUM_CLOSE + 1,
@@ -433,6 +434,8 @@ public class Token {
                 return "ENUM_INIT_ARRAY";
             case ENUM_INIT_VALUES_IN_ORDER:
                 return "ENUM_INIT_VALUES_IN_ORDER";
+            case ENUM_INIT_ASYNC:
+                return "ENUM_INIT_ASYNC";
             case ENUM_NEXT:
                 return "ENUM_NEXT";
             case ENUM_ID:
