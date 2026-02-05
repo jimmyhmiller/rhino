@@ -104,7 +104,7 @@ public class Test262SuiteTest {
                             "IsHTMLDDA",
                             // "async-functions" - now supported!
                             "async-iteration",
-                            "regexp-dotall",
+                            // "regexp-dotall" - now supported!
                             "regexp-unicode-property-escapes",
                             "resizable-arraybuffer",
                             "SharedArrayBuffer",
