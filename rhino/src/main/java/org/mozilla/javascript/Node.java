@@ -493,6 +493,8 @@ public class Node implements Iterable<Node> {
                 return "default_ctor_super_call";
             case PARAM_TDZ_NAME_PROP:
                 return "param_tdz_name";
+            case PRIVATE_NAME_IN:
+                return "private_name_in";
 
             default:
                 Kit.codeBug();
