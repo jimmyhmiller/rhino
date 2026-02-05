@@ -1685,6 +1685,13 @@ public class Parser {
         ++nestingOfStaticBlock;
         boolean savedInStaticBlockAwaitContext = inStaticBlockAwaitContext;
         inStaticBlockAwaitContext = true;
+        // Static blocks are boundaries for break/continue/labels, like functions
+        List<Loop> savedLoopSet = loopSet;
+        List<Jump> savedLoopAndSwitchSet = loopAndSwitchSet;
+        Map<String, LabeledStatement> savedLabelSet = labelSet;
+        loopSet = null;
+        loopAndSwitchSet = null;
+        labelSet = null;
         try {
             AstNode body = statements();
             mustMatchToken(Token.RC, "msg.no.brace.after.body", true);
@@ -1695,6 +1702,9 @@ public class Parser {
         } finally {
             --nestingOfStaticBlock;
             inStaticBlockAwaitContext = savedInStaticBlockAwaitContext;
+            loopSet = savedLoopSet;
+            loopAndSwitchSet = savedLoopAndSwitchSet;
+            labelSet = savedLabelSet;
         }
     }
 
@@ -5625,12 +5635,17 @@ public class Parser {
         } else {
             consumeToken();
             int pos = ts.tokenBeg, lineno = lineNumber(), column = columnNumber();
+            boolean newContainsEscape = ts.identifierContainsEscape();
 
             // Check for new.target meta-property
             if (matchToken(Token.DOT, true)) {
                 int next = peekToken();
                 if (next == Token.NAME && "target".equals(ts.getString())) {
                     consumeToken();
+                    // new and target must not contain escape sequences
+                    if (newContainsEscape || ts.identifierContainsEscape()) {
+                        reportError("msg.invalid.escape");
+                    }
                     // Validate that new.target is used in a valid context (inside a function)
                     if (!insideFunctionBody() && !insideFunctionParams()) {
                         reportError("msg.new.target.not.function");

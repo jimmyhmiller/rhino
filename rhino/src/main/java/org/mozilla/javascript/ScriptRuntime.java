@@ -6829,6 +6829,16 @@ public class ScriptRuntime {
                 ((BaseFunction) constructor)
                         .setPrivateMethodDefinitions(
                                 privateMethodIds, privateMethodValues, privateMethodGetterSetters);
+                // Set homeObject on private method functions so they can access other private
+                // members
+                Object protoForHome = constructorObj.get("prototype", constructorObj);
+                if (protoForHome instanceof Scriptable) {
+                    for (Object methodValue : privateMethodValues) {
+                        if (methodValue instanceof BaseFunction) {
+                            ((BaseFunction) methodValue).setHomeObject((Scriptable) protoForHome);
+                        }
+                    }
+                }
             }
         }
 
@@ -6849,6 +6859,12 @@ public class ScriptRuntime {
                                 privateStaticMethodIds,
                                 privateStaticMethodValues,
                                 privateStaticMethodGetterSetters);
+                // Set homeObject on private static method functions
+                for (Object methodValue : privateStaticMethodValues) {
+                    if (methodValue instanceof BaseFunction) {
+                        ((BaseFunction) methodValue).setHomeObject(constructorObj);
+                    }
+                }
             }
         }
 
