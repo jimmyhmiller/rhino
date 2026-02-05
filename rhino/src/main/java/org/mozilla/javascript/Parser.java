@@ -2800,11 +2800,14 @@ public class Parser {
             }
             // Generator and async function declarations are not allowed in statement position
             // ES6 13.7.0.1 - Only regular function declarations are allowed, not generators
+            // ES2017 - Async function declarations are also not allowed in statement position
             if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
                     && body instanceof FunctionNode) {
                 FunctionNode fn = (FunctionNode) body;
                 if (fn.isES6Generator()) {
                     reportError("msg.generator.decl.not.in.block");
+                } else if (fn.isAsync()) {
+                    reportError("msg.async.decl.not.in.block");
                 }
             }
             // Class declarations are not allowed in statement position
@@ -4152,13 +4155,15 @@ public class Parser {
                         reportError("msg.lexical.decl.not.in.block");
                     }
                 }
-                // Generator declarations cannot be labeled (ES6+)
+                // Generator and async declarations cannot be labeled (ES6+)
                 // Function declarations cannot be labeled in strict mode (ES6+)
                 if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
                         && stmt instanceof FunctionNode) {
                     FunctionNode fn = (FunctionNode) stmt;
                     if (fn.isES6Generator()) {
                         reportError("msg.generator.decl.not.in.block");
+                    } else if (fn.isAsync()) {
+                        reportError("msg.async.decl.not.in.block");
                     } else if (inUseStrictDirective) {
                         reportError("msg.func.decl.labeled.strict");
                     }
