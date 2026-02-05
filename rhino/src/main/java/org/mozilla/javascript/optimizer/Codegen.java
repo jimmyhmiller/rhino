@@ -988,6 +988,16 @@ public class Codegen implements Evaluator {
                     + "Lorg/mozilla/javascript/Scriptable;"
                     + "Lorg/mozilla/javascript/Scriptable;"
                     + ")V";
+    // Constructor signature for arrow functions that capture lexical new.target
+    static final String JSFUNCTION_ARROW_CONSTRUCTOR_SIGNATURE =
+            "("
+                    + "Lorg/mozilla/javascript/Context;"
+                    + "Lorg/mozilla/javascript/Scriptable;"
+                    + "Lorg/mozilla/javascript/JSDescriptor;"
+                    + "Lorg/mozilla/javascript/Scriptable;"
+                    + "Lorg/mozilla/javascript/Scriptable;"
+                    + "Ljava/lang/Object;"
+                    + ")V";
 
     static final String GENERATOR_METHOD_SIGNATURE =
             "("

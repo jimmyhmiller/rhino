@@ -4705,8 +4705,19 @@ public final class Interpreter extends Icode implements Evaluator {
     private static class DoNewTarget extends InstructionClass {
         @Override
         NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
-            // Return the new.target value - undefined if not called with 'new'
-            Object result = frame.newTarget;
+            // For arrow functions, use the lexically captured new.target
+            Object result = null;
+            if (frame.fnOrScript instanceof JSFunction) {
+                JSFunction fn = (JSFunction) frame.fnOrScript;
+                if (fn.getDescriptor().hasLexicalThis()) {
+                    // Arrow function - use lexical new.target
+                    result = fn.getLexicalNewTarget();
+                }
+            }
+            // For regular functions, use the frame's new.target
+            if (result == null) {
+                result = frame.newTarget;
+            }
             if (result == null) {
                 result = Undefined.instance;
             }
@@ -6224,7 +6235,10 @@ public final class Interpreter extends Icode implements Evaluator {
         var desc = frame.fnOrScript.getDescriptor().getFunction(index);
         boolean isArrow = desc.getFunctionType() == FunctionNode.ARROW_FUNCTION;
         var homeObject = isArrow ? frame.fnOrScript.getHomeObject() : null;
-        JSFunction f = new JSFunction(cx, frame.scope, desc, frame.thisObj, homeObject);
+        // For arrow functions, capture the lexical new.target from the enclosing function
+        var lexicalNewTarget = isArrow ? frame.newTarget : null;
+        JSFunction f =
+                new JSFunction(cx, frame.scope, desc, frame.thisObj, homeObject, lexicalNewTarget);
         return f;
     }
 

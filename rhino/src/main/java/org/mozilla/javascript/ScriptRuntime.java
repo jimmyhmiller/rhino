@@ -3099,7 +3099,11 @@ public class ScriptRuntime {
             scope = cx.topCallScope;
         }
         Object r = f.call(cx, scope, enumObj.iterator, emptyArgs);
-        Scriptable iteratorResult = toObject(cx, scope, r);
+        // ES6 7.4.2 IteratorNext step 4: If Type(result) is not Object, throw TypeError
+        if (!(r instanceof Scriptable)) {
+            throw typeErrorById("msg.next.not.object", toString(r));
+        }
+        Scriptable iteratorResult = (Scriptable) r;
         Object done = ScriptableObject.getProperty(iteratorResult, ES6Iterator.DONE_PROPERTY);
         if (done != Scriptable.NOT_FOUND && toBoolean(done)) {
             // Mark that iterator was exhausted naturally - no need to call return()

@@ -11,6 +11,8 @@ import org.mozilla.javascript.debug.DebuggableScript;
 public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
     private final JSDescriptor<JSFunction> descriptor;
     private final Scriptable lexicalThis;
+    // For arrow functions, captures the new.target from the enclosing function
+    private final Object lexicalNewTarget;
     // Non-final: for derived class constructors, homeObject is set after construction
     // by ScriptRuntime.createClass() once the class prototype is created.
     private Scriptable homeObject;
@@ -21,8 +23,19 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
             JSDescriptor<JSFunction> descriptor,
             Scriptable lexicalThis,
             Scriptable homeObject) {
+        this(cx, scope, descriptor, lexicalThis, homeObject, null);
+    }
+
+    public JSFunction(
+            Context cx,
+            Scriptable scope,
+            JSDescriptor<JSFunction> descriptor,
+            Scriptable lexicalThis,
+            Scriptable homeObject,
+            Object lexicalNewTarget) {
         this.descriptor = descriptor;
         this.lexicalThis = lexicalThis;
+        this.lexicalNewTarget = lexicalNewTarget;
         this.homeObject = homeObject;
         ScriptRuntime.setFunctionProtoAndParent(this, cx, scope, descriptor.isES6Generator());
         if (!descriptor.isShorthand()) {
@@ -51,8 +64,18 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
             JSDescriptor<JSFunction> descriptor,
             Scriptable lexicalThis,
             Scriptable homeObject) {
+        this(scope, descriptor, lexicalThis, homeObject, null);
+    }
+
+    JSFunction(
+            Scriptable scope,
+            JSDescriptor<JSFunction> descriptor,
+            Scriptable lexicalThis,
+            Scriptable homeObject,
+            Object lexicalNewTarget) {
         this.descriptor = descriptor;
         this.lexicalThis = lexicalThis;
+        this.lexicalNewTarget = lexicalNewTarget;
         this.homeObject = homeObject;
         setParentScope(scope);
         setPrototype(ScriptableObject.getFunctionPrototype(scope));
@@ -282,6 +305,14 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         } else {
             return functionThis;
         }
+    }
+
+    /**
+     * Get the lexical new.target for arrow functions. Arrow functions capture new.target from the
+     * enclosing function at creation time.
+     */
+    public Object getLexicalNewTarget() {
+        return lexicalNewTarget;
     }
 
     /** Create script from compiled bytecode. */

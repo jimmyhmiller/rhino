@@ -1480,6 +1480,7 @@ public class Parser {
         int pos = ts.tokenBeg;
         boolean isStatic = false;
         boolean isGenerator = false;
+        boolean isAsync = false;
 
         // Check for 'static' keyword
         if (matchToken(Token.STATIC, true)) {
@@ -1488,7 +1489,7 @@ public class Parser {
             if (next == Token.LP) {
                 // Method named 'static' - method()
                 return parseClassMethod(
-                        pos, createNameNode(false, Token.NAME, "static"), false, false);
+                        pos, createNameNode(false, Token.NAME, "static"), false, false, false);
             } else if (next == Token.RC || next == Token.SEMI) {
                 // Just 'static' followed by } or ; - treat as method named 'static'
                 // This is actually a syntax error in real ES6, but we'll let it slide
@@ -1499,8 +1500,30 @@ public class Parser {
             pos = ts.tokenBeg;
         }
 
-        // Check for generator method
-        if (matchToken(Token.MUL, true)) {
+        // Check for async method (must come before generator check)
+        // async keyword must not contain escape sequences
+        if (matchToken(Token.ASYNC, true) && !ts.identifierContainsEscape()) {
+            // Check if followed by line terminator (not allowed before method name)
+            int nextTt = peekTokenOrEOL();
+            if (nextTt == Token.EOL) {
+                // Line terminator after async - treat 'async' as a field/method name
+                return parseClassMethodOrField(
+                        pos, createNameNode(false, Token.NAME, "async"), isStatic);
+            }
+            // Check if it's a method named 'async' (async followed by `(`)
+            nextTt = peekToken();
+            if (nextTt == Token.LP) {
+                // Method named 'async' - async()
+                return parseClassMethod(
+                        pos, createNameNode(false, Token.NAME, "async"), isStatic, false, false);
+            }
+            // async generator method: async * name() {}
+            if (matchToken(Token.MUL, true)) {
+                isGenerator = true;
+            }
+            isAsync = true;
+        } else if (matchToken(Token.MUL, true)) {
+            // Check for generator method (only if not async)
             isGenerator = true;
         }
 
@@ -1511,7 +1534,8 @@ public class Parser {
 
         if (tt == Token.NAME || tt == Token.STRING || tt == Token.NUMBER) {
             String tokenStr = ts.getString();
-            if (!isGenerator && ("get".equals(tokenStr) || "set".equals(tokenStr))) {
+            // get/set not allowed with async
+            if (!isGenerator && !isAsync && ("get".equals(tokenStr) || "set".equals(tokenStr))) {
                 consumeToken();
                 int nextTt = peekToken();
                 if (nextTt != Token.LP) {
@@ -1524,7 +1548,11 @@ public class Parser {
                 } else {
                     // It's a method named 'get' or 'set'
                     return parseClassMethod(
-                            pos, createNameNode(false, Token.NAME, tokenStr), isStatic, false);
+                            pos,
+                            createNameNode(false, Token.NAME, tokenStr),
+                            isStatic,
+                            false,
+                            false);
                 }
             }
         }
@@ -1547,13 +1575,27 @@ public class Parser {
         // Fields: propName = value; or propName; or propName } (no parenthesis)
         // Methods: propName(params) { body }
         int nextToken = peekToken();
-        if (!isGenerator && entryKind == METHOD_ENTRY && nextToken != Token.LP) {
+        if (!isGenerator && !isAsync && entryKind == METHOD_ENTRY && nextToken != Token.LP) {
             // This is a field definition, not a method
             return parseClassField(pos, propName, isStatic, isPrivate);
         }
 
         // Parse method
-        return parseClassMethod(pos, propName, isStatic, isGenerator, entryKind, isPrivate);
+        return parseClassMethod(
+                pos, propName, isStatic, isGenerator, isAsync, entryKind, isPrivate);
+    }
+
+    /**
+     * Helper method to parse a class method or field when we've already seen a name. This is used
+     * when we've consumed a token like 'async' but determined it's not a modifier.
+     */
+    private ClassElement parseClassMethodOrField(int pos, AstNode propName, boolean isStatic)
+            throws IOException {
+        int nextToken = peekToken();
+        if (nextToken == Token.LP) {
+            return parseClassMethod(pos, propName, isStatic, false, false);
+        }
+        return parseClassField(pos, propName, isStatic, false);
     }
 
     /**
@@ -1588,14 +1630,9 @@ public class Parser {
     }
 
     private ClassElement parseClassMethod(
-            int pos, AstNode propName, boolean isStatic, boolean isGenerator) throws IOException {
-        return parseClassMethod(pos, propName, isStatic, isGenerator, METHOD_ENTRY, false);
-    }
-
-    private ClassElement parseClassMethod(
-            int pos, AstNode propName, boolean isStatic, boolean isGenerator, int entryKind)
+            int pos, AstNode propName, boolean isStatic, boolean isGenerator, boolean isAsync)
             throws IOException {
-        return parseClassMethod(pos, propName, isStatic, isGenerator, entryKind, false);
+        return parseClassMethod(pos, propName, isStatic, isGenerator, isAsync, METHOD_ENTRY, false);
     }
 
     private ClassElement parseClassMethod(
@@ -1603,6 +1640,18 @@ public class Parser {
             AstNode propName,
             boolean isStatic,
             boolean isGenerator,
+            boolean isAsync,
+            int entryKind)
+            throws IOException {
+        return parseClassMethod(pos, propName, isStatic, isGenerator, isAsync, entryKind, false);
+    }
+
+    private ClassElement parseClassMethod(
+            int pos,
+            AstNode propName,
+            boolean isStatic,
+            boolean isGenerator,
+            boolean isAsync,
             int entryKind,
             boolean isPrivate)
             throws IOException {
@@ -1618,8 +1667,8 @@ public class Parser {
         boolean isConstructor = false;
         if (!isStatic && "constructor".equals(propNameStr)) {
             isConstructor = true;
-            // Getters, setters, and generators cannot be named "constructor"
-            if (entryKind == GET_ENTRY || entryKind == SET_ENTRY || isGenerator) {
+            // Getters, setters, generators, and async methods cannot be named "constructor"
+            if (entryKind == GET_ENTRY || entryKind == SET_ENTRY || isGenerator || isAsync) {
                 reportError("msg.class.special.constructor");
             }
         }
@@ -1633,8 +1682,11 @@ public class Parser {
         // Parse the function
         // All class methods (including constructors) need isMethodDefinition=true
         // during parsing so that `super` is allowed in the parser.
-        // Pass isGenerator so the function body knows it's a generator for yield parsing.
-        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator);
+        // Pass isGenerator and isAsync so the function body handles yield/await correctly.
+        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator, isAsync);
+        if (isAsync) {
+            fn.setIsAsync();
+        }
 
         // Validate getter/setter parameter counts per ES6 spec
         int paramCount = fn.getParams().size();
@@ -2452,6 +2504,20 @@ public class Parser {
                 pn = nameOrLabel();
                 if (pn instanceof ExpressionStatement) break;
                 return pn; // LabeledStatement
+            case Token.AWAIT:
+                // Outside async functions and module code, 'await' can be used as identifier/label
+                // In module code, 'await' is always reserved (ES2017 12.1.1)
+                if (!inAsyncFunction && !parsingModule) {
+                    pn = awaitNameOrLabel();
+                    if (pn instanceof ExpressionStatement) break;
+                    return pn; // LabeledStatement
+                }
+                // Inside async functions or module code, fall through for expression parsing
+                lineno = ts.getLineno();
+                column = ts.getTokenColumn();
+                pn = new ExpressionStatement(expr(false), !insideFunctionBody());
+                pn.setLineColumnNumber(lineno, column);
+                break;
             case Token.COMMENT:
                 // Do not consume token here
                 pn = scannedComments.get(scannedComments.size() - 1);
@@ -2800,11 +2866,15 @@ public class Parser {
                 cond = expr(false); // object over which we're iterating
             } else if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
                     && matchToken(Token.NAME, true)
-                    && "of".equals(ts.getString())) {
+                    && "of".equals(ts.getString())
+                    && !ts.identifierContainsEscape()) {
+                // ES6 12.1.1: The `of` keyword must not contain escape sequences
                 isForOf = true;
                 inPos = ts.tokenBeg - forPos;
                 markDestructuring(init);
-                cond = expr(false); // object over which we're iterating
+                // ES6 13.7.5.1: for-of requires AssignmentExpression, not Expression
+                // This disallows comma expressions like: for (x of a, b)
+                cond = assignExpr();
             } else { // ordinary for-loop
                 // For ordinary for loops, destructuring declarations must have initializers
                 if (init instanceof VariableDeclaration) {
@@ -2848,7 +2918,12 @@ public class Parser {
                         reportError("msg.mult.index");
                     }
                     // check that let/const declarations don't have initializers in for-in/for-of
-                    if (varDecl.getType() == Token.LET || varDecl.getType() == Token.CONST) {
+                    // ES6: var declarations also cannot have initializers in for-of
+                    // (but are allowed in for-in for Annex B compatibility)
+                    boolean disallowInit =
+                            (varDecl.getType() == Token.LET || varDecl.getType() == Token.CONST)
+                                    || (isForOf && varDecl.getType() == Token.VAR);
+                    if (disallowInit) {
                         for (VariableInitializer vi : varDecl.getVariables()) {
                             if (vi.getInitializer() != null) {
                                 reportError("msg.invalid.for.in.init");
@@ -4118,6 +4193,80 @@ public class Parser {
     }
 
     /**
+     * Handle 'await' in a statement context when not inside an async function. 'await' can be used
+     * as an identifier and label in non-module, non-async-function code.
+     */
+    private AstNode awaitNameOrLabel() throws IOException {
+        if (currentToken != Token.AWAIT) throw codeBug();
+        int pos = ts.tokenBeg;
+        int lineno = lineNumber();
+        int column = columnNumber();
+
+        // Convert AWAIT to a NAME token for the label check
+        saveNameTokenData(pos, "await", lineno, column);
+
+        // Check if followed by colon (label syntax)
+        consumeToken();
+        if (peekToken() == Token.COLON) {
+            // It's a label
+            Label label = new Label(pos, ts.tokenEnd - pos);
+            label.setName("await");
+            label.setLineColumnNumber(lineno, column);
+
+            // Don't consume colon - recordLabel expects it
+            LabeledStatement bundle = new LabeledStatement(pos);
+            recordLabel(label, bundle); // This consumes the colon
+            bundle.setLineColumnNumber(lineno, column);
+
+            // look for more labels
+            AstNode stmt = null;
+            while (peekToken() == Token.NAME) {
+                currentFlaggedToken |= TI_CHECK_LABEL;
+                AstNode expr = expr(false);
+                if (expr.getType() != Token.LABEL) {
+                    stmt = new ExpressionStatement(expr, !insideFunctionBody());
+                    autoInsertSemicolon(stmt);
+                    break;
+                }
+                recordLabel((Label) expr, bundle);
+            }
+
+            // no more labels; now parse the labeled statement
+            ++nestingOfStatement;
+            try {
+                currentLabel = bundle;
+                if (stmt == null) {
+                    stmt = statementHelper();
+                }
+            } finally {
+                --nestingOfStatement;
+                currentLabel = null;
+                for (Label lb : bundle.getLabels()) {
+                    labelSet.remove(lb.getName());
+                }
+            }
+
+            bundle.setLength(stmt.getParent() == null ? getNodeEnd(stmt) - pos : getNodeEnd(stmt));
+            bundle.setStatement(stmt);
+            return bundle;
+        }
+
+        // Not a label - parse as expression
+        // We've already consumed 'await', so create name node and continue
+        AstNode awaitName = createNameNode(true, Token.NAME);
+        AstNode expr = memberExprTail(true, awaitName);
+        expr = assignExprTail(expr);
+        // Check for comma expression continuation
+        while (matchToken(Token.COMMA, true)) {
+            int opPos = ts.tokenBeg;
+            expr = new InfixExpression(Token.COMMA, expr, assignExpr(), opPos);
+        }
+        AstNode n = new ExpressionStatement(expr, !insideFunctionBody());
+        n.setLineColumnNumber(lineno, column);
+        return n;
+    }
+
+    /**
      * Parse a 'var' or 'const' statement, or a 'var' init list in a for statement.
      *
      * @param declType A token value: either VAR, CONST, or LET depending on context.
@@ -5129,7 +5278,13 @@ public class Parser {
                 if (inAsyncFunction) {
                     return awaitExpr();
                 }
-                // Outside async functions, treat as identifier - go through memberExpr
+                // In module code, await is reserved - report error
+                if (parsingModule) {
+                    consumeToken();
+                    reportError("msg.syntax");
+                    return new ErrorNode();
+                }
+                // Outside async functions and module code, treat as identifier
                 {
                     AstNode pn = memberExpr(true);
                     tt = peekTokenOrEOL();
@@ -5849,9 +6004,10 @@ public class Parser {
                 break;
 
             case Token.AWAIT:
-                // Outside async functions, 'await' can be used as an identifier
+                // Outside async functions and module code, 'await' can be used as an identifier
+                // In module code, 'await' is always reserved (ES2017 12.1.1)
                 // Inside async functions, await should go through assignExpr -> awaitExpr
-                if (!inAsyncFunction) {
+                if (!inAsyncFunction && !parsingModule) {
                     consumeToken();
                     int awaitPos = ts.tokenBeg;
                     int awaitLineno = lineNumber();
@@ -5860,7 +6016,7 @@ public class Parser {
                     saveNameTokenData(awaitPos, "await", awaitLineno, awaitColumn);
                     return createNameNode(true, Token.NAME);
                 }
-                // Inside async functions, should not reach here
+                // Inside async functions or module code, should not reach here
                 consumeToken();
                 reportError("msg.syntax");
                 break;
@@ -6256,7 +6412,8 @@ public class Parser {
                     inPos = ts.tokenBeg - pos;
                     break;
                 case Token.NAME:
-                    if ("of".equals(ts.getString())) {
+                    // ES6 12.1.1: The `of` keyword must not contain escape sequences
+                    if ("of".equals(ts.getString()) && !ts.identifierContainsEscape()) {
                         if (eachPos != -1) {
                             reportError("msg.invalid.for.each");
                         }

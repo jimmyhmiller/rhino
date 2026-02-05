@@ -1429,7 +1429,20 @@ class BodyCodegen {
                 break;
 
             case Token.NEW_TARGET:
-                cfw.addALoad(newTargetLocal);
+                // For arrow functions, new.target is lexically captured from the enclosing
+                // function at creation time, stored in the JSFunction object
+                if (scriptOrFn instanceof FunctionNode
+                        && ((FunctionNode) scriptOrFn).getFunctionType()
+                                == FunctionNode.ARROW_FUNCTION) {
+                    cfw.addALoad(funObjLocal);
+                    cfw.addInvoke(
+                            ByteCode.INVOKEVIRTUAL,
+                            Codegen.JSFUNCTION_CLASS_NAME,
+                            "getLexicalNewTarget",
+                            "()Ljava/lang/Object;");
+                } else {
+                    cfw.addALoad(newTargetLocal);
+                }
                 break;
 
             case Token.NULL:
@@ -2495,18 +2508,30 @@ class BodyCodegen {
                     scriptOrFnClass,
                     "getHomeObject",
                     "()Lorg/mozilla/javascript/Scriptable;");
+            // Arrow functions capture lexical new.target
+            cfw.addALoad(newTargetLocal);
+            cfw.addInvoke(
+                    ByteCode.INVOKESPECIAL,
+                    Codegen.JSFUNCTION_CLASS_NAME,
+                    "<init>",
+                    Codegen.JSFUNCTION_ARROW_CONSTRUCTOR_SIGNATURE);
         } else if (ofn.fnode.isMethodDefinition()) {
             cfw.add(ByteCode.ACONST_NULL);
             cfw.addALoad(savedHomeObjectLocal);
+            cfw.addInvoke(
+                    ByteCode.INVOKESPECIAL,
+                    Codegen.JSFUNCTION_CLASS_NAME,
+                    "<init>",
+                    Codegen.JSFUNCTION_CONSTRUCTOR_SIGNATURE);
         } else {
             cfw.add(ByteCode.ACONST_NULL);
             cfw.add(ByteCode.ACONST_NULL);
+            cfw.addInvoke(
+                    ByteCode.INVOKESPECIAL,
+                    Codegen.JSFUNCTION_CLASS_NAME,
+                    "<init>",
+                    Codegen.JSFUNCTION_CONSTRUCTOR_SIGNATURE);
         }
-        cfw.addInvoke(
-                ByteCode.INVOKESPECIAL,
-                Codegen.JSFUNCTION_CLASS_NAME,
-                "<init>",
-                Codegen.JSFUNCTION_CONSTRUCTOR_SIGNATURE);
 
         if (functionType == FunctionNode.FUNCTION_EXPRESSION
                 || functionType == FunctionNode.ARROW_FUNCTION) {
