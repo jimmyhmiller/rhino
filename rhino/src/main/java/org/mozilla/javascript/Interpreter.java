@@ -1558,6 +1558,12 @@ public final class Interpreter extends Icode implements Evaluator {
             Object result = interpretLoop(cx, activeFrame, generatorState);
             if (generatorState.returnedException != null) throw generatorState.returnedException;
             return result;
+        } catch (RuntimeException | Error e) {
+            // When an exception propagates out, the generator is completed (not executing).
+            // Mark the frame as frozen so subsequent resumption attempts properly fail
+            // with "generator is already completed" rather than "generator is still executing".
+            activeFrame.frozen = true;
+            throw e;
         } finally {
             activeFrame.syncStateToFrame(frame);
         }
@@ -2084,9 +2090,14 @@ public final class Interpreter extends Icode implements Evaluator {
                     // No allowed exception handlers in this frame, unwind
                     // to parent and try to look there
 
-                    // For async functions, convert uncaught exceptions to rejected Promises
+                    // For async functions (not async generators), convert uncaught exceptions
+                    // to rejected Promises. Async generators handle exceptions differently via
+                    // the ES6AsyncGenerator methods.
                     JSDescriptor<?> frameDesc = frame.fnOrScript.getDescriptor();
-                    if (frameDesc != null && frameDesc.isAsync() && cjump == null) {
+                    if (frameDesc != null
+                            && frameDesc.isAsync()
+                            && !frameDesc.isES6Generator()
+                            && cjump == null) {
                         // Async function with uncaught exception - return a rejected Promise
                         Object rejectedPromise =
                                 ScriptRuntime.wrapInRejectedPromise(cx, frame.scope, throwable);
