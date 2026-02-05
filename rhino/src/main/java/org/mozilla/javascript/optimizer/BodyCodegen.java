@@ -1818,6 +1818,10 @@ class BodyCodegen {
                 visitGetPrivateProp(node, child);
                 break;
 
+            case Token.IN_PRIVATE:
+                visitInPrivate(node, child);
+                break;
+
             case Token.GETELEM:
                 {
                     Node indexNode = child.getNext();
@@ -2494,6 +2498,10 @@ class BodyCodegen {
             case Token.GE:
             case Token.GT:
                 visitIfJumpRelOp(node, child, trueLabel, falseLabel);
+                break;
+
+            case Token.IN_PRIVATE:
+                visitIfJumpInPrivate(node, child, trueLabel, falseLabel);
                 break;
 
             case Token.EQ:
@@ -6087,6 +6095,33 @@ class BodyCodegen {
                         + "Lorg/mozilla/javascript/Context;"
                         + "Ljava/lang/Object;"
                         + ")Ljava/lang/Object;");
+    }
+
+    private void visitInPrivate(Node node, Node child) {
+        // ES2022 Ergonomic brand check: #field in obj
+        generateExpression(child, node); // object
+        Node nameChild = child.getNext();
+        cfw.addPush(nameChild.getString()); // private name
+        cfw.addALoad(funObjLocal);
+        addScriptRuntimeInvoke(
+                "privateIn",
+                "(Ljava/lang/Object;" + "Ljava/lang/String;" + "Ljava/lang/Object;" + ")Z");
+        // Box the boolean result
+        cfw.addInvoke(
+                ByteCode.INVOKESTATIC, "java/lang/Boolean", "valueOf", "(Z)Ljava/lang/Boolean;");
+    }
+
+    private void visitIfJumpInPrivate(Node node, Node child, int trueLabel, int falseLabel) {
+        // ES2022 Ergonomic brand check: #field in obj (jump version for conditionals)
+        generateExpression(child, node); // object
+        Node nameChild = child.getNext();
+        cfw.addPush(nameChild.getString()); // private name
+        cfw.addALoad(funObjLocal);
+        addScriptRuntimeInvoke(
+                "privateIn",
+                "(Ljava/lang/Object;" + "Ljava/lang/String;" + "Ljava/lang/Object;" + ")Z");
+        cfw.add(ByteCode.IFNE, trueLabel);
+        cfw.add(ByteCode.GOTO, falseLabel);
     }
 
     private void visitSetPrivateProp(Node node, Node child) {

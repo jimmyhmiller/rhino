@@ -5373,6 +5373,76 @@ public class ScriptRuntime {
         return hasObjectElem((Scriptable) b, a, cx);
     }
 
+    /**
+     * ES2022 Ergonomic Brand Checks: Implements the private-in check (#field in obj). Returns true
+     * if the object has the private field or method, false otherwise.
+     *
+     * @param obj The object to check
+     * @param name The private field/method name (without the # prefix)
+     * @param fnOrScript The current function or script (used to find the class constructor)
+     * @return true if the object has the private member, false otherwise
+     */
+    public static boolean privateIn(Object obj, String name, Object fnOrScript) {
+        if (!(obj instanceof Scriptable)) {
+            throw typeErrorById("msg.in.not.object");
+        }
+
+        // Find the class constructor from the current function
+        BaseFunction constructor = getPrivateConstructor(fnOrScript);
+        if (constructor == null) {
+            throw typeError("msg.private.not.in.class");
+        }
+
+        // Check if the object has the brand for this class
+        if (!hasPrivateBrand(obj, constructor)) {
+            return false;
+        }
+
+        // Check for private method
+        Object[] methodIds = constructor.getPrivateMethodIds();
+        if (methodIds != null) {
+            for (Object methodId : methodIds) {
+                if (name.equals(methodId)) {
+                    return true;
+                }
+            }
+        }
+
+        // Check for private static method (obj should be the constructor itself)
+        if (obj == constructor) {
+            Object[] staticMethodIds = constructor.getPrivateStaticMethodIds();
+            if (staticMethodIds != null) {
+                for (Object staticMethodId : staticMethodIds) {
+                    if (name.equals(staticMethodId)) {
+                        return true;
+                    }
+                }
+            }
+
+            // Check for private static field
+            Object[] staticFieldIds = constructor.getPrivateStaticFieldIds();
+            if (staticFieldIds != null) {
+                for (Object staticFieldId : staticFieldIds) {
+                    if (name.equals(staticFieldId)) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // Check for private instance field
+        Object[] fieldIds = constructor.getPrivateInstanceFieldIds();
+        if (fieldIds != null) {
+            for (Object fieldId : fieldIds) {
+                if (name.equals(fieldId)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public static boolean compare(Object val1, Object val2, int op) {
         assert op == Token.GE || op == Token.LE || op == Token.GT || op == Token.LT;
 

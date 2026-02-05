@@ -83,7 +83,9 @@ public class Node implements Iterable<Node> {
                     41, // Marks a super() call that should forward all function arguments
             PARAM_TDZ_NAME_PROP =
                     42, // Marks a Name node as a TDZ violation in default param expressions
-            LAST_PROP = PARAM_TDZ_NAME_PROP,
+            PRIVATE_NAME_IN =
+                    43, // Marks an IN expression as a private name presence check (#x in obj)
+            LAST_PROP = PRIVATE_NAME_IN,
             FIRST_PROP = FUNCTION_PROP;
 
     // values of ISNUMBER_PROP to specify

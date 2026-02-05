@@ -1740,6 +1740,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.SETPROP_SUPER] = new DoSetPropSuper();
         instructionObjs[base + Token.GETPROP_PRIVATE] = new DoGetPropPrivate();
         instructionObjs[base + Token.SETPROP_PRIVATE] = new DoSetPropPrivate();
+        instructionObjs[base + Token.IN_PRIVATE] = new DoInPrivate();
         instructionObjs[base + Icode_PROP_INC_DEC] = new DoPropIncDec();
         instructionObjs[base + Token.GETELEM] = new DoGetElem();
         instructionObjs[base + Token.GETELEM_SUPER] = new DoGetElemSuper();
@@ -3477,6 +3478,20 @@ public final class Interpreter extends Icode implements Evaluator {
             Object privateContext = findPrivateContext(frame);
             stack[--state.stackTop] =
                     ScriptRuntime.setPrivateProp(lhs, state.stringReg, rhs, cx, privateContext);
+            return null;
+        }
+    }
+
+    private static class DoInPrivate extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            final Object[] stack = frame.stack;
+            final double[] sDbl = frame.sDbl;
+            Object obj = stack[state.stackTop];
+            if (obj == DOUBLE_MARK) obj = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
+            // Walk up call frame chain to find private context
+            Object privateContext = findPrivateContext(frame);
+            stack[state.stackTop] = ScriptRuntime.privateIn(obj, state.stringReg, privateContext);
             return null;
         }
     }

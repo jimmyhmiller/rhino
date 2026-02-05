@@ -1580,6 +1580,18 @@ public final class IRFactory {
     }
 
     private Node transformInfix(InfixExpression node) {
+        // ES2022: Handle private name in check (#field in obj)
+        if (node.getType() == Token.IN && node.getIntProp(Node.PRIVATE_NAME_IN, 0) == 1) {
+            // The left side is a Name node containing the private field name
+            Name leftName = (Name) node.getLeft();
+            String privateName = leftName.getIdentifier();
+            Node right = transform(node.getRight());
+            // Create IN_PRIVATE node with private name as string and object as child
+            Node binaryNode = new Node(Token.IN_PRIVATE, right, Node.newString(privateName));
+            binaryNode.setLineColumnNumber(node.getLineno(), node.getColumn());
+            return binaryNode;
+        }
+
         Node left = transform(node.getLeft());
         Node right = transform(node.getRight());
         Node binaryNode = createBinary(node.getType(), left, right);

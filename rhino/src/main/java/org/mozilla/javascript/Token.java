@@ -100,7 +100,8 @@ public class Token {
             RETHROW = THROW + 1, // rethrow caught exception: catch (e if ) use it
             IN = RETHROW + 1,
             INSTANCEOF = IN + 1,
-            LOCAL_LOAD = INSTANCEOF + 1,
+            IN_PRIVATE = INSTANCEOF + 1, // ES2022: #field in obj
+            LOCAL_LOAD = IN_PRIVATE + 1,
             GETVAR = LOCAL_LOAD + 1,
             SETVAR = GETVAR + 1,
             CATCH_SCOPE = SETVAR + 1,
@@ -419,6 +420,8 @@ public class Token {
                 return "IN";
             case INSTANCEOF:
                 return "INSTANCEOF";
+            case IN_PRIVATE:
+                return "IN_PRIVATE";
             case LOCAL_LOAD:
                 return "LOCAL_LOAD";
             case GETVAR:

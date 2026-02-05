@@ -996,6 +996,14 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 stackChange(-1);
                 break;
 
+            case Token.IN_PRIVATE:
+                // ES2022 Ergonomic brand check: #field in obj
+                // First child is the object, second child is the private name string
+                visitExpression(child, 0);
+                child = child.getNext();
+                addStringOp(Token.IN_PRIVATE, child.getString());
+                break;
+
             case Token.STRING_CONCAT:
                 visitExpression(child, 0);
                 child = child.getNext();

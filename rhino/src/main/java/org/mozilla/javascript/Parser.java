@@ -5233,7 +5233,33 @@ public class Parser {
     }
 
     private AstNode relExpr() throws IOException {
-        AstNode pn = shiftExpr();
+        AstNode pn;
+
+        // ES2022: Handle PrivateIdentifier in ShiftExpression (ergonomic brand checks)
+        if (peekToken() == Token.PRIVATE_NAME
+                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+            int pos = ts.tokenBeg;
+            consumeToken();
+            String privateName = ts.getString();
+            int opPos = ts.tokenBeg;
+
+            // Must be followed by 'in'
+            if (!matchToken(Token.IN, true)) {
+                reportError("msg.syntax");
+                return makeErrorNode();
+            }
+
+            // Create a special node for private name presence check
+            Name privName = new Name(pos, privateName);
+            privName.setLineColumnNumber(lineNumber(), columnNumber());
+            AstNode right = shiftExpr();
+            pn = new InfixExpression(Token.IN, privName, right, opPos);
+            // Mark this as a private-in check
+            pn.putIntProp(Node.PRIVATE_NAME_IN, 1);
+        } else {
+            pn = shiftExpr();
+        }
+
         for (; ; ) {
             int tt = peekToken(), opPos = ts.tokenBeg;
             switch (tt) {
