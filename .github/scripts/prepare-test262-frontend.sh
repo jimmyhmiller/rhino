@@ -36,16 +36,17 @@ sed -i.bak 's|https://data\.test262\.fyi/|./data/|g' "${OUTPUT_DIR}/index.html"
 # Also handle any fetch calls that might use the full URL
 sed -i.bak 's|"https://data\.test262\.fyi"|"./data"|g' "${OUTPUT_DIR}/index.html"
 
-# Update engine configuration to only show upstream and fork
+# Update engine configuration to show upstream, fork, and QuickJS
 # This modifies the JavaScript to filter out other engines and set display order
 cat >> "${OUTPUT_DIR}/config.js" << 'EOF'
 // Custom configuration for Rhino fork comparison
 window.TEST262_CONFIG = {
     filterOutEngines: [],
-    niceEngineOrder: ['rhino-upstream', 'rhino-fork'],
+    niceEngineOrder: ['rhino-upstream', 'rhino-fork', 'quickjs'],
     engineNames: {
         'rhino-upstream': 'Rhino (upstream)',
-        'rhino-fork': 'Rhino (fork)'
+        'rhino-fork': 'Rhino (fork)',
+        'quickjs': 'QuickJS'
     }
 };
 EOF
@@ -56,8 +57,8 @@ sed -i.bak 's|</head>|<script src="config.js"></script></head>|' "${OUTPUT_DIR}/
 # Put editions at the top (before proposals)
 sed -i.bak 's|content.append(proposalsDetails, editionsDetails)|content.append(editionsDetails, proposalsDetails)|' "${OUTPUT_DIR}/index.html"
 
-# Set niceEngineOrder to only our engines
-sed -i.bak "s/const niceEngineOrder = .*/const niceEngineOrder = ['rhino-upstream', 'rhino-fork'];/" "${OUTPUT_DIR}/index.html"
+# Set niceEngineOrder to our engines
+sed -i.bak "s/const niceEngineOrder = .*/const niceEngineOrder = ['rhino-upstream', 'rhino-fork', 'quickjs'];/" "${OUTPUT_DIR}/index.html"
 
 # Clear filterOutEngines so all engines are shown
 sed -i.bak "s/let cwd = '', filterOutEngines = .*, init = false;/let cwd = '', filterOutEngines = [], init = false;/" "${OUTPUT_DIR}/index.html"
@@ -71,12 +72,15 @@ sed -i.bak 's/for (let i of \[5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, undefined\]
 # Add custom CSS colors for Rhino engines
 cat >> "${OUTPUT_DIR}/style.css" << 'CSSEOF'
 
-/* Custom colors for Rhino engines */
+/* Custom colors for Rhino engines and QuickJS */
 .stat-rhino-upstream {
     background: #ef4946 !important;
 }
 .stat-rhino-fork {
     background: #498af4 !important;
+}
+.stat-quickjs {
+    background: #f5a623 !important;
 }
 CSSEOF
 
