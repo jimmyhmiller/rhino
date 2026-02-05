@@ -516,6 +516,14 @@ public class Parser {
         if (tt == Token.ASYNC && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
             return true;
         }
+        // ES2017: 'await' is only a keyword inside async functions and modules
+        // Outside those contexts, it can be used as an identifier
+        if (tt == Token.AWAIT
+                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                && !inAsyncFunction
+                && !parsingModule) {
+            return true;
+        }
         // In ES6 non-strict mode, 'let' and 'yield' can be used as identifiers
         if (!inUseStrictDirective && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
             if (tt == Token.LET) {
