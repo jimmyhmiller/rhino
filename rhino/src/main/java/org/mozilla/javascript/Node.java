@@ -636,14 +636,20 @@ public class Node implements Iterable<Node> {
     }
 
     public final int labelId() {
-        if ((type != Token.TARGET) && (type != Token.YIELD) && (type != Token.YIELD_STAR)) {
+        if ((type != Token.TARGET)
+                && (type != Token.YIELD)
+                && (type != Token.YIELD_STAR)
+                && (type != Token.AWAIT)) {
             Kit.codeBug();
         }
         return getIntProp(LABEL_ID_PROP, -1);
     }
 
     public void labelId(int labelId) {
-        if ((type != Token.TARGET) && (type != Token.YIELD) && (type != Token.YIELD_STAR)) {
+        if ((type != Token.TARGET)
+                && (type != Token.YIELD)
+                && (type != Token.YIELD_STAR)
+                && (type != Token.AWAIT)) {
             Kit.codeBug();
         }
         putIntProp(LABEL_ID_PROP, labelId);
@@ -1077,7 +1083,10 @@ public class Node implements Iterable<Node> {
     }
 
     private void resetTargets_r() {
-        if (type == Token.TARGET || type == Token.YIELD || type == Token.YIELD_STAR) {
+        if (type == Token.TARGET
+                || type == Token.YIELD
+                || type == Token.YIELD_STAR
+                || type == Token.AWAIT) {
             labelId(-1);
         }
         Node child = first;
