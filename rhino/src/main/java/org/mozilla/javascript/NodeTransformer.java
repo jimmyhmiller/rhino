@@ -180,6 +180,15 @@ public class NodeTransformer {
                     ((FunctionNode) tree).addResumptionPoint(node);
                     break;
 
+                case Token.AWAIT:
+                    // In async generators, await is also a suspension point that needs
+                    // the generator resumption infrastructure (for proper local initialization)
+                    if (tree.getType() == Token.FUNCTION
+                            && ((FunctionNode) tree).isAsyncGenerator()) {
+                        ((FunctionNode) tree).addResumptionPoint(node);
+                    }
+                    break;
+
                 case Token.RETURN:
                     {
                         boolean isGenerator =

@@ -322,12 +322,17 @@ class BodyCodegen {
             }
 
             List<Node> targets = ((FunctionNode) scriptOrFn).getResumptionPoints();
-            if (targets != null) {
+            // For async generators, we always need the generator infrastructure even if
+            // there are no explicit yield/await resumption points (for-await-of uses
+            // implicit awaiting in the runtime which still needs proper local initialization)
+            boolean needsGeneratorInfrastructure = targets != null || isAsync;
+            if (needsGeneratorInfrastructure) {
+                int numTargets = targets != null ? targets.size() : 0;
                 // get resumption point
                 generateGetGeneratorResumptionPoint();
 
                 // generate dispatch table
-                generatorSwitch = cfw.addTableSwitch(0, targets.size() + GENERATOR_START);
+                generatorSwitch = cfw.addTableSwitch(0, numTargets + GENERATOR_START);
                 // Acquire labels for deferred local initialization
                 generatorInitLabel = cfw.acquireLabel();
                 generatorBodyStartLabel = cfw.acquireLabel();
@@ -645,7 +650,10 @@ class BodyCodegen {
         }
 
         if (isGenerator) {
-            if (((FunctionNode) scriptOrFn).getResumptionPoints() != null) {
+            // Mark default case for the generator switch (for resume points that don't match)
+            // This is needed for both explicit resumption points AND async generators with
+            // implicit awaiting (e.g., for-await-of)
+            if (generatorSwitch != 0) {
                 cfw.markTableSwitchDefault(generatorSwitch);
             }
 
@@ -2141,23 +2149,31 @@ class BodyCodegen {
 
             case Token.AWAIT:
                 {
-                    // Generate code for await expression
-                    // Stack before: empty
-                    // Stack after: result
+                    // For async generators, await is a suspension point like yield
+                    if (isGenerator && isAsync) {
+                        // Generate await as a yield point for async generators
+                        // The yielded value is the awaited promise, and resumption
+                        // continues with the resolved value
+                        generateYieldPoint(node, true);
+                    } else {
+                        // For regular async functions (not generators), use awaitValue
+                        // Stack before: empty
+                        // Stack after: result
 
-                    // Push context first
-                    cfw.addALoad(contextLocal);
-                    // Push scope
-                    cfw.addALoad(variableObjectLocal);
-                    // Push the awaited value
-                    generateExpression(child, node);
-                    // Call ScriptRuntime.awaitValue(cx, scope, value)
-                    addScriptRuntimeInvoke(
-                            "awaitValue",
-                            "(Lorg/mozilla/javascript/Context;"
-                                    + "Lorg/mozilla/javascript/Scriptable;"
-                                    + "Ljava/lang/Object;"
-                                    + ")Ljava/lang/Object;");
+                        // Push context first
+                        cfw.addALoad(contextLocal);
+                        // Push scope
+                        cfw.addALoad(variableObjectLocal);
+                        // Push the awaited value
+                        generateExpression(child, node);
+                        // Call ScriptRuntime.awaitValue(cx, scope, value)
+                        addScriptRuntimeInvoke(
+                                "awaitValue",
+                                "(Lorg/mozilla/javascript/Context;"
+                                        + "Lorg/mozilla/javascript/Scriptable;"
+                                        + "Ljava/lang/Object;"
+                                        + ")Ljava/lang/Object;");
+                    }
                     break;
                 }
 
