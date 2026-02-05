@@ -70,7 +70,19 @@ public abstract class NewLiteralStorage {
      * needed because the key value is not known at compile time.
      */
     public void pushKeyComputed(Object key) {
-        pushKey(key);
+        // For computed keys, preserve numeric types so that integer-indexed
+        // properties are stored correctly (e.g., class C { [10] = "meep" })
+        if (key instanceof Number) {
+            double d = ((Number) key).doubleValue();
+            int i = (int) d;
+            if (i == d && i >= 0) {
+                keys[index] = Integer.valueOf(i);
+            } else {
+                keys[index] = ScriptRuntime.toString(key);
+            }
+        } else {
+            pushKey(key);
+        }
         // Mark this position as having a computed key
         if (computedKeys == null) {
             computedKeys = new boolean[keys.length];

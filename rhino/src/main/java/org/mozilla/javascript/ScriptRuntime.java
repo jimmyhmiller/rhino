@@ -7059,6 +7059,7 @@ public class ScriptRuntime {
                     // Get from constructor's associated values
                     PrivateKey key = new PrivateKey(constructor, name);
                     Object value = ((ScriptableObject) constructor).getAssociatedValue(key);
+                    if (value == UniqueTag.NULL_VALUE) return null;
                     return value != null ? value : Undefined.instance;
                 }
             }
@@ -7077,6 +7078,7 @@ public class ScriptRuntime {
                     PrivateKey key = new PrivateKey(constructor, name);
                     if (obj instanceof ScriptableObject) {
                         Object value = ((ScriptableObject) obj).getAssociatedValue(key);
+                        if (value == UniqueTag.NULL_VALUE) return null;
                         return value != null ? value : Undefined.instance;
                     }
                     return Undefined.instance;
@@ -7206,8 +7208,10 @@ public class ScriptRuntime {
                         throw typeError("msg.private.brand.check.failed");
                     }
                     // Set in constructor's associated values
+                    // Use NULL_VALUE sentinel since setAssociatedValue removes on null
                     PrivateKey key = new PrivateKey(constructor, name);
-                    ((ScriptableObject) constructor).setAssociatedValue(key, value);
+                    ((ScriptableObject) constructor)
+                            .setAssociatedValue(key, value == null ? UniqueTag.NULL_VALUE : value);
                     return value;
                 }
             }
@@ -7223,9 +7227,12 @@ public class ScriptRuntime {
                         throw typeError("msg.private.brand.check.failed");
                     }
                     // Set in instance's associated values
+                    // Use NULL_VALUE sentinel since setAssociatedValue removes on null
                     PrivateKey key = new PrivateKey(constructor, name);
                     if (obj instanceof ScriptableObject) {
-                        ((ScriptableObject) obj).setAssociatedValue(key, value);
+                        ((ScriptableObject) obj)
+                                .setAssociatedValue(
+                                        key, value == null ? UniqueTag.NULL_VALUE : value);
                     }
                     return value;
                 }
@@ -7377,9 +7384,11 @@ public class ScriptRuntime {
                 }
 
                 // Store in instance's associated values
+                // Use NULL_VALUE sentinel since associateValue doesn't accept null
                 PrivateKey key = new PrivateKey(constructor, name);
                 if (instance instanceof ScriptableObject) {
-                    ((ScriptableObject) instance).associateValue(key, value);
+                    ((ScriptableObject) instance)
+                            .associateValue(key, value == null ? UniqueTag.NULL_VALUE : value);
                 }
             }
         }
@@ -7418,8 +7427,10 @@ public class ScriptRuntime {
                 }
 
                 // Store in constructor's associated values
+                // Use NULL_VALUE sentinel since associateValue doesn't accept null
                 PrivateKey key = new PrivateKey(constructor, name);
-                ((ScriptableObject) constructor).associateValue(key, value);
+                ((ScriptableObject) constructor)
+                        .associateValue(key, value == null ? UniqueTag.NULL_VALUE : value);
             }
         }
     }

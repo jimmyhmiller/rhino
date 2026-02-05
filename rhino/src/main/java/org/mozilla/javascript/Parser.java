@@ -518,12 +518,13 @@ public class Parser {
         if (tt == Token.ASYNC && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
             return true;
         }
-        // ES2017: 'await' is only a keyword inside async functions and modules
+        // ES2017: 'await' is only a keyword inside async functions, modules, and static blocks
         // Outside those contexts, it can be used as an identifier
         if (tt == Token.AWAIT
                 && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
                 && !inAsyncFunction
-                && !parsingModule) {
+                && !parsingModule
+                && !inStaticBlockAwaitContext) {
             return true;
         }
         // In ES6 non-strict mode, 'let' and 'yield' can be used as identifiers
@@ -817,6 +818,10 @@ public class Parser {
     }
 
     private AstNode parseFunctionBody(int type, FunctionNode fnNode) throws IOException {
+        // Function body is a boundary for await-as-identifier in static blocks.
+        // Parameters have already been validated, so it's safe to reset here.
+        // PerFunctionVariables.restore() will restore the original value.
+        inStaticBlockAwaitContext = false;
         boolean isExpressionClosure = false;
         if (!matchToken(Token.LC, true)) {
             if (compilerEnv.getLanguageVersion() < Context.VERSION_1_8

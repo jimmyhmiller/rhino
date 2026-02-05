@@ -2157,7 +2157,12 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         // Emit static blocks storage
         // Static blocks are wrapped in functions that will be called with 'this' = class
         int staticBlocksIdsIndex = literalIds.size();
-        literalIds.add(null); // No ids for static blocks
+        // Count static block children to create properly-sized storage
+        int staticBlockCount = 0;
+        for (Node sb = staticBlocks.getFirstChild(); sb != null; sb = sb.getNext()) {
+            staticBlockCount++;
+        }
+        literalIds.add(new Object[staticBlockCount]);
 
         addIndexOp(Icode_CLASS_STORAGE, staticBlocksIdsIndex);
         stackChange(1);
