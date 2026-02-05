@@ -311,23 +311,24 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install QuickJS
+      - name: Build QuickJS from source
         run: |
-          sudo apt-get update
-          sudo apt-get install -y quickjs || {
-            cd /tmp
-            wget -q https://bellard.org/quickjs/quickjs-2024-01-13.tar.xz
-            tar xf quickjs-*.tar.xz
-            cd quickjs-*/
-            make -j$(nproc) qjs
-            sudo cp qjs /usr/local/bin/
-          }
-          qjs -e 'console.log("QuickJS ready")'
+          # Build QuickJS from source to get run-test262 binary
+          # This matches the methodology used by test262.fyi
+          # See: https://github.com/test262-fyi/data/tree/main/engines/qjs
+          git clone --depth=1 https://github.com/bellard/quickjs.git /tmp/quickjs
+          cd /tmp/quickjs
+          make -j$(nproc)
+          # Copy run-test262 binary (the special test262 runner, not regular qjs)
+          cp run-test262 $GITHUB_WORKSPACE/qjs
+          cd $GITHUB_WORKSPACE
+          ./qjs --help || true
+          echo "QuickJS run-test262 binary ready"
 
       - name: Run test262 for QuickJS
         run: |
           node .github/scripts/run-test262-engine.js \
-            --engine qjs \
+            --engine ./qjs \
             --test262 tests/test262 \
             --output $GITHUB_WORKSPACE/build/test262-quickjs \
             --name quickjs

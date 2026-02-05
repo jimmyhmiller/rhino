@@ -4,6 +4,9 @@
  * Runs test262 tests with a JavaScript engine and outputs results in the same
  * format as the Rhino Test262JsonRunner for consistent comparison.
  *
+ * This script matches the methodology used by test262.fyi for accurate comparison.
+ * See: https://github.com/test262-fyi/data/tree/main/engines/qjs
+ *
  * Usage: node run-test262-engine.js --engine <path-to-engine> --test262 <test262-dir> --output <output-dir> --name <engine-name>
  */
 
@@ -14,7 +17,7 @@ const os = require('os');
 
 function parseArgs(args) {
     const result = {
-        engine: 'qjs',
+        engine: './qjs',
         test262Dir: './tests/test262',
         outputDir: './build/test262-engine',
         engineName: 'quickjs',
@@ -34,25 +37,6 @@ function parseArgs(args) {
     return result;
 }
 
-function findEngine(engine) {
-    const candidates = [
-        engine,
-        `/usr/local/bin/${engine}`,
-        `/usr/bin/${engine}`,
-        `/opt/homebrew/bin/${engine}`,
-        path.resolve(engine)
-    ];
-
-    for (const candidate of candidates) {
-        try {
-            const result = spawnSync(candidate, ['-e', '1'], { timeout: 5000 });
-            if (result.status === 0) return candidate;
-        } catch (e) {}
-    }
-
-    throw new Error(`Engine '${engine}' not found`);
-}
-
 function getEngineVersion(enginePath) {
     try {
         const result = spawnSync(enginePath, ['--help'], { encoding: 'utf8', timeout: 5000 });
@@ -70,7 +54,6 @@ function parseYamlFrontmatter(content) {
 
     const yaml = match[1];
     const result = {};
-    let currentKey = null;
     let currentArray = null;
 
     for (const line of yaml.split('\n')) {
@@ -86,7 +69,6 @@ function parseYamlFrontmatter(content) {
             if (value === '' || value.trim() === '') {
                 result[key] = [];
                 currentArray = result[key];
-                currentKey = key;
             } else if (value.startsWith('[') && value.endsWith(']')) {
                 result[key] = value.slice(1, -1).split(',').map(s => s.trim().replace(/^['"]|['"]$/g, ''));
                 currentArray = null;
@@ -97,7 +79,39 @@ function parseYamlFrontmatter(content) {
         }
     }
 
+    // Parse negative block if present
+    const negativeMatch = content.match(/negative:\s*\n\s*phase:\s*(\S+)\s*\n\s*type:\s*(\S+)/);
+    if (negativeMatch) {
+        result.negative = {
+            phase: negativeMatch[1],
+            type: negativeMatch[2]
+        };
+    } else if (result.negative === '') {
+        result.negative = true;
+    }
+
     return result;
+}
+
+function loadPreludes(harnessDir) {
+    const preludes = {};
+    const entries = fs.readdirSync(harnessDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+        if (entry.isFile() && entry.name.endsWith('.js')) {
+            preludes[entry.name] = fs.readFileSync(path.join(harnessDir, entry.name), 'utf8');
+        } else if (entry.isDirectory()) {
+            // Handle subdirectories like 'VerifyProperty'
+            const subdir = path.join(harnessDir, entry.name);
+            for (const subfile of fs.readdirSync(subdir)) {
+                if (subfile.endsWith('.js')) {
+                    preludes[`${entry.name}/${subfile}`] = fs.readFileSync(path.join(subdir, subfile), 'utf8');
+                }
+            }
+        }
+    }
+
+    return preludes;
 }
 
 function findAllTests(testDir) {
@@ -111,7 +125,7 @@ function findAllTests(testDir) {
 
             if (entry.isDirectory() && entry.name !== 'harness' && entry.name !== '.git') {
                 walk(fullPath, relPath);
-            } else if (entry.name.endsWith('.js') && !entry.name.startsWith('_')) {
+            } else if (entry.name.endsWith('.js') && !entry.name.includes('_FIXTURE')) {
                 tests.push({ fullPath, relativePath: relPath });
             }
         }
@@ -121,120 +135,108 @@ function findAllTests(testDir) {
     return tests;
 }
 
-function runSingleTest(enginePath, test262Dir, testPath, isStrict, timeout) {
+function runTest(enginePath, testFile, isModule, timeout) {
+    // run-test262 uses -N flag for test262 mode
+    const args = ['-N', testFile];
+    if (isModule) args.unshift('--module');
+
+    const result = spawnSync(enginePath, args, {
+        encoding: 'utf8',
+        timeout,
+        maxBuffer: 10 * 1024 * 1024
+    });
+
+    const combined = (result.stdout || '') + '\n' + (result.stderr || '');
+    const lowered = combined.toLowerCase();
+    const hasError = result.signal !== null || !!result.error || result.status !== 0 ||
+        lowered.includes('error') || lowered.includes('exception') || lowered.includes('panic');
+
+    return { combined, hasError };
+}
+
+function evaluateResult(result, flags, negative) {
+    const { combined, hasError } = result;
+
+    if (negative) {
+        if (!hasError) return false;
+        if (typeof negative === 'object' && negative.type && !combined.includes(negative.type)) return false;
+        return true;
+    }
+
+    if (hasError) return false;
+    if (flags.async && !combined.includes('Test262:AsyncTestComplete')) return false;
+    return true;
+}
+
+function processTest(enginePath, test262Dir, testPath, preludes, timeout) {
     const content = fs.readFileSync(testPath, 'utf8');
     const metadata = parseYamlFrontmatter(content);
-    const harnessDir = path.join(test262Dir, 'harness');
+    const flags = {};
 
-    // Check flags
-    const flags = metadata.flags || [];
-    if (flags.includes('module')) return { skip: true, reason: 'module' };
-    if (flags.includes('raw')) return { skip: true, reason: 'raw' };
-    if (isStrict && flags.includes('noStrict')) return { skip: true };
-    if (!isStrict && flags.includes('onlyStrict')) return { skip: true };
-
-    const isAsync = flags.includes('async');
-
-    // Check for unsupported features
-    const unsupported = ['Atomics', 'SharedArrayBuffer', 'Temporal', 'ShadowRealm', 'decorators', 'tail-call-optimization'];
-    for (const feat of (metadata.features || [])) {
-        if (unsupported.includes(feat)) return { skip: true, reason: `unsupported: ${feat}` };
+    // Parse flags
+    let flagsRaw = content.match(/^flags: \[(.*)\]$/m)?.[1];
+    if (!flagsRaw && content.includes('flags:')) {
+        // Check for md style list as fallback
+        flagsRaw = content.match(/^flags:\n(  - .*\s*\n)+/m);
+        if (flagsRaw) flagsRaw = flagsRaw[0].replaceAll('\n  - ', ',').slice(7, -1);
     }
-
-    // Check for negative test
-    const isNegative = !!metadata.negative;
-    const expectedPhase = metadata.negative?.phase;
-    const expectedType = metadata.negative?.type;
-
-    // Build test script
-    let script = '';
-    if (isStrict) script += '"use strict";\n';
-
-    // Add harness
-    script += fs.readFileSync(path.join(harnessDir, 'assert.js'), 'utf8') + '\n';
-    script += fs.readFileSync(path.join(harnessDir, 'sta.js'), 'utf8') + '\n';
-
-    // Add async harness for async tests
-    if (isAsync) {
-        script += fs.readFileSync(path.join(harnessDir, 'doneprintHandle.js'), 'utf8') + '\n';
-    }
-
-    for (const inc of (metadata.includes || [])) {
-        const incPath = path.join(harnessDir, inc);
-        if (fs.existsSync(incPath)) {
-            script += fs.readFileSync(incPath, 'utf8') + '\n';
+    if (flagsRaw) {
+        for (const x of flagsRaw.split(',')) {
+            flags[x.trim()] = true;
         }
     }
 
-    script += content;
+    // Get includes
+    const includesMatch = content.match(/^includes: \[(.*)\]$/m);
+    const includes = includesMatch ? includesMatch[1].split(',').map(s => s.trim()) : [];
 
-    // Write temp file
-    const tmpFile = path.join(os.tmpdir(), `test262-${process.pid}-${Date.now()}.js`);
-    fs.writeFileSync(tmpFile, script);
+    // Build test contents - matching test262.fyi methodology
+    let contents = '';
+
+    if (!flags.raw) {
+        // Add strict mode prefix if onlyStrict
+        if (flags.onlyStrict) contents += '"use strict";\n';
+
+        // Add async harness for async tests
+        if (flags.async) contents += preludes['doneprintHandle.js'] || '';
+
+        // Add includes
+        for (const inc of includes) {
+            contents += preludes[inc] || '';
+        }
+
+        // Always add assert.js and sta.js
+        contents += preludes['assert.js'] || '';
+        contents += preludes['sta.js'] || '';
+    }
+
+    contents += content;
+
+    // Determine if we need strict rerun
+    const strictRerun = !flags.module && !flags.onlyStrict && !flags.noStrict && !flags.raw;
+
+    // Write temp file in same dir as test for module resolution
+    const tmpFile = testPath + '.tmp.js';
+    fs.writeFileSync(tmpFile, contents);
 
     try {
-        const result = spawnSync(enginePath, [tmpFile], {
-            encoding: 'utf8',
-            timeout,
-            maxBuffer: 10 * 1024 * 1024
-        });
+        const result = runTest(enginePath, tmpFile, flags.module, timeout);
+        let pass = evaluateResult(result, flags, metadata.negative);
+
+        // Strict rerun - both must pass
+        if (pass && strictRerun) {
+            const strictContents = '"use strict";\n' + contents;
+            fs.writeFileSync(tmpFile, strictContents);
+            const strictResult = runTest(enginePath, tmpFile, flags.module, timeout);
+            pass = pass && evaluateResult(strictResult, flags, metadata.negative);
+        }
 
         fs.unlinkSync(tmpFile);
-
-        const output = (result.stdout || '') + (result.stderr || '');
-
-        // Handle async tests
-        if (isAsync) {
-            if (output.includes('Test262:AsyncTestFailure')) {
-                return { pass: false };
-            }
-            if (output.includes('Test262:AsyncTestComplete')) {
-                return { pass: true };
-            }
-            // $DONE was never called
-            return { pass: false, reason: 'async test did not call $DONE' };
-        }
-
-        if (result.status === 0) {
-            // No error - test passed (unless it was supposed to fail)
-            return { pass: !isNegative };
-        } else {
-            // Error occurred
-            if (isNegative) {
-                if (!expectedType || output.includes(expectedType)) {
-                    return { pass: true };
-                }
-            }
-            return { pass: false };
-        }
+        return { pass };
     } catch (e) {
         try { fs.unlinkSync(tmpFile); } catch {}
         return { pass: false, reason: e.message };
     }
-}
-
-function runTest(enginePath, test262Dir, testPath, timeout) {
-    const content = fs.readFileSync(testPath, 'utf8');
-    const metadata = parseYamlFrontmatter(content);
-    const flags = metadata.flags || [];
-
-    const runStrict = !flags.includes('noStrict');
-    const runNonStrict = !flags.includes('onlyStrict');
-
-    let strictResult = { skip: true };
-    let nonStrictResult = { skip: true };
-
-    if (runStrict) {
-        strictResult = runSingleTest(enginePath, test262Dir, testPath, true, timeout);
-    }
-    if (runNonStrict) {
-        nonStrictResult = runSingleTest(enginePath, test262Dir, testPath, false, timeout);
-    }
-
-    // Pass if either mode passes
-    if (strictResult.pass || nonStrictResult.pass) return { pass: true };
-    if (strictResult.skip && nonStrictResult.skip) return { skip: true };
-    return { pass: false };
 }
 
 function buildResults(tests, results, engineName) {
@@ -248,7 +250,7 @@ function buildResults(tests, results, engineName) {
 
     for (const test of tests) {
         const result = results.get(test.relativePath);
-        if (!result || result.skip) continue;
+        if (!result) continue;
 
         index.total++;
         if (result.pass) index.engines[engineName]++;
@@ -294,11 +296,20 @@ async function main() {
     console.log(`  output dir: ${config.outputDir}`);
     console.log(`  engine name: ${config.engineName}`);
 
-    const enginePath = findEngine(config.engine);
-    console.log(`  engine path: ${enginePath}`);
+    // Verify engine exists
+    if (!fs.existsSync(config.engine)) {
+        throw new Error(`Engine not found: ${config.engine}`);
+    }
+    console.log(`  engine path: ${config.engine}`);
 
-    const version = getEngineVersion(enginePath);
+    const version = getEngineVersion(config.engine);
     console.log(`  engine version: ${version}`);
+
+    // Load preludes (harness files)
+    const harnessDir = path.join(config.test262Dir, 'harness');
+    console.log(`Loading harness files from ${harnessDir}...`);
+    const preludes = loadPreludes(harnessDir);
+    console.log(`Loaded ${Object.keys(preludes).length} harness files`);
 
     // Find tests
     const testDir = path.join(config.test262Dir, 'test');
@@ -308,29 +319,28 @@ async function main() {
 
     // Run tests
     const results = new Map();
-    let completed = 0, passed = 0, failed = 0, skipped = 0;
+    let completed = 0, passed = 0, failed = 0;
     const startTime = Date.now();
 
     for (const test of tests) {
-        const result = runTest(enginePath, config.test262Dir, test.fullPath, config.timeout);
+        const result = processTest(config.engine, config.test262Dir, test.fullPath, preludes, config.timeout);
         results.set(test.relativePath, result);
 
         completed++;
-        if (result.skip) skipped++;
-        else if (result.pass) passed++;
+        if (result.pass) passed++;
         else failed++;
 
         if (completed % 500 === 0) {
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
             const rate = (completed / parseFloat(elapsed)).toFixed(0);
-            console.log(`  ${completed}/${tests.length} (${passed} pass, ${failed} fail, ${skipped} skip) ${rate}/s`);
+            console.log(`  ${completed}/${tests.length} (${passed} pass, ${failed} fail) ${rate}/s`);
         }
     }
 
     console.log(`\nCompleted in ${((Date.now() - startTime) / 1000).toFixed(1)}s`);
     console.log(`  Passed: ${passed}`);
     console.log(`  Failed: ${failed}`);
-    console.log(`  Skipped: ${skipped}`);
+    console.log(`  Total: ${tests.length}`);
 
     // Build output
     const { index, directories } = buildResults(tests, results, config.engineName);
