@@ -1215,9 +1215,10 @@ public class ParserTest {
 
     @Test
     public void parseUnicodeFormatName() {
+        // ZWJ (U+200D) is a valid IdentifierPart per ES spec and should be preserved
         AstRoot root = parse("A\u200DB");
         AstNode first = ((ExpressionStatement) root.getFirstChild()).getExpression();
-        assertEquals("AB", first.getString());
+        assertEquals("A\u200DB", first.getString());
     }
 
     @Test

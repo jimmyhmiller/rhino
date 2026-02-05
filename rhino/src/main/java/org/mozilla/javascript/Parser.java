@@ -1522,6 +1522,11 @@ public class Parser {
 
         // Check for 'static' keyword
         if (matchToken(Token.STATIC, true)) {
+            if (ts.identifierContainsEscape()) {
+                // Escaped 'static' is not the keyword, treat as identifier
+                return parseClassMethodOrField(
+                        pos, createNameNode(false, Token.NAME, "static"), false);
+            }
             // Could be 'static' method, 'static' block, or a method named 'static'
             int next = peekToken();
             if (next == Token.LP) {
@@ -1542,8 +1547,12 @@ public class Parser {
         }
 
         // Check for async method (must come before generator check)
-        // async keyword must not contain escape sequences
-        if (matchToken(Token.ASYNC, true) && !ts.identifierContainsEscape()) {
+        if (matchToken(Token.ASYNC, true)) {
+            if (ts.identifierContainsEscape()) {
+                // Escaped 'async' is not the keyword, treat as identifier
+                return parseClassMethodOrField(
+                        pos, createNameNode(false, Token.NAME, "async"), isStatic);
+            }
             // Check if followed by line terminator (not allowed before method name)
             int nextTt = peekTokenOrEOL();
             if (nextTt == Token.EOL) {
@@ -1576,7 +1585,10 @@ public class Parser {
         if (tt == Token.NAME || tt == Token.STRING || tt == Token.NUMBER) {
             String tokenStr = ts.getString();
             // get/set not allowed with async
-            if (!isGenerator && !isAsync && ("get".equals(tokenStr) || "set".equals(tokenStr))) {
+            if (!isGenerator
+                    && !isAsync
+                    && !ts.identifierContainsEscape()
+                    && ("get".equals(tokenStr) || "set".equals(tokenStr))) {
                 consumeToken();
                 int nextTt = peekToken();
                 if (nextTt != Token.LP) {
@@ -1663,8 +1675,15 @@ public class Parser {
             element.setInitializer(init);
         }
 
-        // Consume the semicolon if present (ASI may handle it)
-        matchToken(Token.SEMI, true);
+        // Check for semicolon or ASI
+        if (!matchToken(Token.SEMI, true)) {
+            // No explicit semicolon - check ASI conditions:
+            // ASI applies if there's a newline, }, or EOF
+            int nextTt = peekTokenOrEOL();
+            if (nextTt != Token.EOL && nextTt != Token.RC && nextTt != Token.EOF) {
+                reportError("msg.missing.semi");
+            }
+        }
 
         element.setLength(ts.tokenEnd - pos);
         return element;
@@ -6784,7 +6803,8 @@ public class Parser {
                         }
                     } else if (peeked == Token.LP) {
                         entryKind = METHOD_ENTRY;
-                    } else if (pname.getType() == Token.NAME) {
+                    } else if (pname.getType() == Token.NAME
+                            && !(pname instanceof Name && ((Name) pname).containsEscape())) {
                         if ("get".equals(propertyName)) {
                             entryKind = GET_ENTRY;
                         } else if ("set".equals(propertyName)) {
@@ -6950,7 +6970,8 @@ public class Parser {
                 break;
 
             case Token.ASYNC:
-                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                        && !ts.identifierContainsEscape()) {
                     int pos = ts.tokenBeg;
                     nextToken();
                     // Check for line terminator after async (not allowed)
@@ -6979,7 +7000,7 @@ public class Parser {
                     pname = new AsyncMethodDefinition(pos, ts.tokenEnd - pos, pname, isGenerator);
                     pname.setLineColumnNumber(lineno, column);
                 } else {
-                    // In non-ES6 mode, 'async' is just a name
+                    // In non-ES6 mode or escaped 'async', treat as identifier
                     pname = createNameNode();
                 }
                 break;

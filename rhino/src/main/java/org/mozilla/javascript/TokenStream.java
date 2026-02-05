@@ -1679,7 +1679,9 @@ class TokenStream implements Parser.CurrentPositionReporter {
         // ES6+ does not strip format-control characters from source text.
         // U+180E (Mongolian Vowel Separator) was reclassified from Zs to Cf
         // in Unicode 6.3 and should NOT be treated as whitespace or skipped.
-        if (c == 0x180E) {
+        // U+200C (ZWNJ) and U+200D (ZWJ) are valid IdentifierPart characters
+        // per the ECMAScript spec and must not be stripped.
+        if (c == 0x180E || c == 0x200C || c == 0x200D) {
             return false;
         }
         return c > 127 && Character.getType((char) c) == Character.FORMAT;
