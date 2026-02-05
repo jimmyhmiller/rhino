@@ -2,20 +2,25 @@
 
 ## TOP PRIORITY: Language Feature Completion
 
-**GOAL: Get language/ test262 tests from 19,425 to 23,000+ passing (83% → 98%)**
+**GOAL: Get test262 pass rate higher**
 
-We're focusing on completing JavaScript language feature support. The `language/` section of test262 covers core syntax and semantics - this is the heart of the JavaScript engine.
+We're focusing on completing JavaScript language feature support.
 
-### Current Status
+### Current Status (2026-02-05)
 
 ```
-language/     19,425 / 23,409 passing (83.0%)
-built-ins/    15,247 / 22,954 passing (66.4%)
-─────────────────────────────────────────────
-Total         35,617 / 49,149 passing (72.5%)
+Total         37,277 / 50,756 passing (73.4%)
 ```
 
-To hit 23,000 language tests, we need to fix ~3,575 more tests.
+**Recent Fixes:**
+- ES2022 Ergonomic brand checks (`#field in obj`) - 7 tests
+- ES2017 `await` as function name outside async contexts - 2 tests
+- ES2022 `await` identifier handling in static blocks / function expressions - 5 tests
+
+**Next Priority Items:**
+1. **Private field compound assignment** (`this.#x += 1`) - ~100 tests failing
+2. **Private field logical assignment** (`this.#x ||= 5`) - ~30 tests failing
+3. **Interpreter static block bugs** - ArrayIndexOutOfBoundsException in some static block tests
 
 ---
 
@@ -60,8 +65,9 @@ class C {
 
 | Feature | Tests | Difficulty |
 |---------|-------|------------|
-| **Private field compound assignment** | ~100 | Medium - wire up existing operators |
-| **Static block restrictions** | ~20 | Easy - add parser checks |
+| **Private field compound assignment** | ~100 | Medium - already working in compiled mode, need interpreter support |
+| **Private field logical assignment** | ~30 | Medium - similar to compound assignment |
+| **Interpreter literal storage bug** | ~5 | Medium - ArrayIndexOutOfBoundsException in static blocks |
 | **Private name escape sequences** | 28 | Easy - parser validation |
 
 ---
