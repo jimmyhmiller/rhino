@@ -260,18 +260,18 @@ public class Test262JsonRunner {
                 return;
             }
 
-            // Try all modes - pass if ANY succeeds
-            boolean passed = false;
+            // A test passes if ALL applicable modes pass (matching Test262SuiteTest behavior)
+            // We try both interpreted and compiled modes
             boolean isModule = testCase.hasFlag("module");
+            boolean allPassed = true;
+            int modesRun = 0;
 
             for (boolean interpreted : new boolean[] {true, false}) {
-                if (passed) break;
-
                 if (isModule) {
                     // Modules are always strict - only try once per interpretation mode
-                    if (runSingleTest(testCase, relativePath, interpreted, true)) {
-                        passed = true;
-                        break;
+                    modesRun++;
+                    if (!runSingleTest(testCase, relativePath, interpreted, true)) {
+                        allPassed = false;
                     }
                 } else {
                     boolean canRunStrict =
@@ -280,21 +280,22 @@ public class Test262JsonRunner {
                             !testCase.hasFlag(FLAG_ONLY_STRICT) || testCase.hasFlag(FLAG_RAW);
 
                     if (canRunNonStrict) {
-                        if (runSingleTest(testCase, relativePath, interpreted, false)) {
-                            passed = true;
-                            break;
+                        modesRun++;
+                        if (!runSingleTest(testCase, relativePath, interpreted, false)) {
+                            allPassed = false;
                         }
                     }
 
                     if (canRunStrict) {
-                        if (runSingleTest(testCase, relativePath, interpreted, true)) {
-                            passed = true;
-                            break;
+                        modesRun++;
+                        if (!runSingleTest(testCase, relativePath, interpreted, true)) {
+                            allPassed = false;
                         }
                     }
                 }
             }
 
+            boolean passed = allPassed && modesRun > 0;
             if (passed) {
                 passCount.incrementAndGet();
             } else {
@@ -337,9 +338,11 @@ public class Test262JsonRunner {
 
             boolean failedEarly = false;
             boolean isModule = testCase.hasFlag("module");
+            boolean isAsync = testCase.hasFlag("async");
+            StringBuilder printOutput = new StringBuilder();
 
             try {
-                Scriptable scope = buildScope(cx, testCase, interpretedMode);
+                Scriptable scope = buildScope(cx, testCase, interpretedMode, printOutput);
                 String str = testCase.source;
                 int line = 1;
 
@@ -364,6 +367,17 @@ public class Test262JsonRunner {
 
                     failedEarly = false;
                     caseScript.exec(cx, scope, scope);
+                }
+
+                // For async tests, check if $DONE was called with success or failure
+                if (isAsync) {
+                    String output = printOutput.toString();
+                    if (output.contains("Test262:AsyncTestFailure")) {
+                        return false; // Async test explicitly failed
+                    }
+                    if (!output.contains("Test262:AsyncTestComplete")) {
+                        return false; // $DONE was never called
+                    }
                 }
 
                 // If we get here without exception, check if test expected an error
@@ -442,8 +456,15 @@ public class Test262JsonRunner {
                 .invoke(cx, scope, moduleRecord);
     }
 
-    private Scriptable buildScope(Context cx, Test262Case testCase, boolean interpretedMode) {
+    private Scriptable buildScope(
+            Context cx, Test262Case testCase, boolean interpretedMode, StringBuilder printOutput) {
         ScriptableObject scope = (ScriptableObject) cx.initSafeStandardObjects(new TopLevel());
+
+        // Add a print function that captures output (needed for async tests)
+        scope.defineFunctionProperties(
+                new String[] {"print"}, PrintCapture.class, ScriptableObject.DONTENUM);
+        // Store the output buffer on the scope for the print function to access
+        scope.associateValue("printOutput", printOutput);
 
         for (String harnessFile : testCase.harnessFiles) {
             String harnessKey = harnessFile + '-' + interpretedMode;
@@ -471,6 +492,28 @@ public class Test262JsonRunner {
         $262 proto = $262.init(cx, scope);
         $262.install(scope, proto);
         return scope;
+    }
+
+    /** Helper class to provide a print function that captures output. */
+    public static class PrintCapture {
+        public static void print(
+                Context cx,
+                Scriptable thisObj,
+                Object[] args,
+                org.mozilla.javascript.Function funObj) {
+            StringBuilder sb =
+                    (StringBuilder) ((ScriptableObject) thisObj).getAssociatedValue("printOutput");
+            if (sb == null) {
+                return; // No output buffer, ignore
+            }
+            for (int i = 0; i < args.length; i++) {
+                if (i > 0) {
+                    sb.append(" ");
+                }
+                sb.append(Context.toString(args[i]));
+            }
+            sb.append("\n");
+        }
     }
 
     private static String extractJSErrorName(RhinoException ex) {
@@ -876,6 +919,11 @@ public class Test262JsonRunner {
             } else {
                 harnessFiles.add("assert.js");
                 harnessFiles.add("sta.js");
+
+                // Add async test harness for tests with the 'async' flag
+                if (flags.contains("async")) {
+                    harnessFiles.add("doneprintHandle.js");
+                }
 
                 if (metadata.containsKey("includes")) {
                     harnessFiles.addAll((List<String>) metadata.get("includes"));
