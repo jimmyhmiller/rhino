@@ -129,10 +129,11 @@ function runSingleTest(enginePath, test262Dir, testPath, isStrict, timeout) {
     // Check flags
     const flags = metadata.flags || [];
     if (flags.includes('module')) return { skip: true, reason: 'module' };
-    if (flags.includes('async')) return { skip: true, reason: 'async' };
     if (flags.includes('raw')) return { skip: true, reason: 'raw' };
     if (isStrict && flags.includes('noStrict')) return { skip: true };
     if (!isStrict && flags.includes('onlyStrict')) return { skip: true };
+
+    const isAsync = flags.includes('async');
 
     // Check for unsupported features
     const unsupported = ['Atomics', 'SharedArrayBuffer', 'Temporal', 'ShadowRealm', 'decorators', 'tail-call-optimization'];
@@ -152,6 +153,11 @@ function runSingleTest(enginePath, test262Dir, testPath, isStrict, timeout) {
     // Add harness
     script += fs.readFileSync(path.join(harnessDir, 'assert.js'), 'utf8') + '\n';
     script += fs.readFileSync(path.join(harnessDir, 'sta.js'), 'utf8') + '\n';
+
+    // Add async harness for async tests
+    if (isAsync) {
+        script += fs.readFileSync(path.join(harnessDir, 'doneprintHandle.js'), 'utf8') + '\n';
+    }
 
     for (const inc of (metadata.includes || [])) {
         const incPath = path.join(harnessDir, inc);
@@ -175,13 +181,26 @@ function runSingleTest(enginePath, test262Dir, testPath, isStrict, timeout) {
 
         fs.unlinkSync(tmpFile);
 
+        const output = (result.stdout || '') + (result.stderr || '');
+
+        // Handle async tests
+        if (isAsync) {
+            if (output.includes('Test262:AsyncTestFailure')) {
+                return { pass: false };
+            }
+            if (output.includes('Test262:AsyncTestComplete')) {
+                return { pass: true };
+            }
+            // $DONE was never called
+            return { pass: false, reason: 'async test did not call $DONE' };
+        }
+
         if (result.status === 0) {
             // No error - test passed (unless it was supposed to fail)
             return { pass: !isNegative };
         } else {
             // Error occurred
             if (isNegative) {
-                const output = (result.stderr || '') + (result.stdout || '');
                 if (!expectedType || output.includes(expectedType)) {
                     return { pass: true };
                 }
