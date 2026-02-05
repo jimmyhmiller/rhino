@@ -1,144 +1,163 @@
 @AGENTS.md
 
-## TOP PRIORITY: Async/Await Implementation
+## TOP PRIORITY: Async Iteration Implementation
 
-**THIS IS THE #1 PRIORITY. Implement full async/await support in Rhino.**
+**THIS IS THE #1 PRIORITY. Implement async iteration support in Rhino.**
 
-Async/await is ES2017's flagship feature and critical for modern JavaScript. Currently Rhino has no async function support - this is our next major milestone.
+Async iteration (ES2018) enables asynchronous data streams with `async function*` generators and `for-await-of` loops. This is the last major async feature missing from Rhino.
 
 ### Current Status: Not Implemented
 
+~1900 test262 tests are blocked by `{unsupported: [async-iteration]}`. This is a high-impact feature.
+
 ```bash
-# Check async-related test262 failures
-node scripts/test-status.js 2017 --all | grep -i async
+# Check async-iteration test count
+grep -c "async-iteration" tests/testsrc/test262.properties
 ```
 
 ---
 
-## Implementation Overview
+## What's Already Working (Async/Await - DONE!)
 
-Async/await builds on top of Promises and Generators. The basic transformation is:
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `async function` declarations | ✅ Works | Parser, interpreter, compiled |
+| `async function` expressions | ✅ Works | |
+| `async` arrow functions | ✅ Works | `async () => {}` |
+| `async` methods in classes | ✅ Works | Including static and private |
+| `async` methods in objects | ✅ Works | |
+| `await` expressions | ✅ Works | Proper precedence |
+| Promise wrapping | ✅ Works | Return values wrapped |
+| Error → rejection | ✅ Works | Thrown errors become rejections |
+| `await` reserved in modules | ✅ Works | |
+| `await` reserved in async | ✅ Works | Cannot use as identifier |
+
+---
+
+## Async Iteration Components to Implement
+
+### 1. Async Generator Functions (`async function*`)
 
 ```javascript
-// User writes:
-async function fetchData() {
-  const response = await fetch(url);
-  const data = await response.json();
-  return data;
-}
-
-// Conceptually becomes something like:
-function fetchData() {
-  return new Promise((resolve, reject) => {
-    // State machine based on generator-like suspension points
-  });
+async function* asyncGen() {
+  yield 1;
+  yield await Promise.resolve(2);
+  yield 3;
 }
 ```
 
-### Key Components to Implement
+**Key differences from regular generators:**
+- Returns an AsyncGenerator object (not Generator)
+- `yield` can await promises before yielding
+- `next()` returns `Promise<{value, done}>` instead of `{value, done}`
+- Has `[Symbol.asyncIterator]` instead of `[Symbol.iterator]`
 
-1. **Lexer/Parser** (`TokenStream.java`, `Parser.java`)
-   - Add `async` keyword recognition
-   - Parse `async function` declarations and expressions
-   - Parse `async` arrow functions: `async () => {}`
-   - Parse `await` expressions inside async functions
-   - Parse `async` methods in classes and object literals
-   - Track async context for `await` validity
+### 2. `for-await-of` Loops
 
-2. **AST Nodes** (`ast/` directory)
-   - May need new AST node types or flags for async functions
-   - `await` expression node
+```javascript
+for await (const item of asyncIterable) {
+  console.log(item);
+}
+```
 
-3. **IR Generation** (`IRFactory.java`)
-   - Transform async functions into state machines
-   - Similar approach to generators but returning Promises
-   - Handle `await` as suspension points
+**Semantics:**
+- Calls `[Symbol.asyncIterator]()` on the iterable
+- Each iteration awaits the promise from `next()`
+- Works with both async iterables AND sync iterables (wraps in promises)
 
-4. **Runtime Support** (`ScriptRuntime.java`, new classes)
-   - Async function execution context
-   - Promise integration for await
-   - Proper error propagation (rejected promises)
+### 3. Async Iterator Protocol
 
-5. **Code Generation** (`CodeGenerator.java`, `Codegen.java`)
-   - Both interpreter and compiled modes need async support
+Objects implementing async iteration need:
+- `[Symbol.asyncIterator]()` method returning an async iterator
+- Async iterator has `next()` returning `Promise<{value, done}>`
+- Optional `return()` and `throw()` methods (also return promises)
 
-### Implementation Strategy
+---
 
-**Phase 1: Basic async/await**
-- `async function` declarations
-- `await` on Promises
-- Return value automatically wrapped in Promise
-- Thrown errors become rejected Promises
+## Implementation Strategy
 
-**Phase 2: Full syntax support**
-- `async` arrow functions
-- `async` methods in classes
-- `async` methods in object literals
-- `await` in default parameter expressions (edge case)
+### Phase 1: Parser Support
+1. Parse `async function*` declarations and expressions
+2. Parse `for-await-of` loops
+3. Track async generator context (both `yield` AND `await` valid)
 
-**Phase 3: Edge cases and spec compliance**
-- `for-await-of` loops (async iteration)
-- Top-level await (module context)
-- Proper handling of non-Promise await operands
-- AsyncGenerator functions (`async function*`)
+### Phase 2: AST/IR
+1. New `AsyncGeneratorFunction` type or flag
+2. `ForAwaitOf` loop node
+3. IR transformation for async generator state machine
 
-### Key Spec References
+### Phase 3: Runtime
+1. `AsyncGeneratorFunction` constructor (`built-ins/AsyncGeneratorFunction`)
+2. `AsyncGeneratorPrototype` with `next`, `return`, `throw`
+3. `AsyncIteratorPrototype` (base for async iterators)
+4. `AsyncFromSyncIteratorPrototype` (wraps sync iterators)
 
-- [ES2017 Async Functions](https://tc39.es/ecma262/#sec-async-function-definitions)
-- [Await Expression](https://tc39.es/ecma262/#sec-await)
-- [AsyncFunction Objects](https://tc39.es/ecma262/#sec-async-function-objects)
+### Phase 4: Code Generation
+1. Interpreter support for async generators
+2. Compiled mode support
+
+---
+
+## Key Files to Modify
+
+**Parser:**
+- `Parser.java` - Parse `async function*` and `for-await-of`
+- `TokenStream.java` - May need token updates
+
+**AST:**
+- `ast/FunctionNode.java` - Add async generator flag
+- Possibly new `ForAwaitOf` node
+
+**Runtime:**
+- New `NativeAsyncGenerator.java`
+- New `NativeAsyncGeneratorFunction.java`
+- `ScriptRuntime.java` - Async iteration helpers
+
+**Code Generation:**
+- `IRFactory.java` - Transform async generators
+- `CodeGenerator.java` - Interpreter bytecode
+- `Codegen.java` / `BodyCodegen.java` - Compiled mode
+
+---
+
+## Test262 Tests
+
+```bash
+# Run async generator tests
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
+  -Dtest262filter="language/statements/async-generator/*" -Dtest262raw --rerun-tasks
+
+# Run for-await-of tests
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
+  -Dtest262filter="language/statements/for-await-of/*" -Dtest262raw --rerun-tasks
+
+# Run AsyncGenerator built-in tests
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
+  -Dtest262filter="built-ins/AsyncGeneratorFunction/*" -Dtest262raw --rerun-tasks
+```
+
+---
+
+## Spec References
+
+- [AsyncGenerator Functions](https://tc39.es/ecma262/#sec-asyncgenerator-objects)
+- [for-await-of](https://tc39.es/ecma262/#sec-for-in-and-for-of-statements)
+- [Async Iteration Protocol](https://tc39.es/ecma262/#sec-asynciterable-interface)
+- [AsyncFromSyncIterator](https://tc39.es/ecma262/#sec-async-from-sync-iterator-objects)
 
 ---
 
 ## Existing Foundation
 
-Rhino already has these prerequisites working:
+Rhino has these building blocks ready:
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Promises | ✅ Works | `NativePromise.java` - basic, all, race |
-| Generators | ✅ Works | State machine infrastructure exists |
-| Arrow functions | ✅ Works | |
-| Classes | ✅ Works | For async methods |
-| ES6 Modules | ✅ Works | For future top-level await |
-
-The generator implementation in particular provides a model for how to implement the state machine transformation needed for async/await.
-
----
-
-## Test262 Async Tests
-
-Test262 has comprehensive async/await tests. Currently they're likely skipped or failing:
-
-```bash
-# Run async function tests
-./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/statements/async-function/*" -Dtest262raw --rerun-tasks
-
-# Run async expression tests
-./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/expressions/async-function/*" -Dtest262raw --rerun-tasks
-
-# Run await tests
-./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/expressions/await/*" -Dtest262raw --rerun-tasks
-
-# Run async method tests
-./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest \
-  -Dtest262filter="language/statements/class/async-*" -Dtest262raw --rerun-tasks
-```
-
----
-
-## ES6 Status (Previous Focus)
-
-ES6 is at 91.4% passing (789 failures remaining). Key remaining gaps:
-
-- Iterator close behavior (~25 for-of tests)
-- Destructuring from iterables (Set/Map)
-- Default parameter TDZ violations
-
-These are lower priority than async/await but can be addressed opportunistically.
+| Component | Location | Notes |
+|-----------|----------|-------|
+| Generators | `NativeGenerator.java` | State machine model to follow |
+| Promises | `NativePromise.java` | For async wrapping |
+| Async functions | Throughout | Async context tracking |
+| Symbol.asyncIterator | `NativeSymbol.java` | Well-known symbol exists |
+| for-of loops | `Parser.java`, runtime | Sync iteration works |
 
 ---
 
@@ -172,8 +191,6 @@ Use the `-Dtest262filter` system property with glob patterns to filter which tes
 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest -Dtest262filter="**/prop-desc.js"
 ```
 
-The filter supports `*` (matches any characters) and `?` (matches single character) wildcards.
-
 ### Seeing actual test results (raw mode)
 
 By default, tests listed in test262.properties are expected to fail - if they fail, the test suite passes. To see actual pass/fail results, use `-Dtest262raw`:
@@ -186,16 +203,6 @@ By default, tests listed in test262.properties are expected to fail - if they fa
 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest -Dtest262filter="built-ins/Error/*" -Dtest262raw --rerun-tasks
 ```
 
-In raw mode, the test suite will fail if any test actually fails, regardless of whether it's listed in test262.properties.
-
-### Workflow for fixing tests
-
-1. Pick a failing test from test262.properties
-2. Read the test file in `tests/test262/test/` to understand what it tests
-3. Make your fix to the Rhino source code
-4. Regenerate the properties file (see below)
-5. Verify git diff shows the test removed from expected failures (not added!)
-
 ### Regenerating the properties file
 
 When fixing test262 tests, regenerate the expected failures list:
@@ -204,6 +211,4 @@ When fixing test262 tests, regenerate the expected failures list:
 RHINO_TEST_JAVA_VERSION=11 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest --rerun-tasks -DupdateTest262properties
 ```
 
-The `RHINO_TEST_JAVA_VERSION=11` is required because test results can vary by Java version.
-
-**IMPORTANT**: After regenerating, you MUST verify that the changes to test262.properties are removing failures (tests that now pass), NOT adding new failures. Check the git diff carefully. If there are new failures, you MUST confirm with me before proceeding - sometimes failures are expected but they need explicit approval.
+**IMPORTANT**: After regenerating, you MUST verify that the changes to test262.properties are removing failures (tests that now pass), NOT adding new failures. Check the git diff carefully.

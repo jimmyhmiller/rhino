@@ -8151,10 +8151,51 @@ public class ScriptRuntime {
             if (reason == null) {
                 reason = getExceptionMessage(throwable);
             }
+        } else if (throwable instanceof EcmaError) {
+            // Convert EcmaError to a proper JavaScript error object
+            EcmaError ecmaError = (EcmaError) throwable;
+            TopLevel.NativeErrors errorType = getErrorType(ecmaError.getName());
+            if (errorType != null) {
+                reason =
+                        newNativeError(
+                                cx, scope, errorType, new Object[] {ecmaError.getErrorMessage()});
+            } else {
+                // Unknown error type, fall back to generic Error
+                reason =
+                        newNativeError(
+                                cx,
+                                scope,
+                                TopLevel.NativeErrors.Error,
+                                new Object[] {
+                                    ecmaError.getName() + ": " + ecmaError.getErrorMessage()
+                                });
+            }
         } else {
             reason = getExceptionMessage(throwable);
         }
         return NativePromise.rejectValue(cx, scope, reason);
+    }
+
+    private static TopLevel.NativeErrors getErrorType(String name) {
+        if (name == null) return null;
+        switch (name) {
+            case "TypeError":
+                return TopLevel.NativeErrors.TypeError;
+            case "ReferenceError":
+                return TopLevel.NativeErrors.ReferenceError;
+            case "SyntaxError":
+                return TopLevel.NativeErrors.SyntaxError;
+            case "RangeError":
+                return TopLevel.NativeErrors.RangeError;
+            case "EvalError":
+                return TopLevel.NativeErrors.EvalError;
+            case "URIError":
+                return TopLevel.NativeErrors.URIError;
+            case "Error":
+                return TopLevel.NativeErrors.Error;
+            default:
+                return null;
+        }
     }
 
     private static String getExceptionMessage(Object ex) {
