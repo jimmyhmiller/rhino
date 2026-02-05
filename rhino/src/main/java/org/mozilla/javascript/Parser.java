@@ -1196,7 +1196,24 @@ public class Parser {
         AstNode memberExprNode = null;
 
         do {
-            if (matchToken(Token.NAME, true) || matchToken(Token.UNDEFINED, true)) {
+            // ES2017: 'await' can be used as a function name outside async functions and modules
+            // For async function EXPRESSIONS, 'await' is reserved because the name is scoped
+            // inside the function body. For async function DECLARATIONS, the name is scoped
+            // in the outer scope, so 'await' is allowed there.
+            // FUNCTION_STATEMENT and FUNCTION_EXPRESSION_STATEMENT are declarations,
+            // FUNCTION_EXPRESSION is an expression where the name is scoped inside.
+            // Also, 'await' is reserved inside class static initialization blocks.
+            boolean isDeclaration =
+                    syntheticType == FunctionNode.FUNCTION_STATEMENT
+                            || syntheticType == FunctionNode.FUNCTION_EXPRESSION_STATEMENT;
+            boolean awaitAsName =
+                    !inAsyncFunction
+                            && !parsingModule
+                            && nestingOfStaticBlock == 0
+                            && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                            && !(isAsync && !isDeclaration)
+                            && matchToken(Token.AWAIT, true);
+            if (matchToken(Token.NAME, true) || matchToken(Token.UNDEFINED, true) || awaitAsName) {
                 name = createNameNode(true, Token.NAME);
                 String id = name.getIdentifier();
                 if (inUseStrictDirective) {
