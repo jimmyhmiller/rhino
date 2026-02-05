@@ -1485,12 +1485,15 @@ public class Parser {
 
         // Check for 'static' keyword
         if (matchToken(Token.STATIC, true)) {
-            // Could be 'static' method or a method named 'static'
+            // Could be 'static' method, 'static' block, or a method named 'static'
             int next = peekToken();
             if (next == Token.LP) {
                 // Method named 'static' - method()
                 return parseClassMethod(
                         pos, createNameNode(false, Token.NAME, "static"), false, false, false);
+            } else if (next == Token.LC) {
+                // Static initialization block: static { ... }
+                return parseStaticBlock(pos);
             } else if (next == Token.RC || next == Token.SEMI) {
                 // Just 'static' followed by } or ; - treat as method named 'static'
                 // This is actually a syntax error in real ES6, but we'll let it slide
@@ -1626,6 +1629,31 @@ public class Parser {
         // Consume the semicolon if present (ASI may handle it)
         matchToken(Token.SEMI, true);
 
+        element.setLength(ts.tokenEnd - pos);
+        return element;
+    }
+
+    /**
+     * Parses a static initialization block.
+     *
+     * <pre>
+     * ClassStaticBlock :
+     *     static { ClassStaticBlockBody }
+     * ClassStaticBlockBody :
+     *     ClassStaticBlockStatementList
+     * </pre>
+     */
+    private ClassElement parseStaticBlock(int pos) throws IOException {
+        ClassElement element = new ClassElement(pos);
+        element.setIsStatic(true);
+        element.setIsStaticBlock(true);
+
+        // Parse the block body - expects { already peeked
+        mustMatchToken(Token.LC, "msg.no.brace.body", true);
+        AstNode body = statements();
+        mustMatchToken(Token.RC, "msg.no.brace.after.body", true);
+
+        element.setStaticBlockBody(body);
         element.setLength(ts.tokenEnd - pos);
         return element;
     }
@@ -5281,6 +5309,17 @@ public class Parser {
         return node instanceof Name;
     }
 
+    /**
+     * Checks if the given node is a private property access (obj.#field), unwrapping parenthesized
+     * expressions. This is used for the delete early error check.
+     */
+    private boolean isPrivatePropertyAccess(AstNode node) {
+        while (node instanceof ParenthesizedExpression) {
+            node = ((ParenthesizedExpression) node).getExpression();
+        }
+        return node.getType() == Token.GETPROP_PRIVATE;
+    }
+
     private AstNode unaryExpr() throws IOException {
         AstNode node;
         int tt = peekToken();
@@ -5364,6 +5403,11 @@ public class Parser {
                 // This includes parenthesized identifiers like delete ((x))
                 if (inUseStrictDirective && isIdentifierReference(operand)) {
                     reportError("msg.no.delete.strict.id");
+                }
+                // Delete on a private field (obj.#field) is always a SyntaxError
+                // This also applies through parenthesized expressions: delete (this.#x)
+                if (inUseStrictDirective && isPrivatePropertyAccess(operand)) {
+                    reportError("msg.no.delete.private.field");
                 }
                 node = new UnaryExpression(tt, ts.tokenBeg, operand);
                 node.setLineColumnNumber(line, column);

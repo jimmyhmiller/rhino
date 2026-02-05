@@ -1136,6 +1136,79 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 stackChange(-1);
                 break;
 
+            case Token.SETPROP_PRIVATE_OP:
+                {
+                    // Private property compound assignment: obj.#field op= value
+                    visitExpression(child, 0); // target object
+                    child = child.getNext();
+                    String privateNameOp = child.getString();
+                    child = child.getNext();
+
+                    int opType = child.getType();
+                    boolean isLogicalOp =
+                            opType == Token.AND
+                                    || opType == Token.OR
+                                    || opType == Token.NULLISH_COALESCING;
+
+                    if (isLogicalOp) {
+                        // For logical assignment (&&=, ||=, ??=), we need to short-circuit
+                        // Stack: [obj]
+                        addIcode(Icode_DUP); // [obj, obj]
+                        stackChange(1);
+                        addStringOp(Token.GETPROP_PRIVATE, privateNameOp); // [obj, value]
+
+                        // Check short-circuit condition
+                        addIcode(Icode_DUP); // [obj, value, value]
+                        stackChange(1);
+                        int noShortCircuitLabel = iCodeTop;
+                        if (opType == Token.AND) {
+                            // AND: short-circuit if falsy, so jump to noShortCircuit if truthy
+                            addGotoOp(Token.IFEQ);
+                        } else if (opType == Token.OR) {
+                            // OR: short-circuit if truthy, so jump to noShortCircuit if falsy
+                            addGotoOp(Token.IFNE);
+                        } else {
+                            // NULLISH: short-circuit if not null/undefined
+                            addGotoOp(Icode_IF_NULL_UNDEF);
+                        }
+                        stackChange(-1); // [obj, value]
+                        int stackAtJumpTarget = stackDepth;
+
+                        // Short-circuit path: return value without setting
+                        addIcode(Icode_SWAP); // [value, obj]
+                        stackChange(0);
+                        addIcode(Icode_POP); // [value]
+                        stackChange(-1);
+                        int endLabel = iCodeTop;
+                        addGotoOp(Token.GOTO);
+
+                        // Non-short-circuit path: evaluate RHS and set property
+                        resolveForwardGoto(noShortCircuitLabel);
+                        stackDepth = stackAtJumpTarget;
+                        // Stack: [obj, value]
+                        addIcode(Icode_POP); // [obj]
+                        stackChange(-1);
+                        Node rhs = child.getLastChild();
+                        visitExpression(rhs, 0); // [obj, rhs]
+                        addStringOp(Token.SETPROP_PRIVATE, privateNameOp); // [result]
+                        stackChange(-1);
+
+                        resolveForwardGoto(endLabel);
+                        break;
+                    }
+
+                    // Non-logical compound assignment (+=, *=, etc.)
+                    addIcode(Icode_DUP); // [obj, obj]
+                    stackChange(1);
+                    addStringOp(Token.GETPROP_PRIVATE, privateNameOp); // [obj, value]
+                    // Compensate for the following USE_STACK
+                    stackChange(-1);
+                    visitExpression(child, 0); // [obj, op_result]
+                    addStringOp(Token.SETPROP_PRIVATE, privateNameOp); // [result]
+                    stackChange(-1);
+                }
+                break;
+
             case Token.SETELEM:
             case Token.SETELEM_OP:
                 {
@@ -1878,7 +1951,8 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         Node privateStaticFields = privateInstanceFields.getNext();
         Node privateMethods = privateStaticFields.getNext();
         Node privateStaticMethods = privateMethods.getNext();
-        Node superClass = privateStaticMethods.getNext(); // May be null
+        Node staticBlocks = privateStaticMethods.getNext();
+        Node superClass = staticBlocks != null ? staticBlocks.getNext() : null; // May be null
 
         // First, emit the constructor function
         visitExpression(constructor, 0);
@@ -2072,9 +2146,26 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
             privateStaticMethodIndex++;
         }
 
+        // Emit static blocks storage
+        // Static blocks are wrapped in functions that will be called with 'this' = class
+        int staticBlocksIdsIndex = literalIds.size();
+        literalIds.add(null); // No ids for static blocks
+
+        addIndexOp(Icode_CLASS_STORAGE, staticBlocksIdsIndex);
+        stackChange(1);
+
+        for (Node blockChild = staticBlocks.getFirstChild();
+                blockChild != null;
+                blockChild = blockChild.getNext()) {
+            // Each static block is a function node
+            visitExpression(blockChild, 0);
+            addIcode(Icode_LITERAL_SET);
+            stackChange(-1);
+        }
+
         // Stack: [constructor, (superClass?), protoStorage, staticStorage, instanceFieldStorage,
         //         staticFieldStorage, privateInstanceFieldStorage, privateStaticFieldStorage,
-        //         privateMethodStorage, privateStaticMethodStorage]
+        //         privateMethodStorage, privateStaticMethodStorage, staticBlocksStorage]
 
         // Emit Icode_CLASS_DEF which will:
         // - Pop all storages
@@ -2085,9 +2176,9 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
         addIcode(Icode_CLASS_DEF);
         addUint8(hasSuperClass ? 1 : 0); // Flag: 1 = has superclass, 0 = no superclass
         if (hasSuperClass) {
-            stackChange(-9); // Pops 8 storages + superClass; constructor stays
+            stackChange(-10); // Pops 9 storages + superClass; constructor stays
         } else {
-            stackChange(-8); // Pops 8 storages; constructor stays
+            stackChange(-9); // Pops 9 storages; constructor stays
         }
         // Stack: [constructor (with methods and fields configured)]
     }

@@ -11,13 +11,15 @@ import org.mozilla.javascript.Token;
 /**
  * AST node representing a class element (method or field definition) in an ES6 class body.
  *
- * <p>Node type is {@link Token#METHOD} for methods or {@link Token#FIELD} for fields.
+ * <p>Node type is {@link Token#METHOD} for methods, {@link Token#FIELD} for fields, or {@link
+ * Token#STATIC} for static initialization blocks.
  *
  * <pre><i>ClassElement</i> :
  *       MethodDefinition
  *       <b>static</b> MethodDefinition
  *       FieldDefinition <b>;</b>
  *       <b>static</b> FieldDefinition <b>;</b>
+ *       <b>static</b> <b>{</b> ClassStaticBlockBody <b>}</b>
  *       <b>;</b>
  * <i>MethodDefinition</i> :
  *       PropertyName <b>(</b> UniqueFormalParameters <b>)</b> <b>{</b> FunctionBody <b>}</b>
@@ -35,10 +37,12 @@ public class ClassElement extends AstNode {
     private AstNode propertyName; // Name, StringLiteral, NumberLiteral, or ComputedPropertyKey
     private FunctionNode method;
     private AstNode initializer; // For field definitions, the initializer expression (optional)
+    private AstNode staticBlockBody; // For static blocks, the body statements
     private boolean isStatic;
     private boolean isComputed; // true if property name is computed [expr]
     private boolean isField; // true for field definitions, false for methods
     private boolean isPrivate; // true for private members (#name)
+    private boolean isStaticBlock; // true for static initialization blocks
 
     {
         type = Token.METHOD;
@@ -209,6 +213,48 @@ public class ClassElement extends AstNode {
     }
 
     /**
+     * Returns true if this is a static initialization block.
+     *
+     * @return true for static initialization blocks
+     */
+    public boolean isStaticBlock() {
+        return isStaticBlock;
+    }
+
+    /**
+     * Sets whether this is a static initialization block.
+     *
+     * @param isStaticBlock true for static initialization blocks
+     */
+    public void setIsStaticBlock(boolean isStaticBlock) {
+        this.isStaticBlock = isStaticBlock;
+        if (isStaticBlock) {
+            this.type = Token.STATIC;
+        }
+    }
+
+    /**
+     * Returns the body of a static initialization block.
+     *
+     * @return the static block body, or null if not a static block
+     */
+    public AstNode getStaticBlockBody() {
+        return staticBlockBody;
+    }
+
+    /**
+     * Sets the body of a static initialization block.
+     *
+     * @param body the static block body
+     */
+    public void setStaticBlockBody(AstNode body) {
+        this.staticBlockBody = body;
+        if (body != null) {
+            body.setParent(this);
+        }
+    }
+
+    /**
      * Returns true if this is a constructor method.
      *
      * @return true if method name is "constructor"
@@ -248,6 +294,16 @@ public class ClassElement extends AstNode {
     public String toSource(int depth) {
         StringBuilder sb = new StringBuilder();
         sb.append(makeIndent(depth));
+        if (isStaticBlock) {
+            // Static initialization block: static { ... }
+            sb.append("static ");
+            if (staticBlockBody != null) {
+                sb.append(staticBlockBody.toSource(0));
+            } else {
+                sb.append("{ }");
+            }
+            return sb.toString();
+        }
         if (isStatic) {
             sb.append("static ");
         }
@@ -306,6 +362,9 @@ public class ClassElement extends AstNode {
             }
             if (initializer != null) {
                 initializer.visit(v);
+            }
+            if (staticBlockBody != null) {
+                staticBlockBody.visit(v);
             }
         }
     }

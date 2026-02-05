@@ -416,6 +416,7 @@ public abstract class AstNode extends Node implements Comparable<AstNode> {
             case Token.SETNAME:
             case Token.SETPROP:
             case Token.SETPROP_OP:
+            case Token.SETPROP_PRIVATE_OP:
             case Token.SETVAR:
             case Token.SET_REF:
             case Token.SET_REF_OP:

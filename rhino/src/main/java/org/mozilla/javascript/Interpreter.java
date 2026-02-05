@@ -5346,7 +5346,11 @@ public final class Interpreter extends Icode implements Evaluator {
 
             // Stack: [constructor, (superClass?), protoStorage, staticStorage,
             //         instanceFieldStorage, staticFieldStorage, privateInstanceFieldStorage,
-            //         privateStaticFieldStorage, privateMethodStorage, privateStaticMethodStorage]
+            //         privateStaticFieldStorage, privateMethodStorage, privateStaticMethodStorage,
+            //         staticBlocksStorage]
+            var staticBlocksStore = (NewLiteralStorage) frame.stack[state.stackTop];
+            --state.stackTop;
+
             var privateStaticMethodStore = (NewLiteralStorage) frame.stack[state.stackTop];
             --state.stackTop;
 
@@ -5405,6 +5409,7 @@ public final class Interpreter extends Icode implements Evaluator {
                             privateStaticMethodStore.getKeys(),
                             privateStaticMethodStore.getValues(),
                             privateStaticMethodStore.getGetterSetters(),
+                            staticBlocksStore.getValues(),
                             superClass,
                             hasExtendsClause,
                             cx,

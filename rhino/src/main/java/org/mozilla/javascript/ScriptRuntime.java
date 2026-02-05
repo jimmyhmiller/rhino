@@ -6625,6 +6625,7 @@ public class ScriptRuntime {
             Object[] privateStaticMethodIds,
             Object[] privateStaticMethodValues,
             int[] privateStaticMethodGetterSetters,
+            Object[] staticBlocks,
             Object superClass,
             boolean hasExtendsClause,
             Context cx,
@@ -6801,6 +6802,17 @@ public class ScriptRuntime {
         // Initialize private static fields on the constructor
         if (constructor instanceof BaseFunction) {
             initializePrivateStaticFields((BaseFunction) constructor, cx, scope);
+        }
+
+        // Execute static initialization blocks
+        // Per ES spec, static blocks run with 'this' bound to the class constructor
+        if (staticBlocks != null && staticBlocks.length > 0) {
+            Scriptable constructorThis = constructorObj;
+            for (Object block : staticBlocks) {
+                if (block instanceof Callable) {
+                    ((Callable) block).call(cx, scope, constructorThis, emptyArgs);
+                }
+            }
         }
 
         // ES6 14.5.14: Class prototype property is non-writable, non-enumerable, non-configurable

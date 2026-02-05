@@ -902,7 +902,7 @@ public final class IRFactory {
             ClassNode classNode, Node constructorNode, Node superClassNode) {
         List<ClassElement> elements = classNode.getElements();
 
-        // Separate methods and fields (public vs private)
+        // Separate methods, fields, and static blocks (public vs private)
         List<ClassElement> methods = new ArrayList<>();
         List<ClassElement> instanceFields = new ArrayList<>();
         List<ClassElement> staticFields = new ArrayList<>();
@@ -910,13 +910,16 @@ public final class IRFactory {
         List<ClassElement> privateStaticFields = new ArrayList<>();
         List<ClassElement> privateMethods = new ArrayList<>();
         List<ClassElement> privateStaticMethods = new ArrayList<>();
+        List<ClassElement> staticBlocks = new ArrayList<>();
         for (ClassElement element : elements) {
             // Skip the class constructor (instance method named "constructor")
             // Static methods named "constructor" are valid and should not be skipped
             if (!element.isStatic() && element.isConstructor()) {
                 continue;
             }
-            if (element.isField()) {
+            if (element.isStaticBlock()) {
+                staticBlocks.add(element);
+            } else if (element.isField()) {
                 if (element.isPrivate()) {
                     if (element.isStatic()) {
                         privateStaticFields.add(element);
@@ -1172,8 +1175,27 @@ public final class IRFactory {
         protoMethods.putProp(Node.OBJECT_IDS_PROP, protoProps.toArray());
         staticMethods.putProp(Node.OBJECT_IDS_PROP, staticProps.toArray());
 
+        // Process static blocks - wrap each in a function for execution during class creation
+        Node staticBlocksNode = new Node(Token.ARRAYLIT);
+        staticBlocksNode.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
+        for (ClassElement block : staticBlocks) {
+            AstNode blockBody = block.getStaticBlockBody();
+            if (blockBody != null) {
+                // Create a function wrapping the static block body
+                // This will be called with 'this' bound to the class during class creation
+                FunctionNode fn = new FunctionNode();
+                fn.setFunctionType(FunctionNode.FUNCTION_EXPRESSION);
+                fn.setLineColumnNumber(block.getLineno(), block.getColumn());
+                fn.setBody((AstNode) blockBody);
+
+                // Transform the function
+                Node fnNode = transformFunction(fn);
+                staticBlocksNode.addChildToBack(fnNode);
+            }
+        }
+
         // Create a CLASS node that holds constructor + methods + fields + private members +
-        // superClass
+        // static blocks + superClass
         // Structure: CLASS node with children:
         //   1. constructor (FUNCTION node)
         //   2. protoMethods (OBJECTLIT node)
@@ -1184,7 +1206,8 @@ public final class IRFactory {
         //   7. privateStaticFields (OBJECTLIT node) - private static field initializers
         //   8. privateMethods (OBJECTLIT node) - private instance methods
         //   9. privateStaticMethods (OBJECTLIT node) - private static methods
-        //  10. superClass (optional - expression node for the parent class)
+        //  10. staticBlocks (ARRAYLIT node) - static initialization blocks
+        //  11. superClass (optional - expression node for the parent class)
         Node classNode2 = new Node(Token.CLASS);
         classNode2.setLineColumnNumber(classNode.getLineno(), classNode.getColumn());
         classNode2.addChildToBack(constructorNode);
@@ -1196,6 +1219,7 @@ public final class IRFactory {
         classNode2.addChildToBack(privateStaticFieldsNode);
         classNode2.addChildToBack(privateMethodsNode);
         classNode2.addChildToBack(privateStaticMethodsNode);
+        classNode2.addChildToBack(staticBlocksNode);
         if (superClassNode != null) {
             classNode2.addChildToBack(superClassNode);
         }
@@ -3365,10 +3389,11 @@ public final class IRFactory {
             case Token.GETPROP_PRIVATE:
                 {
                     // Private property compound assignment (e.g., this.#x += 1)
-                    // For now, we don't support compound assignment on private properties
-                    // Simple assignment is handled in simpleAssignment
-                    parser.reportError("msg.bad.assign.left");
-                    return right;
+                    Node obj = left.getFirstChild();
+                    Node id = left.getLastChild();
+                    Node opLeft = new Node(Token.USE_STACK);
+                    Node op = new Node(assignOp, opLeft, right);
+                    return new Node(Token.SETPROP_PRIVATE_OP, obj, id, op);
                 }
             case Token.GET_REF:
                 {

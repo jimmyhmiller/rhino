@@ -213,7 +213,8 @@ public class Token {
             USE_STACK = TYPEOFNAME + 1,
             SETPROP_OP = USE_STACK + 1, // x.y op= something
             SETELEM_OP = SETPROP_OP + 1, // x[y] op= something
-            LOCAL_BLOCK = SETELEM_OP + 1,
+            SETPROP_PRIVATE_OP = SETELEM_OP + 1, // obj.#x op= something
+            LOCAL_BLOCK = SETPROP_PRIVATE_OP + 1,
             SET_REF_OP = LOCAL_BLOCK + 1, // *reference op= something
 
             // For XML support:
@@ -606,6 +607,8 @@ public class Token {
                 return "SETPROP_OP";
             case SETELEM_OP:
                 return "SETELEM_OP";
+            case SETPROP_PRIVATE_OP:
+                return "SETPROP_PRIVATE_OP";
             case LOCAL_BLOCK:
                 return "LOCAL_BLOCK";
             case SET_REF_OP:

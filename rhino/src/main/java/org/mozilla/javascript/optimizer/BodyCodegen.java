@@ -1925,6 +1925,10 @@ class BodyCodegen {
                 visitSetPrivateProp(node, child);
                 break;
 
+            case Token.SETPROP_PRIVATE_OP:
+                visitSetPrivatePropOp(node, child);
+                break;
+
             case Token.SETELEM:
             case Token.SETELEM_OP:
                 visitSetElem(type, node, child);
@@ -3151,7 +3155,8 @@ class BodyCodegen {
         Node privateStaticFields = privateInstanceFields.getNext();
         Node privateMethods = privateStaticFields.getNext();
         Node privateStaticMethods = privateMethods.getNext();
-        Node superClass = privateStaticMethods.getNext(); // May be null
+        Node staticBlocks = privateStaticMethods.getNext();
+        Node superClass = staticBlocks != null ? staticBlocks.getNext() : null; // May be null
 
         Object[] protoProperties = (Object[]) protoMethods.getProp(Node.OBJECT_IDS_PROP);
         Object[] staticProperties = (Object[]) staticMethods.getProp(Node.OBJECT_IDS_PROP);
@@ -3404,6 +3409,28 @@ class BodyCodegen {
                 privateStaticMethodValuesLocal,
                 privateStaticMethodGetterSettersLocal);
 
+        // Generate static blocks array
+        short staticBlocksLocal = getNewWordLocal();
+        int staticBlockCount = 0;
+        for (Node blockChild = staticBlocks.getFirstChild();
+                blockChild != null;
+                blockChild = blockChild.getNext()) {
+            staticBlockCount++;
+        }
+        cfw.addPush(staticBlockCount);
+        cfw.add(ByteCode.ANEWARRAY, "java/lang/Object");
+        int blockIdx = 0;
+        for (Node blockChild = staticBlocks.getFirstChild();
+                blockChild != null;
+                blockChild = blockChild.getNext()) {
+            cfw.add(ByteCode.DUP);
+            cfw.addPush(blockIdx);
+            generateExpression(blockChild, node);
+            cfw.add(ByteCode.AASTORE);
+            blockIdx++;
+        }
+        cfw.addAStore(staticBlocksLocal);
+
         // Cast constructor to Callable
         cfw.add(ByteCode.CHECKCAST, "org/mozilla/javascript/Callable");
 
@@ -3430,6 +3457,9 @@ class BodyCodegen {
         cfw.addALoad(privateStaticMethodIdsLocal);
         cfw.addALoad(privateStaticMethodValuesLocal);
         cfw.addALoad(privateStaticMethodGetterSettersLocal);
+
+        // Static blocks parameter
+        cfw.addALoad(staticBlocksLocal);
 
         // Push superClass (or null)
         boolean hasExtendsClause = (superClassLocal != -1);
@@ -3468,6 +3498,7 @@ class BodyCodegen {
                         + "[Ljava/lang/Object;"
                         + "[Ljava/lang/Object;"
                         + "[I"
+                        + "[Ljava/lang/Object;"
                         + "Ljava/lang/Object;"
                         + "Z"
                         + "Lorg/mozilla/javascript/Context;"
@@ -3495,6 +3526,7 @@ class BodyCodegen {
         releaseWordLocal(privateStaticMethodIdsLocal);
         releaseWordLocal(privateStaticMethodValuesLocal);
         releaseWordLocal(privateStaticMethodGetterSettersLocal);
+        releaseWordLocal(staticBlocksLocal);
         if (superClassLocal != -1) {
             releaseWordLocal(superClassLocal);
         }
@@ -6065,6 +6097,116 @@ class BodyCodegen {
         child = child.getNext();
         generateExpression(child, node); // value
         cfw.addPush(privateName); // private name
+        cfw.add(ByteCode.SWAP); // swap name and value to get obj, name, value order
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(funObjLocal);
+        addScriptRuntimeInvoke(
+                "setPrivateProp",
+                "(Ljava/lang/Object;"
+                        + "Ljava/lang/String;"
+                        + "Ljava/lang/Object;"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Ljava/lang/Object;"
+                        + ")Ljava/lang/Object;");
+    }
+
+    private void visitSetPrivatePropOp(Node node, Node child) {
+        // obj.#field op= value (compound assignment)
+        generateExpression(child, node); // object
+        child = child.getNext();
+        String privateName = child.getString();
+        child = child.getNext();
+
+        int opType = child.getType();
+        boolean isLogicalOp =
+                opType == Token.AND || opType == Token.OR || opType == Token.NULLISH_COALESCING;
+
+        if (isLogicalOp) {
+            // For logical assignment (&&=, ||=, ??=), we need to short-circuit
+            // Stack: [obj]
+            cfw.add(ByteCode.DUP); // [obj, obj]
+            // Get the private property value
+            cfw.addPush(privateName);
+            cfw.addALoad(contextLocal);
+            cfw.addALoad(funObjLocal);
+            addScriptRuntimeInvoke(
+                    "getPrivateProp",
+                    "(Ljava/lang/Object;"
+                            + "Ljava/lang/String;"
+                            + "Lorg/mozilla/javascript/Context;"
+                            + "Ljava/lang/Object;"
+                            + ")Ljava/lang/Object;");
+            // Stack: [obj, value]
+
+            // Check short-circuit condition
+            cfw.add(ByteCode.DUP); // [obj, value, value]
+            int noShortCircuitLabel = cfw.acquireLabel();
+            if (opType == Token.AND) {
+                // AND: short-circuit if falsy, so jump to noShortCircuit if truthy
+                addDynamicInvoke("MATH:TOBOOLEAN", Signatures.MATH_TO_BOOLEAN);
+                cfw.add(ByteCode.IFNE, noShortCircuitLabel);
+            } else if (opType == Token.OR) {
+                // OR: short-circuit if truthy, so jump to noShortCircuit if falsy
+                addDynamicInvoke("MATH:TOBOOLEAN", Signatures.MATH_TO_BOOLEAN);
+                cfw.add(ByteCode.IFEQ, noShortCircuitLabel);
+            } else {
+                // NULLISH: short-circuit if not null/undefined
+                addScriptRuntimeInvoke("isNullOrUndefined", "(Ljava/lang/Object;)Z");
+                cfw.add(ByteCode.IFNE, noShortCircuitLabel);
+            }
+            // Stack: [obj, value]
+            int stackAfterCondition = cfw.getStackTop();
+
+            // Short-circuit path: return value without setting
+            cfw.add(ByteCode.SWAP); // [value, obj]
+            cfw.add(ByteCode.POP); // [value]
+            int endLabel = cfw.acquireLabel();
+            cfw.add(ByteCode.GOTO, endLabel);
+
+            // Non-short-circuit path: evaluate RHS and set property
+            cfw.markLabel(noShortCircuitLabel, stackAfterCondition);
+            // Stack: [obj, value]
+            cfw.add(ByteCode.POP); // [obj]
+            Node rhs = child.getLastChild();
+            generateExpression(rhs, node); // [obj, rhs]
+            // Set the private property
+            cfw.addPush(privateName);
+            cfw.add(ByteCode.SWAP); // swap name and value to get obj, name, value order
+            cfw.addALoad(contextLocal);
+            cfw.addALoad(funObjLocal);
+            addScriptRuntimeInvoke(
+                    "setPrivateProp",
+                    "(Ljava/lang/Object;"
+                            + "Ljava/lang/String;"
+                            + "Ljava/lang/Object;"
+                            + "Lorg/mozilla/javascript/Context;"
+                            + "Ljava/lang/Object;"
+                            + ")Ljava/lang/Object;");
+
+            cfw.markLabel(endLabel);
+            return;
+        }
+
+        // Non-logical compound assignment (+=, *=, etc.)
+        // Stack: [obj]
+        cfw.add(ByteCode.DUP); // [obj, obj]
+        // Get the private property value
+        cfw.addPush(privateName);
+        cfw.addALoad(contextLocal);
+        cfw.addALoad(funObjLocal);
+        addScriptRuntimeInvoke(
+                "getPrivateProp",
+                "(Ljava/lang/Object;"
+                        + "Ljava/lang/String;"
+                        + "Lorg/mozilla/javascript/Context;"
+                        + "Ljava/lang/Object;"
+                        + ")Ljava/lang/Object;");
+        // Stack: [obj, value]
+        // Now generate the op expression which expects [value] on stack and evaluates
+        // USE_STACK + rhs. The child node is the operation (ADD, MUL, etc.)
+        generateExpression(child, node); // [obj, op_result]
+        // Set the private property
+        cfw.addPush(privateName);
         cfw.add(ByteCode.SWAP); // swap name and value to get obj, name, value order
         cfw.addALoad(contextLocal);
         cfw.addALoad(funObjLocal);
