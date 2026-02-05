@@ -175,6 +175,8 @@ public class Parser {
     private boolean hasUndefinedBeenRedefined = false;
     private boolean inAsyncFunction = false; // Track if we're inside an async function for await
     private int nestingOfStaticBlock = 0; // Track if we're inside a static initialization block
+    // Track if 'await' is reserved due to static block context (reset when entering functions)
+    private boolean inStaticBlockAwaitContext = false;
     // end of per function variables
 
     // Lacking 2-token lookahead, labels become a problem.
@@ -1202,16 +1204,20 @@ public class Parser {
             // in the outer scope, so 'await' is allowed there.
             // FUNCTION_STATEMENT and FUNCTION_EXPRESSION_STATEMENT are declarations,
             // FUNCTION_EXPRESSION is an expression where the name is scoped inside.
-            // Also, 'await' is reserved inside class static initialization blocks.
+            // For declarations, the name uses BindingIdentifier[?Await] - inherits context.
+            // For expressions, the name uses BindingIdentifier[~Await] - always allows await.
+            // Exception: async expressions reject await (name scoped inside async body).
             boolean isDeclaration =
                     syntheticType == FunctionNode.FUNCTION_STATEMENT
                             || syntheticType == FunctionNode.FUNCTION_EXPRESSION_STATEMENT;
             boolean awaitAsName =
-                    !inAsyncFunction
-                            && !parsingModule
-                            && nestingOfStaticBlock == 0
-                            && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
-                            && !(isAsync && !isDeclaration)
+                    compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                            && !(isAsync && !isDeclaration) // reject async expressions
+                            // declarations check enclosing context, expressions don't
+                            && (!isDeclaration
+                                    || (!inAsyncFunction
+                                            && !parsingModule
+                                            && nestingOfStaticBlock == 0))
                             && matchToken(Token.AWAIT, true);
             if (matchToken(Token.NAME, true) || matchToken(Token.UNDEFINED, true) || awaitAsName) {
                 name = createNameNode(true, Token.NAME);
@@ -1677,6 +1683,8 @@ public class Parser {
         // Parse the block body - expects { already peeked
         mustMatchToken(Token.LC, "msg.no.brace.body", true);
         ++nestingOfStaticBlock;
+        boolean savedInStaticBlockAwaitContext = inStaticBlockAwaitContext;
+        inStaticBlockAwaitContext = true;
         try {
             AstNode body = statements();
             mustMatchToken(Token.RC, "msg.no.brace.after.body", true);
@@ -1686,6 +1694,7 @@ public class Parser {
             return element;
         } finally {
             --nestingOfStaticBlock;
+            inStaticBlockAwaitContext = savedInStaticBlockAwaitContext;
         }
     }
 
@@ -2210,8 +2219,14 @@ public class Parser {
             String paramName = ((Name) params).getIdentifier();
             defineSymbol(Token.LP, paramName);
 
-            // await cannot be used as parameter name in async functions
-            if (fnNode.isAsync() && "await".equals(paramName)) {
+            // await cannot be used as parameter name in async functions, modules, or static blocks
+            // Note: inAsyncFunction and inStaticBlockAwaitContext are preserved for arrow functions
+            // (they inherit the enclosing context) but reset for regular functions
+            if ("await".equals(paramName)
+                    && (fnNode.isAsync()
+                            || inAsyncFunction
+                            || parsingModule
+                            || inStaticBlockAwaitContext)) {
                 reportError("msg.syntax");
             }
 
@@ -2565,9 +2580,9 @@ public class Parser {
                 if (pn instanceof ExpressionStatement) break;
                 return pn; // LabeledStatement
             case Token.AWAIT:
-                // Outside async functions and module code, 'await' can be used as identifier/label
-                // In module code, 'await' is always reserved (ES2017 12.1.1)
-                if (!inAsyncFunction && !parsingModule) {
+                // Outside async functions, module code, and static blocks, 'await' can be used as
+                // identifier/label. In these contexts, 'await' is always reserved (ES2017 12.1.1)
+                if (!inAsyncFunction && !parsingModule && !inStaticBlockAwaitContext) {
                     pn = awaitNameOrLabel();
                     if (pn instanceof ExpressionStatement) break;
                     return pn; // LabeledStatement
@@ -6145,10 +6160,11 @@ public class Parser {
                 break;
 
             case Token.AWAIT:
-                // Outside async functions and module code, 'await' can be used as an identifier
-                // In module code, 'await' is always reserved (ES2017 12.1.1)
+                // Outside async functions, module code, and static blocks,
+                // 'await' can be used as an identifier
+                // In these contexts, 'await' is always reserved (ES2017 12.1.1)
                 // Inside async functions, await should go through assignExpr -> awaitExpr
-                if (!inAsyncFunction && !parsingModule) {
+                if (!inAsyncFunction && !parsingModule && !inStaticBlockAwaitContext) {
                     consumeToken();
                     int awaitPos = ts.tokenBeg;
                     int awaitLineno = lineNumber();
@@ -6157,7 +6173,7 @@ public class Parser {
                     saveNameTokenData(awaitPos, "await", awaitLineno, awaitColumn);
                     return createNameNode(true, Token.NAME);
                 }
-                // Inside async functions or module code, should not reach here
+                // Inside async functions, module code, or static blocks, should not reach here
                 consumeToken();
                 reportError("msg.syntax");
                 break;
@@ -7369,6 +7385,7 @@ public class Parser {
         private List<Jump> savedLoopAndSwitchSet;
         private boolean savedHasUndefinedBeenRedefined;
         private boolean savedInAsyncFunction;
+        private boolean savedInStaticBlockAwaitContext;
 
         PerFunctionVariables(FunctionNode fnNode) {
             savedCurrentScriptOrFn = Parser.this.currentScriptOrFn;
@@ -7397,7 +7414,17 @@ public class Parser {
 
             savedInAsyncFunction = Parser.this.inAsyncFunction;
             // Reset for nested functions - will be set appropriately when parsing async functions
-            Parser.this.inAsyncFunction = false;
+            // Arrow functions inherit the enclosing await context for their parameters
+            if (fnNode.getFunctionType() != FunctionNode.ARROW_FUNCTION) {
+                Parser.this.inAsyncFunction = false;
+            }
+
+            savedInStaticBlockAwaitContext = Parser.this.inStaticBlockAwaitContext;
+            // Reset for nested functions - regular functions reset the await context
+            // Arrow functions inherit the enclosing await context for their parameters
+            if (fnNode.getFunctionType() != FunctionNode.ARROW_FUNCTION) {
+                Parser.this.inStaticBlockAwaitContext = false;
+            }
         }
 
         void restore() {
@@ -7410,6 +7437,7 @@ public class Parser {
             Parser.this.inForInit = savedInForInit;
             Parser.this.hasUndefinedBeenRedefined = savedHasUndefinedBeenRedefined;
             Parser.this.inAsyncFunction = savedInAsyncFunction;
+            Parser.this.inStaticBlockAwaitContext = savedInStaticBlockAwaitContext;
         }
     }
 
