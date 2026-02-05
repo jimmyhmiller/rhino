@@ -174,6 +174,7 @@ public class Parser {
     private List<Jump> loopAndSwitchSet;
     private boolean hasUndefinedBeenRedefined = false;
     private boolean inAsyncFunction = false; // Track if we're inside an async function for await
+    private int nestingOfStaticBlock = 0; // Track if we're inside a static initialization block
     // end of per function variables
 
     // Lacking 2-token lookahead, labels become a problem.
@@ -1650,12 +1651,17 @@ public class Parser {
 
         // Parse the block body - expects { already peeked
         mustMatchToken(Token.LC, "msg.no.brace.body", true);
-        AstNode body = statements();
-        mustMatchToken(Token.RC, "msg.no.brace.after.body", true);
+        ++nestingOfStaticBlock;
+        try {
+            AstNode body = statements();
+            mustMatchToken(Token.RC, "msg.no.brace.after.body", true);
 
-        element.setStaticBlockBody(body);
-        element.setLength(ts.tokenEnd - pos);
-        return element;
+            element.setStaticBlockBody(body);
+            element.setLength(ts.tokenEnd - pos);
+            return element;
+        } finally {
+            --nestingOfStaticBlock;
+        }
     }
 
     private ClassElement parseClassMethod(
@@ -3967,6 +3973,13 @@ public class Parser {
         if (!insideFunctionBody()) {
             reportError(tt == Token.RETURN ? "msg.bad.return" : "msg.bad.yield");
         }
+        // Static blocks don't allow return or yield statements
+        if (nestingOfStaticBlock > 0) {
+            reportError(
+                    tt == Token.RETURN
+                            ? "msg.bad.return.static.block"
+                            : "msg.bad.yield.static.block");
+        }
         consumeToken();
         int lineno = lineNumber(), column = columnNumber(), pos = ts.tokenBeg, end = ts.tokenEnd;
 
@@ -4070,6 +4083,10 @@ public class Parser {
     private AstNode awaitExpr() throws IOException {
         if (!insideFunctionBody()) {
             reportError("msg.bad.await");
+        }
+        // await is not allowed inside static initialization blocks
+        if (nestingOfStaticBlock > 0) {
+            reportError("msg.bad.await.static.block");
         }
         consumeToken();
         int lineno = lineNumber(), column = columnNumber(), pos = ts.tokenBeg, end = ts.tokenEnd;
