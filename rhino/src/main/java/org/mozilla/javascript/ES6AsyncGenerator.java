@@ -135,8 +135,9 @@ public final class ES6AsyncGenerator extends ScriptableObject {
             if (delegee != null) {
                 return wrapInPromise(cx, scope, resumeDelegee(cx, scope, value));
             }
-            Scriptable syncResult = resumeLocal(cx, scope, value);
-            return wrapIteratorResultInPromise(cx, scope, syncResult);
+            // resumeLocal may return a Promise if it encounters yield* with async delegee
+            Object result = resumeLocal(cx, scope, value);
+            return wrapInPromise(cx, scope, result);
         } catch (RhinoException re) {
             return NativePromise.rejectValue(cx, scope, getErrorObject(cx, scope, re));
         }
@@ -227,8 +228,22 @@ public final class ES6AsyncGenerator extends ScriptableObject {
         return ((Callable) thenFn).call(cx, scope, promiseObj, new Object[] {onFulfilled});
     }
 
-    /** Simple helper to wrap any result in a Promise. */
+    /**
+     * Wrap a delegee result in a Promise.
+     *
+     * <p>If the result is already a Promise (from an async iterator like AsyncFromSyncIterator),
+     * return it directly. Otherwise, treat it as a sync iterator result and wrap it.
+     */
     private Object wrapInPromise(Context cx, Scriptable scope, Object result) {
+        // If result is a Promise (from async iterator), return it directly
+        if (result instanceof NativePromise) {
+            return result;
+        }
+        // If result is a thenable (but not NativePromise), chain on it
+        if (isThenable(result)) {
+            return result;
+        }
+        // Otherwise treat as sync iterator result
         if (result instanceof Scriptable) {
             return wrapIteratorResultInPromise(cx, scope, (Scriptable) result);
         }
@@ -252,28 +267,53 @@ public final class ES6AsyncGenerator extends ScriptableObject {
 
     // The following methods are adapted from ES6Generator but for async generators
 
-    private Scriptable resumeDelegee(Context cx, Scriptable scope, Object value) {
+    private Object resumeDelegee(Context cx, Scriptable scope, Object value) {
         try {
             Object[] nextArgs = new Object[] {value};
             var nextFn = ScriptRuntime.getPropAndThis(delegee, ES6Iterator.NEXT_METHOD, cx, scope);
             Object nr = nextFn.call(cx, scope, nextArgs);
 
-            Scriptable nextResult = ScriptableObject.ensureScriptable(nr);
-            if (ScriptRuntime.isIteratorDone(cx, nextResult)) {
-                delegee = null;
-                return resumeLocal(
-                        cx,
-                        scope,
-                        ScriptableObject.getProperty(nextResult, ES6Iterator.VALUE_PROPERTY));
+            // For async iterators (like AsyncFromSyncIterator), next() returns a Promise.
+            // Since AsyncFromSyncIterator wraps a sync iterator, its Promise is immediately
+            // resolved. We can extract the value synchronously to avoid the .then() chain
+            // bug in Rhino's await implementation.
+            if (nr instanceof NativePromise) {
+                NativePromise promise = (NativePromise) nr;
+                if (promise.isFulfilled()) {
+                    // Promise is already resolved - extract the value synchronously
+                    nr = promise.getResult();
+                } else if (promise.isRejected()) {
+                    // Promise is rejected - throw the rejection reason
+                    Object reason = promise.getResult();
+                    throw new JavaScriptException(reason, "", 0);
+                }
+                // If promise is still pending, fall through to return it
+                // (this shouldn't happen for AsyncFromSyncIterator)
             }
-            return nextResult;
+
+            // Handle the iterator result
+            if (nr instanceof Scriptable) {
+                Scriptable nextResult = (Scriptable) nr;
+                if (ScriptRuntime.isIteratorDone(cx, nextResult)) {
+                    delegee = null;
+                    return resumeLocal(
+                            cx,
+                            scope,
+                            ScriptableObject.getProperty(nextResult, ES6Iterator.VALUE_PROPERTY));
+                }
+                // Not done - wrap in Promise and return
+                return NativePromise.resolveValue(cx, scope, nextResult);
+            }
+
+            // Fallback: return as-is (shouldn't normally reach here)
+            return nr;
         } catch (RhinoException re) {
             delegee = null;
             return resumeAbruptLocal(cx, scope, NativeGenerator.GENERATOR_THROW, re);
         }
     }
 
-    private Scriptable resumeDelegeeThrow(Context cx, Scriptable scope, Object value) {
+    private Object resumeDelegeeThrow(Context cx, Scriptable scope, Object value) {
         boolean returnCalled = false;
         try {
             var throwFn = ScriptRuntime.getPropAndThis(delegee, "throw", cx, scope);
@@ -309,7 +349,7 @@ public final class ES6AsyncGenerator extends ScriptableObject {
         }
     }
 
-    private Scriptable resumeDelegeeReturn(Context cx, Scriptable scope, Object value) {
+    private Object resumeDelegeeReturn(Context cx, Scriptable scope, Object value) {
         try {
             Object retResult = callReturnOptionally(cx, scope, value);
             if (retResult != null && !Undefined.isUndefined(retResult)) {
@@ -333,7 +373,7 @@ public final class ES6AsyncGenerator extends ScriptableObject {
         }
     }
 
-    private Scriptable resumeLocal(Context cx, Scriptable scope, Object value) {
+    private Object resumeLocal(Context cx, Scriptable scope, Object value) {
         if (state == State.COMPLETED) {
             return ES6Iterator.makeIteratorResult(cx, scope, Boolean.TRUE);
         }
@@ -359,16 +399,23 @@ public final class ES6AsyncGenerator extends ScriptableObject {
                     return resumeAbruptLocal(cx, scope, NativeGenerator.GENERATOR_THROW, re);
                 }
 
-                Scriptable delResult;
+                Object delResult;
                 try {
                     delResult = resumeDelegee(cx, scope, Undefined.instance);
                 } finally {
                     state = State.EXECUTING;
                 }
-                if (ScriptRuntime.isIteratorDone(cx, delResult)) {
+                // If delegee is async (returns Promise), return it - the Promise handling
+                // will complete the delegation when the Promise resolves
+                if (delResult instanceof NativePromise || isThenable(delResult)) {
+                    // The Promise from the async delegee will handle done checking
+                    return ScriptableObject.ensureScriptable(delResult);
+                }
+                Scriptable syncResult = ScriptableObject.ensureScriptable(delResult);
+                if (ScriptRuntime.isIteratorDone(cx, syncResult)) {
                     state = State.COMPLETED;
                 }
-                return delResult;
+                return syncResult;
             }
 
             ScriptableObject.putProperty(result, ES6Iterator.VALUE_PROPERTY, r);
@@ -407,7 +454,10 @@ public final class ES6AsyncGenerator extends ScriptableObject {
 
     /**
      * For yield* in async generators, try to get @@asyncIterator first, then fall back
-     * to @@iterator.
+     * to @@iterator wrapped in AsyncFromSyncIterator.
+     *
+     * <p>Per ES2018 25.5.3.2 step 5.b: - If the object has @@asyncIterator, use it directly -
+     * Otherwise, get @@iterator and wrap in CreateAsyncFromSyncIterator
      */
     private Object getAsyncOrSyncIterator(Context cx, Scriptable scope, Object obj) {
         Scriptable sObj = ScriptableObject.ensureScriptable(obj);
@@ -416,8 +466,9 @@ public final class ES6AsyncGenerator extends ScriptableObject {
         if (asyncIterMethod instanceof Callable) {
             return ((Callable) asyncIterMethod).call(cx, scope, sObj, ScriptRuntime.emptyArgs);
         }
-        // Fall back to @@iterator
-        return ScriptRuntime.callIterator(obj, cx, scope);
+        // Fall back to @@iterator, wrapped in AsyncFromSyncIterator
+        Object syncIterator = ScriptRuntime.callIterator(obj, cx, scope);
+        return new AsyncFromSyncIterator(scope, syncIterator);
     }
 
     private Scriptable resumeAbruptLocal(Context cx, Scriptable scope, int op, Object value) {
