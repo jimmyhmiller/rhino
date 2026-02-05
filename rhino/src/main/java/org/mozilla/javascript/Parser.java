@@ -21,6 +21,7 @@ import org.mozilla.javascript.ast.ArrayLiteral;
 import org.mozilla.javascript.ast.Assignment;
 import org.mozilla.javascript.ast.AstNode;
 import org.mozilla.javascript.ast.AstRoot;
+import org.mozilla.javascript.ast.AsyncMethodDefinition;
 import org.mozilla.javascript.ast.Await;
 import org.mozilla.javascript.ast.BigIntLiteral;
 import org.mozilla.javascript.ast.Block;
@@ -6654,13 +6655,15 @@ public class Parser {
                     } else {
                         propertyName = ts.getString();
                         // shorthand method definition
+                        // Determine if this is a generator and/or async method
+                        boolean isGen =
+                                pname instanceof GeneratorMethodDefinition
+                                        || (pname instanceof AsyncMethodDefinition
+                                                && ((AsyncMethodDefinition) pname).isGenerator());
+                        boolean isAsyncMethod = pname instanceof AsyncMethodDefinition;
                         ObjectProperty objectProp =
                                 methodDefinition(
-                                        ppos,
-                                        pname,
-                                        entryKind,
-                                        pname instanceof GeneratorMethodDefinition,
-                                        true);
+                                        ppos, pname, entryKind, isGen, isAsyncMethod, true);
                         pname.setJsDocNode(jsdocNode);
                         elems.add(objectProp);
                     }
@@ -6668,7 +6671,9 @@ public class Parser {
                     pname.setJsDocNode(jsdocNode);
                     elems.add(plainProperty(pname, tt));
                 }
-                if (pname instanceof GeneratorMethodDefinition && entryKind != METHOD_ENTRY) {
+                if ((pname instanceof GeneratorMethodDefinition
+                                || pname instanceof AsyncMethodDefinition)
+                        && entryKind != METHOD_ENTRY) {
                     reportError("msg.bad.prop");
                 }
             }
@@ -6796,6 +6801,41 @@ public class Parser {
                 }
                 break;
 
+            case Token.ASYNC:
+                if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                    int pos = ts.tokenBeg;
+                    nextToken();
+                    // Check for line terminator after async (not allowed)
+                    int nextTt = peekTokenOrEOL();
+                    if (nextTt == Token.EOL) {
+                        // Line terminator after async - treat 'async' as a property name
+                        pname = createNameNode(false, Token.NAME, "async");
+                        break;
+                    }
+                    // Check if it's a property named 'async' (async: value or async,)
+                    nextTt = peekToken();
+                    if (nextTt == Token.COLON || nextTt == Token.COMMA || nextTt == Token.RC) {
+                        // Property named 'async'
+                        pname = createNameNode(false, Token.NAME, "async");
+                        break;
+                    }
+                    int lineno = lineNumber();
+                    int column = columnNumber();
+                    // Check for async generator: async * name() {}
+                    boolean isGenerator = matchToken(Token.MUL, true);
+                    pname = objliteralProperty();
+                    if (pname == null) {
+                        reportError("msg.bad.prop");
+                        return null;
+                    }
+                    pname = new AsyncMethodDefinition(pos, ts.tokenEnd - pos, pname, isGenerator);
+                    pname.setLineColumnNumber(lineno, column);
+                } else {
+                    // In non-ES6 mode, 'async' is just a name
+                    pname = createNameNode();
+                }
+                break;
+
             default:
                 if (compilerEnv.isReservedKeywordAsIdentifier()
                         && TokenStream.isKeyword(
@@ -6864,10 +6904,16 @@ public class Parser {
     }
 
     private ObjectProperty methodDefinition(
-            int pos, AstNode propName, int entryKind, boolean isGenerator, boolean isShorthand)
+            int pos,
+            AstNode propName,
+            int entryKind,
+            boolean isGenerator,
+            boolean isAsync,
+            boolean isShorthand)
             throws IOException {
-        // Pass isGenerator so the function body knows it's a generator for yield parsing
-        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator);
+        // Pass isGenerator and isAsync so the function body knows it's a generator/async for
+        // yield/await parsing
+        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator, isAsync);
 
         // Validate getter/setter parameter counts per ES6 spec
         int paramCount = fn.getParams().size();
@@ -6901,6 +6947,9 @@ public class Parser {
                 fn.setFunctionIsNormalMethod();
                 if (isGenerator) {
                     fn.setIsES6Generator();
+                }
+                if (isAsync) {
+                    fn.setIsAsync();
                 }
                 if (isShorthand) {
                     fn.setIsShorthand();
@@ -7948,6 +7997,8 @@ public class Parser {
             key = ScriptRuntime.getIndexObject(n);
         } else if (id instanceof GeneratorMethodDefinition) {
             key = getPropKey(((GeneratorMethodDefinition) id).getMethodName());
+        } else if (id instanceof AsyncMethodDefinition) {
+            key = getPropKey(((AsyncMethodDefinition) id).getMethodName());
         } else {
             key = null; // Filled later
         }

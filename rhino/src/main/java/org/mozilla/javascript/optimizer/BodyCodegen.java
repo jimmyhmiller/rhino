@@ -676,8 +676,10 @@ class BodyCodegen {
                         "(Ljava/lang/Object;Lorg/mozilla/javascript/Scriptable;I)Ljava/lang/Object;");
                 // Stack: transformedReturnValue
             }
-            // For async functions, wrap the return value in a resolved Promise
-            if (isAsync) {
+            // For async functions (not async generators), wrap the return value in a resolved
+            // Promise. Async generators return the generator object directly; only their
+            // .next()/.return()/.throw() methods return Promises.
+            if (isAsync && !isGenerator) {
                 // Stack: returnValue
                 short tempLocal = getNewWordLocal();
                 cfw.addAStore(tempLocal); // Store value temporarily
@@ -696,7 +698,7 @@ class BodyCodegen {
 
             // Mark end of try block for async exception handling
             int asyncTryEnd = -1;
-            if (isAsync) {
+            if (isAsync && !isGenerator) {
                 asyncTryEnd = cfw.acquireLabel();
                 cfw.markLabel(asyncTryEnd);
             }
@@ -749,8 +751,9 @@ class BodyCodegen {
                         "(Ljava/lang/Object;Lorg/mozilla/javascript/Scriptable;I)Ljava/lang/Object;");
                 // Stack: transformedReturnValue
             }
-            // For async functions, wrap the return value in a resolved Promise
-            if (isAsync) {
+            // For async functions (not async generators), wrap the return value in a resolved
+            // Promise.
+            if (isAsync && !isGenerator) {
                 // Stack: returnValue
                 short tempLocal = getNewWordLocal();
                 cfw.addAStore(tempLocal); // Store value temporarily

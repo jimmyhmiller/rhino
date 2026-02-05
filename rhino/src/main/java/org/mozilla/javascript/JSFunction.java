@@ -38,7 +38,11 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
         this.lexicalNewTarget = lexicalNewTarget;
         this.homeObject = homeObject;
         ScriptRuntime.setFunctionProtoAndParent(this, cx, scope, descriptor.isES6Generator());
-        if (!descriptor.isShorthand()) {
+        // Generator functions (including async generators) need a .prototype property for their
+        // generator instances to inherit from, even when they're shorthand methods.
+        // Non-generator shorthand methods don't need a .prototype because they're not
+        // constructable.
+        if (!descriptor.isShorthand() || descriptor.isES6Generator()) {
             setupDefaultPrototype(scope);
         }
         // ES6 generator functions, strict functions, arrow functions, and method definitions

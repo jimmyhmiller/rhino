@@ -18,6 +18,7 @@ import org.mozilla.javascript.ast.ArrayLiteral;
 import org.mozilla.javascript.ast.Assignment;
 import org.mozilla.javascript.ast.AstNode;
 import org.mozilla.javascript.ast.AstRoot;
+import org.mozilla.javascript.ast.AsyncMethodDefinition;
 import org.mozilla.javascript.ast.Await;
 import org.mozilla.javascript.ast.BigIntLiteral;
 import org.mozilla.javascript.ast.Block;
@@ -297,6 +298,9 @@ public final class IRFactory {
                 }
                 if (node instanceof GeneratorMethodDefinition) {
                     return transformGeneratorMethodDefinition((GeneratorMethodDefinition) node);
+                }
+                if (node instanceof AsyncMethodDefinition) {
+                    return transformAsyncMethodDefinition((AsyncMethodDefinition) node);
                 }
                 if (node instanceof Spread) {
                     return transformSpread((Spread) node);
@@ -2156,6 +2160,11 @@ public final class IRFactory {
     }
 
     private Node transformGeneratorMethodDefinition(GeneratorMethodDefinition node) {
+        // Unwrap the "temporary" AST node
+        return transform(node.getMethodName());
+    }
+
+    private Node transformAsyncMethodDefinition(AsyncMethodDefinition node) {
         // Unwrap the "temporary" AST node
         return transform(node.getMethodName());
     }

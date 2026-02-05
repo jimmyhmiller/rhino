@@ -1961,8 +1961,10 @@ public final class Interpreter extends Icode implements Evaluator {
                                 && interpreterResult == Undefined.instance) {
                             interpreterResult = frame.thisObj;
                         }
-                        // For async functions, wrap the return value in a Promise
-                        if (desc != null && desc.isAsync()) {
+                        // For async functions (not async generators), wrap the return value in
+                        // a Promise. Async generators return the generator object directly;
+                        // only the .next()/.return()/.throw() methods return Promises.
+                        if (desc != null && desc.isAsync() && !desc.isES6Generator()) {
                             Object returnValue =
                                     (interpreterResult != DOUBLE_MARK)
                                             ? interpreterResult
@@ -2261,8 +2263,9 @@ public final class Interpreter extends Icode implements Evaluator {
                         && result == Undefined.instance) {
                     result = frame.thisObj;
                 }
-                // For async functions, wrap the return value in a Promise
-                if (desc != null && desc.isAsync()) {
+                // For async functions (not async generators), wrap the return value in a Promise.
+                // Async generators return the generator object directly.
+                if (desc != null && desc.isAsync() && !desc.isES6Generator()) {
                     Object returnValue =
                             (result != DOUBLE_MARK) ? result : ScriptRuntime.wrapNumber(resultDbl);
                     result = ScriptRuntime.wrapInResolvedPromise(cx, frame.scope, returnValue);
