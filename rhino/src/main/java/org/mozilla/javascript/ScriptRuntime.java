@@ -4257,7 +4257,8 @@ public class ScriptRuntime {
     /** The typeof operator */
     public static String typeof(Object value) {
         if (value == null) return "object";
-        if (value == Undefined.instance) return "undefined";
+        if (value == Undefined.instance || value == Undefined.SCRIPTABLE_UNDEFINED)
+            return "undefined";
         if (value instanceof Delegator) return typeof(((Delegator) value).getDelegee());
         if (value instanceof ScriptableObject) return ((ScriptableObject) value).getTypeOf();
         if (value instanceof Scriptable) return (value instanceof Callable) ? "function" : "object";
