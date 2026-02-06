@@ -123,7 +123,8 @@ public class CodeGenUtils {
         builder.paramIsLetOrConst = isLetOrConst;
         builder.paramAndVarCount = scriptOrFn.getParamAndVarCount();
         builder.hasRestArg = scriptOrFn.hasRestParameter();
-        builder.hasDefaultParameters = scriptOrFn.getDefaultParams() != null;
+        builder.hasDefaultParameters =
+                scriptOrFn.getDefaultParams() != null || scriptOrFn.hasDestructuringParams();
 
         // Calculate arity (function.length) - count params before first default
         builder.arity = FunctionNode.calculateFunctionArity(scriptOrFn);

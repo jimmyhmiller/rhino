@@ -83,6 +83,7 @@ public class FunctionNode extends ScriptNode {
     private boolean hasRestParameter;
     private boolean isShorthand;
     private boolean hasParameterTdz;
+    private boolean hasDestructuringParams;
 
     @Override
     public List<Object> getDefaultParams() {
@@ -113,6 +114,15 @@ public class FunctionNode extends ScriptNode {
             destructuringRvalues = new ArrayList<>();
         }
         destructuringRvalues.add(new Object[] {left, right, targetName});
+    }
+
+    @Override
+    public boolean hasDestructuringParams() {
+        return hasDestructuringParams;
+    }
+
+    public void setHasDestructuringParams(boolean hasDestructuringParams) {
+        this.hasDestructuringParams = hasDestructuringParams;
     }
 
     ArrayList<Object> defaultParams;

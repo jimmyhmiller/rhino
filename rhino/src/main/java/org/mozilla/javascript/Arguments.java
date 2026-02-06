@@ -225,10 +225,20 @@ class Arguments extends ScriptableObject {
 
     @Override
     public void delete(int index) {
-        if (0 <= index && index < args.length) {
+        if (0 <= index && index < args.length && args[index] != NOT_FOUND) {
+            // ES2024 10.4.4.5: First perform OrdinaryDelete, then remove mapping only if
+            // the delete succeeded. A non-configurable property cannot be deleted.
+            if (super.has(index, this)) {
+                super.delete(index);
+                // If still present after delete, property is non-configurable
+                if (super.has(index, this)) {
+                    return;
+                }
+            }
             removeArg(index);
+        } else {
+            super.delete(index);
         }
-        super.delete(index);
     }
 
     @Override
@@ -304,30 +314,65 @@ class Arguments extends ScriptableObject {
     @Override
     protected boolean defineOwnProperty(
             Context cx, Object id, DescriptorInfo desc, boolean checkValid) {
-        super.defineOwnProperty(cx, id, desc, checkValid);
         if (ScriptRuntime.isSymbol(id)) {
-            return true;
+            return super.defineOwnProperty(cx, id, desc, checkValid);
         }
 
         double d = ScriptRuntime.toNumber(id);
         int index = (int) d;
-        if (d != index) return true;
-
-        Object value = arg(index);
-        if (value == NOT_FOUND) return true;
-
-        if (desc.isAccessorDescriptor()) {
-            removeArg(index);
-            return true;
+        if (d != index) {
+            return super.defineOwnProperty(cx, id, desc, checkValid);
         }
 
-        Object newValue = desc.value;
-        if (newValue == NOT_FOUND) return true;
+        Object value = arg(index);
+        if (value == NOT_FOUND) {
+            return super.defineOwnProperty(cx, id, desc, checkValid);
+        }
 
-        replaceArg(index, newValue);
+        boolean isMapped = sharedWithActivation(index);
 
-        if (isFalse(desc.writable)) {
+        // ES2024 10.4.4.3 step 3: If mapped and explicitly making writable=false without
+        // providing a value, inject the current mapped value so OrdinaryDefineOwnProperty stores
+        // it.
+        // Note: must check writable != NOT_FOUND to distinguish "not specified" from "false".
+        if (isMapped && !desc.isAccessorDescriptor()) {
+            if (desc.value == NOT_FOUND && desc.writable != NOT_FOUND && isFalse(desc.writable)) {
+                desc =
+                        new DescriptorInfo(
+                                desc.enumerable,
+                                desc.writable,
+                                desc.configurable,
+                                desc.getter,
+                                desc.setter,
+                                getFromActivation(index));
+            }
+        }
+
+        // Ensure the super slot exists with correct initial attributes.
+        // Arguments indices start as writable, enumerable, configurable (EMPTY attributes).
+        // Without this, defineOrdinaryProperty uses DONTENUM|READONLY|PERMANENT as defaults
+        // for newly created slots. We use checkValid=false to bypass the extensibility check,
+        // since the argument already exists conceptually (in the args array) even though
+        // there's no super slot yet.
+        if (!super.has(index, this)) {
+            Object currentValue = isMapped ? getFromActivation(index) : value;
+            DescriptorInfo initDesc = new DescriptorInfo(true, true, true, currentValue);
+            super.defineOwnProperty(cx, id, initDesc, false);
+        }
+
+        // Step 4: OrdinaryDefineOwnProperty
+        super.defineOwnProperty(cx, id, desc, checkValid);
+
+        // Step 6: Update or remove mapping
+        if (desc.isAccessorDescriptor()) {
             removeArg(index);
+        } else {
+            if (desc.value != NOT_FOUND) {
+                replaceArg(index, desc.value);
+            }
+            if (desc.writable != NOT_FOUND && isFalse(desc.writable)) {
+                removeArg(index);
+            }
         }
         return true;
     }

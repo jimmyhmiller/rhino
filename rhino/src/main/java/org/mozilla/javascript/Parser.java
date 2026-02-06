@@ -1193,6 +1193,7 @@ public class Parser {
                     destructuringNode.addChildToBack(assign);
                 }
                 fnNode.putProp(Node.DESTRUCTURING_PARAMS, destructuringNode);
+                fnNode.setHasDestructuringParams(true);
             }
 
             if (mustMatchToken(Token.RP, "msg.no.paren.after.parms", true)) {
@@ -2063,6 +2064,7 @@ public class Parser {
                     destructuringNode.addChildToBack(assign);
                 }
                 fnNode.putProp(Node.DESTRUCTURING_PARAMS, destructuringNode);
+                fnNode.setHasDestructuringParams(true);
             }
 
             AstNode body = parseFunctionBody(FunctionNode.ARROW_FUNCTION, fnNode);
@@ -2202,6 +2204,7 @@ public class Parser {
                     destructuringNode.addChildToBack(assign);
                 }
                 fnNode.putProp(Node.DESTRUCTURING_PARAMS, destructuringNode);
+                fnNode.setHasDestructuringParams(true);
             }
 
             AstNode body = parseFunctionBody(FunctionNode.ARROW_FUNCTION, fnNode);

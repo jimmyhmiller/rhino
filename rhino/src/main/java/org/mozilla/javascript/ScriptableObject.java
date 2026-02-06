@@ -2234,12 +2234,19 @@ public abstract class ScriptableObject extends SlotMapOwner
             if ((current.getAttributes() & PERMANENT) != 0) {
                 if (isTrue(info.configurable))
                     throw ScriptRuntime.typeErrorById("msg.change.configurable.false.to.true", id);
-                if (((current.getAttributes() & DONTENUM) == 0) != isTrue(info.enumerable))
+                if (info.enumerable != NOT_FOUND
+                        && ((current.getAttributes() & DONTENUM) == 0) != isTrue(info.enumerable))
                     throw ScriptRuntime.typeErrorById(
                             "msg.change.enumerable.with.configurable.false", id);
                 boolean isData = info.isDataDescriptor();
                 boolean isBuiltIn = current instanceof BuiltInSlot;
                 boolean isAccessor = info.accessorDescriptor;
+                // Non-configurable LambdaSlots should not be replaced by data descriptors.
+                // LambdaSlots present as data properties but have internal getter/setter
+                // that would be lost if replaced.
+                if (isData && current instanceof LambdaSlot && !current.isValueSlot()) {
+                    throw ScriptRuntime.typeErrorById("msg.change.value.with.writable.false", id);
+                }
                 if (!isData && !isAccessor) {
                     // no further validation required for generic descriptor
                 } else if (isData) {
