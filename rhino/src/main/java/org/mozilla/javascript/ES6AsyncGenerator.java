@@ -461,10 +461,20 @@ public final class ES6AsyncGenerator extends ScriptableObject {
      */
     private Object getAsyncOrSyncIterator(Context cx, Scriptable scope, Object obj) {
         Scriptable sObj = ScriptableObject.ensureScriptable(obj);
-        // First try @@asyncIterator
+        // First try @@asyncIterator (GetMethod semantics per ES spec 7.3.9)
         Object asyncIterMethod = ScriptableObject.getProperty(sObj, SymbolKey.ASYNC_ITERATOR);
         if (asyncIterMethod instanceof Callable) {
             return ((Callable) asyncIterMethod).call(cx, scope, sObj, ScriptRuntime.emptyArgs);
+        }
+        // Per GetMethod step 3: if value is undefined or null, fall through to sync path
+        // Per GetMethod step 4: if value is not callable, throw TypeError
+        if (asyncIterMethod != Scriptable.NOT_FOUND
+                && !Undefined.isUndefined(asyncIterMethod)
+                && asyncIterMethod != null) {
+            throw ScriptRuntime.typeErrorById(
+                    "msg.isnt.function",
+                    ScriptRuntime.toString(SymbolKey.ASYNC_ITERATOR),
+                    ScriptRuntime.typeof(asyncIterMethod));
         }
         // Fall back to @@iterator, wrapped in AsyncFromSyncIterator
         Object syncIterator = ScriptRuntime.callIterator(obj, cx, scope);
