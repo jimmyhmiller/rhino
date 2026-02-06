@@ -5009,8 +5009,16 @@ public class Parser {
     }
 
     private static boolean isNotValidSimpleAssignmentTarget(AstNode pn) {
+        if (pn.getType() == Token.CALL) return true;
         if (pn.getType() == Token.GETPROP)
-            return isNotValidSimpleAssignmentTarget(((PropertyGet) pn).getLeft());
+            return isNotValidSimpleAssignmentTargetChain(((PropertyGet) pn).getLeft());
+        return pn.getType() == Token.QUESTION_DOT;
+    }
+
+    /** Check for optional chaining inside a property/element access chain. */
+    private static boolean isNotValidSimpleAssignmentTargetChain(AstNode pn) {
+        if (pn.getType() == Token.GETPROP)
+            return isNotValidSimpleAssignmentTargetChain(((PropertyGet) pn).getLeft());
         return pn.getType() == Token.QUESTION_DOT;
     }
 
