@@ -8,7 +8,9 @@ package org.mozilla.javascript;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -177,6 +179,10 @@ public class Parser {
     private int nestingOfStaticBlock = 0; // Track if we're inside a static initialization block
     // Track if 'await' is reserved due to static block context (reset when entering functions)
     private boolean inStaticBlockAwaitContext = false;
+
+    // Track declared and used private names per class scope for AllPrivateNamesValid validation
+    private final Deque<Set<String>> classPrivateNameDecls = new ArrayDeque<>();
+    private final Deque<Set<String>> classPrivateNameUsages = new ArrayDeque<>();
     // end of per function variables
 
     // Lacking 2-token lookahead, labels become a problem.
@@ -1473,6 +1479,10 @@ public class Parser {
         boolean savedStrictMode = inUseStrictDirective;
         inUseStrictDirective = true;
 
+        // Push private name scope for AllPrivateNamesValid validation
+        classPrivateNameDecls.push(new HashSet<>());
+        classPrivateNameUsages.push(new HashSet<>());
+
         try {
             // Parse class elements
             boolean hasConstructor = false;
@@ -1497,11 +1507,45 @@ public class Parser {
             inUseStrictDirective = savedStrictMode;
         }
 
+        // Validate AllPrivateNamesValid: all used private names must be declared
+        Set<String> declaredNames = classPrivateNameDecls.pop();
+        Set<String> usedNames = classPrivateNameUsages.pop();
+        for (String usedName : usedNames) {
+            if (!declaredNames.contains(usedName) && !isPrivateNameInOuterClass(usedName)) {
+                reportError("msg.private.member.not.found");
+            }
+        }
+
         mustMatchToken(Token.RC, "msg.no.brace.class", true);
         classNode.setRc(ts.tokenBeg - classStart);
         classNode.setLength(ts.tokenEnd - classStart);
 
         return classNode;
+    }
+
+    private boolean isPrivateNameInOuterClass(String name) {
+        // Check outer class scopes (skip the top which was already popped)
+        for (Set<String> outer : classPrivateNameDecls) {
+            if (outer.contains(name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void declarePrivateName(String name) {
+        if (!classPrivateNameDecls.isEmpty()) {
+            classPrivateNameDecls.peek().add(name);
+        }
+    }
+
+    private void recordPrivateNameUsage(String name) {
+        if (!classPrivateNameUsages.isEmpty()) {
+            classPrivateNameUsages.peek().add(name);
+        } else if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+            // Outside any class - private name is always invalid
+            reportError("msg.private.member.not.found");
+        }
     }
 
     /**
@@ -1623,6 +1667,11 @@ public class Parser {
             return null;
         }
         consumeToken();
+
+        // Register private name declaration for AllPrivateNamesValid validation
+        if (isPrivate && propName instanceof Name) {
+            declarePrivateName(((Name) propName).getIdentifier());
+        }
 
         // Check if this is a field or a method
         // Fields: propName = value; or propName; or propName } (no parenthesis)
@@ -5307,6 +5356,7 @@ public class Parser {
             int pos = ts.tokenBeg;
             consumeToken();
             String privateName = ts.getString();
+            recordPrivateNameUsage(privateName);
             int opPos = ts.tokenBeg;
 
             // Must be followed by 'in'
@@ -5872,6 +5922,7 @@ public class Parser {
                 if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
                     // Create a Name node for the private property (without the # prefix)
                     String privateName = ts.getString();
+                    recordPrivateNameUsage(privateName);
                     Name name = new Name(ts.tokenBeg, privateName);
                     name.setLineColumnNumber(lineNumber(), columnNumber());
                     ref = name;
