@@ -84,6 +84,16 @@ public final class NativeCall extends IdScriptableObject {
             defineProperty("arguments", new Arguments(this, cx), PERMANENT);
         }
 
+        // Determine the NFE (named function expression) binding name, if any.
+        // Per spec, this creates an immutable binding inside the function body.
+        String nfeName = null;
+        if (function.getDescriptor().declaredAsFunctionExpression()) {
+            String fn = function.getFunctionName();
+            if (fn != null && !fn.isEmpty()) {
+                nfeName = fn;
+            }
+        }
+
         if (paramAndVarCount != 0) {
             for (int i = paramCount; i < paramAndVarCount; ++i) {
                 String name = function.getParamOrVarName(i);
@@ -104,6 +114,16 @@ public final class NativeCall extends IdScriptableObject {
                         } else {
                             defineProperty(name, Undefined.TDZ_VALUE, PERMANENT);
                         }
+                    } else if (name.equals(nfeName)) {
+                        // Named function expression: immutable binding.
+                        // UNINITIALIZED_CONST allows the initial SETNAME(THISFN),
+                        // then READONLY without CONST_BINDING gives correct behavior:
+                        //   non-strict: silently ignores reassignment
+                        //   strict: throws TypeError
+                        defineProperty(
+                                name,
+                                Undefined.instance,
+                                PERMANENT | READONLY | UNINITIALIZED_CONST);
                     } else if (function.hasFunctionNamed(name)) {
                         defineProperty(name, Undefined.instance, PERMANENT);
                     } else {

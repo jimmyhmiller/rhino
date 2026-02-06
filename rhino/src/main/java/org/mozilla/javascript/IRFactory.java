@@ -2315,6 +2315,13 @@ public final class IRFactory {
                                         Node.newString(Token.BINDNAME, name.getIdentifier()),
                                         new Node(Token.THISFN)));
                 statements.addChildrenToFront(setFn);
+                // Force activation so NativeCall handles the NFE name as
+                // an immutable binding (READONLY + UNINITIALIZED_CONST).
+                // Skip for top-level functions (e.g. Function() constructor)
+                // since they are not true NFEs per spec.
+                if (!(fnNode.getParent() instanceof AstRoot)) {
+                    fnNode.setRequiresActivation();
+                }
             }
         }
 
