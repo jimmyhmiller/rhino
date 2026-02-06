@@ -149,9 +149,7 @@ In raw mode, the test suite will fail if any test actually fails, regardless of 
 When fixing test262 tests, regenerate the expected failures list:
 
 ```
-RHINO_TEST_JAVA_VERSION=11 ./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest --rerun-tasks -DupdateTest262properties
+./gradlew :tests:test --tests org.mozilla.javascript.tests.Test262SuiteTest --rerun-tasks -DupdateTest262properties
 ```
-
-The `RHINO_TEST_JAVA_VERSION=11` is required because test results can vary by Java version.
 
 **IMPORTANT**: After regenerating, you MUST verify that the changes to test262.properties are removing failures (tests that now pass), NOT adding new failures. Check the git diff carefully. If there are new failures, you MUST confirm with me before proceeding - sometimes failures are expected but they need explicit approval.
