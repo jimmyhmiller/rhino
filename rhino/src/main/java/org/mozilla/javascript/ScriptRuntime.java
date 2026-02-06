@@ -2582,7 +2582,7 @@ public class ScriptRuntime {
             boolean isOptionalChainingCall) {
         Object result;
         Scriptable thisObj = scope;
-        boolean foundAtTopScope = false;
+        boolean foundInEnvironmentRecord = false;
 
         XMLObject firstXMLObject = null;
         for (; ; ) {
@@ -2622,6 +2622,7 @@ public class ScriptRuntime {
                     // ECMA 262 requires that this for nested funtions
                     // should be top scope
                     thisObj = ScriptableObject.getTopLevelScope(parentScope);
+                    foundInEnvironmentRecord = true;
                     break;
                 }
             } else {
@@ -2662,10 +2663,10 @@ public class ScriptRuntime {
                 if (scope instanceof ScriptableObject) {
                     ScriptableObject so = (ScriptableObject) scope;
                     if (so.has(name, so) || so.getOwnPropertyDescriptor(cx, name) != null) {
-                        foundAtTopScope = true;
+                        foundInEnvironmentRecord = true;
                     }
                 } else if (scope.has(name, scope)) {
-                    foundAtTopScope = true;
+                    foundInEnvironmentRecord = true;
                 }
                 break;
             }
@@ -2678,23 +2679,19 @@ public class ScriptRuntime {
                             || Undefined.isUndefined(result))) {
                 return null;
             }
-        } else if (foundAtTopScope) {
-            // Per ES spec, GlobalEnvironmentRecord.WithBaseObject() returns undefined.
-            // So for top-scope name lookups, thisArgument should be undefined.
-            // For strict functions, this stays undefined.
-            // For non-strict functions, this gets coerced to global (handled elsewhere).
-            // Built-in functions (IdFunctionObject) are always strict per ES spec.
-            // User-defined JavaScript functions (JSFunction) are strict if isStrict().
-            // Host functions (FunctionObject) are non-strict for backward compatibility.
+        } else if (foundInEnvironmentRecord) {
+            // Per ES spec, EnvironmentRecord.WithBaseObject() returns undefined for
+            // declarative environments (NativeCall) and global environments.
+            // So for name lookups that resolve to these environments, thisArgument
+            // should be undefined for strict functions.
+            // Only with-statement bindings (NativeWith) should use the with-object as this.
             Callable f = (Callable) result;
             boolean isFunctionStrict;
             if (f instanceof JSFunction) {
                 isFunctionStrict = ((JSFunction) f).isStrict();
             } else if (f instanceof IdFunctionObject) {
-                // Built-in functions are always strict per ES spec
                 isFunctionStrict = true;
             } else {
-                // Other callable types (FunctionObject, etc.) default to non-strict
                 isFunctionStrict = false;
             }
             if (isFunctionStrict) {
