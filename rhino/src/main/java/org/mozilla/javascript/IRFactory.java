@@ -1535,6 +1535,23 @@ public final class IRFactory {
             // Named declarations don't need this because they create their own binding.
             if (node.isDefault()) {
                 int type = transformed.getType();
+
+                // Named class in default export: export default class Foo {}
+                // Creates a binding for the class name (not *default*)
+                boolean isNamedDefaultClass =
+                        type == Token.CLASS
+                                && node.getDeclaration() instanceof ClassNode
+                                && ((ClassNode) node.getDeclaration()).getClassName() != null;
+
+                if (isNamedDefaultClass) {
+                    String className = ((ClassNode) node.getDeclaration()).getClassNameString();
+                    Node bindName = Node.newString(Token.BINDNAME, className);
+                    Node assignment = new Node(Token.SETLETINIT, bindName, transformed);
+                    Node exprStmt = new Node(Token.EXPR_VOID, assignment);
+                    exprStmt.setLineColumnNumber(node.getLineno(), node.getColumn());
+                    return exprStmt;
+                }
+
                 boolean isAnonymousClass = type == Token.CLASS;
                 boolean isAnonymousFunction =
                         type == Token.FUNCTION
@@ -3084,6 +3101,7 @@ public final class IRFactory {
             case Token.GETPROP:
             case Token.GETELEM:
             case Token.GET_REF:
+            case Token.GETPROP_PRIVATE:
                 {
                     Node n = new Node(nodeType, child);
                     int incrDecrMask = 0;

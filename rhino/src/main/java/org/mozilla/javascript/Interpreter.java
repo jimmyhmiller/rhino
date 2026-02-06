@@ -891,6 +891,7 @@ public final class Interpreter extends Icode implements Evaluator {
                 case Icode_PROP_INC_DEC:
                 case Icode_ELEM_INC_DEC:
                 case Icode_REF_INC_DEC:
+                case Icode_PRIVATE_PROP_INC_DEC:
                     {
                         int incrDecrType = iCode[pc];
                         out.println(tname + " " + incrDecrType);
@@ -1208,6 +1209,7 @@ public final class Interpreter extends Icode implements Evaluator {
             case Icode_PROP_INC_DEC:
             case Icode_ELEM_INC_DEC:
             case Icode_REF_INC_DEC:
+            case Icode_PRIVATE_PROP_INC_DEC:
                 // type of ++/--
                 return 1 + 1;
 
@@ -1742,6 +1744,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Token.SETPROP_PRIVATE] = new DoSetPropPrivate();
         instructionObjs[base + Token.IN_PRIVATE] = new DoInPrivate();
         instructionObjs[base + Icode_PROP_INC_DEC] = new DoPropIncDec();
+        instructionObjs[base + Icode_PRIVATE_PROP_INC_DEC] = new DoPrivatePropIncDec();
         instructionObjs[base + Token.GETELEM] = new DoGetElem();
         instructionObjs[base + Token.GETELEM_SUPER] = new DoGetElemSuper();
         instructionObjs[base + Token.SETELEM] = new DoSetElem();
@@ -3494,6 +3497,23 @@ public final class Interpreter extends Icode implements Evaluator {
             // Walk up call frame chain to find private context
             Object privateContext = findPrivateContext(frame);
             stack[state.stackTop] = ScriptRuntime.privateIn(obj, state.stringReg, privateContext);
+            return null;
+        }
+    }
+
+    private static class DoPrivatePropIncDec extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            final Object[] stack = frame.stack;
+            final double[] sDbl = frame.sDbl;
+            final byte[] iCode = frame.idata.itsICode;
+            Object lhs = stack[state.stackTop];
+            if (lhs == DOUBLE_MARK) lhs = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
+            Object privateContext = findPrivateContext(frame);
+            stack[state.stackTop] =
+                    ScriptRuntime.privatePropIncrDecr(
+                            lhs, state.stringReg, cx, privateContext, iCode[frame.pc]);
+            ++frame.pc;
             return null;
         }
     }

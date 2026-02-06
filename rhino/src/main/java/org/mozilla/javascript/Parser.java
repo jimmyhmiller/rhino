@@ -3936,6 +3936,22 @@ public class Parser {
             return pn;
         }
 
+        // export async function ...
+        if (tt == Token.ASYNC) {
+            consumeToken();
+            if (peekToken() == Token.FUNCTION) {
+                int asyncStart = ts.tokenBeg;
+                consumeToken();
+                FunctionNode fn =
+                        function(FunctionNode.FUNCTION_STATEMENT, false, false, true, asyncStart);
+                pn.setDeclaration(fn);
+                pn.setLength(getNodeEnd(fn) - pos);
+                return pn;
+            }
+            reportError("msg.export.expected.declaration");
+            return pn;
+        }
+
         // export function ...
         if (tt == Token.FUNCTION) {
             consumeToken();
@@ -4002,6 +4018,11 @@ public class Parser {
         if (tt == Token.CLASS) {
             consumeToken();
             ClassNode cn = classDeclaration(ClassNode.CLASS_EXPRESSION);
+            // For named default class exports (export default class Foo {}),
+            // the class name creates a binding in the module scope per spec.
+            if (cn.getClassName() != null) {
+                defineSymbol(Token.LET, cn.getClassNameString());
+            }
             pn.setDeclaration(cn);
             pn.setLength(getNodeEnd(cn) - pos);
             return pn;

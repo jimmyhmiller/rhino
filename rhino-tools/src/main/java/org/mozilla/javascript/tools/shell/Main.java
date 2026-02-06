@@ -40,6 +40,7 @@ import org.mozilla.javascript.SecurityController;
 import org.mozilla.javascript.commonjs.module.ModuleScope;
 import org.mozilla.javascript.commonjs.module.Require;
 import org.mozilla.javascript.config.RhinoConfig;
+import org.mozilla.javascript.es6module.ModuleRecord;
 import org.mozilla.javascript.tools.Console;
 import org.mozilla.javascript.tools.SourceReader;
 import org.mozilla.javascript.tools.ToolErrorReporter;
@@ -66,6 +67,7 @@ public class Main {
     static String mainModule;
     static boolean sandboxed = false;
     static boolean useRequire = false;
+    static boolean useEsModules = false;
     static Require require;
     private static SecurityProxy securityImpl;
     private static final ScriptCache scriptCache = new ScriptCache(32);
@@ -369,6 +371,10 @@ public class Main {
                 useRequire = true;
                 continue;
             }
+            if (arg.equals("--module")) {
+                useEsModules = true;
+                continue;
+            }
             if (arg.equals("-w")) {
                 errorReporter.setIsReportingWarnings(true);
                 continue;
@@ -518,6 +524,8 @@ public class Main {
             }
             console.println();
             console.flush();
+        } else if (useEsModules && filename.equals(mainModule)) {
+            processModule(cx, filename);
         } else if (useRequire && filename.equals(mainModule)) {
             require.requireMain(cx, filename);
         } else {
@@ -543,6 +551,32 @@ public class Main {
             Context.reportError(msg);
             exitCode = EXITCODE_RUNTIME_ERROR;
         }
+    }
+
+    static void processModule(Context cx, String filename) throws IOException {
+        String charEnc = shellContextFactory.getCharacterEncoding();
+        Charset cs = (charEnc != null) ? Charset.forName(charEnc) : StandardCharsets.UTF_8;
+        FileModuleLoader loader = new FileModuleLoader(cs);
+        cx.setModuleLoader(loader);
+
+        File file = new File(filename).getAbsoluteFile();
+        String absolutePath = file.getAbsolutePath();
+        String source = (String) readFileOrUrl(filename, true);
+
+        // Support #! shebang
+        if (source.length() > 0 && source.charAt(0) == '#') {
+            for (int i = 1; i != source.length(); ++i) {
+                int c = source.charAt(i);
+                if (c == '\n' || c == '\r') {
+                    source = source.substring(i);
+                    break;
+                }
+            }
+        }
+
+        ModuleRecord record = cx.compileModule(source, absolutePath, 1, null);
+        loader.cache.put(absolutePath, record);
+        cx.linkAndEvaluateModule(global, record);
     }
 
     public static void processFile(Context cx, Scriptable scope, String filename)

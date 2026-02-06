@@ -5309,6 +5309,24 @@ class BodyCodegen {
                                     + "I)Ljava/lang/Object;");
                     break;
                 }
+            case Token.GETPROP_PRIVATE:
+                {
+                    Node object = child.getFirstChild();
+                    generateExpression(object, node);
+                    String privateName = object.getNext().getString();
+                    cfw.addPush(privateName);
+                    cfw.addALoad(contextLocal);
+                    cfw.addALoad(funObjLocal);
+                    cfw.addPush(incrDecrMask);
+                    addScriptRuntimeInvoke(
+                            "privatePropIncrDecr",
+                            "(Ljava/lang/Object;"
+                                    + "Ljava/lang/String;"
+                                    + "Lorg/mozilla/javascript/Context;"
+                                    + "Ljava/lang/Object;"
+                                    + "I)Ljava/lang/Object;");
+                    break;
+                }
             default:
                 Codegen.badTree();
         }

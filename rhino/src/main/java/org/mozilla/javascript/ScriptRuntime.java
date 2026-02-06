@@ -7328,6 +7328,23 @@ public class ScriptRuntime {
         throw typeError("msg.private.member.not.found");
     }
 
+    public static Object privatePropIncrDecr(
+            Object obj, String name, Context cx, Object fnOrScript, int incrDecrMask) {
+        Object value = getPrivateProp(obj, name, cx, fnOrScript);
+        double d = toNumber(value);
+        double result;
+        if ((incrDecrMask & Node.DECR_FLAG) == 0) {
+            result = d + 1.0;
+        } else {
+            result = d - 1.0;
+        }
+        setPrivateProp(obj, name, result, cx, fnOrScript);
+        if ((incrDecrMask & Node.POST_FLAG) != 0) {
+            return d;
+        }
+        return result;
+    }
+
     /**
      * Gets the class constructor from the current function. Used for private member access to
      * determine which class's private members we're accessing.

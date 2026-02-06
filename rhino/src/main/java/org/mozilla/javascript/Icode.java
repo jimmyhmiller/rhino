@@ -238,8 +238,11 @@ abstract class Icode {
             // Checks obj for null/undefined (TypeError) then converts key via ToPropertyKey
             Icode_COMPOUND_ELEM_KEY = Icode_REQ_ITERABLE - 1,
 
+            // Private property increment/decrement (++/-- on obj.#field)
+            Icode_PRIVATE_PROP_INC_DEC = Icode_COMPOUND_ELEM_KEY - 1,
+
             // Last icode
-            MIN_ICODE = Icode_COMPOUND_ELEM_KEY;
+            MIN_ICODE = Icode_PRIVATE_PROP_INC_DEC;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -487,6 +490,8 @@ abstract class Icode {
                 return "REQ_ITERABLE";
             case Icode_COMPOUND_ELEM_KEY:
                 return "COMPOUND_ELEM_KEY";
+            case Icode_PRIVATE_PROP_INC_DEC:
+                return "PRIVATE_PROP_INC_DEC";
         }
 
         // icode without name

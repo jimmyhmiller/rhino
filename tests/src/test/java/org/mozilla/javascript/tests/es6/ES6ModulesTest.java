@@ -557,4 +557,68 @@ public class ES6ModulesTest {
             assertEquals(77, ((Number) result).intValue());
         }
     }
+
+    @Test
+    public void testExportDefaultNamedClass() {
+        // Test that export default class Foo {} creates a binding for Foo
+        // and the default export resolves correctly
+        try (Context cx = Context.enter()) {
+            cx.setLanguageVersion(Context.VERSION_ES6);
+            org.mozilla.javascript.Scriptable scope = cx.initStandardObjects();
+
+            final java.util.Map<String, org.mozilla.javascript.es6module.ModuleRecord> cache =
+                    new java.util.HashMap<>();
+            final java.util.Map<String, String> sources = new java.util.HashMap<>();
+
+            sources.put(
+                    "class-module.js",
+                    "export default class Vector {\n"
+                            + "  constructor(x, y) { this.x = x; this.y = y; }\n"
+                            + "  magnitude() { return Math.sqrt(this.x * this.x + this.y * this.y); }\n"
+                            + "}");
+            sources.put(
+                    "main.js",
+                    "import Vector from 'class-module.js';\n"
+                            + "var v = new Vector(3, 4);\n"
+                            + "export var mag = v.magnitude();\n"
+                            + "export var x = v.x;\n");
+
+            cx.setModuleLoader(
+                    new org.mozilla.javascript.es6module.ModuleLoader() {
+                        @Override
+                        public String resolveModule(
+                                String specifier,
+                                org.mozilla.javascript.es6module.ModuleRecord referrer)
+                                throws ModuleResolutionException {
+                            return specifier;
+                        }
+
+                        @Override
+                        public org.mozilla.javascript.es6module.ModuleRecord loadModule(
+                                Context cx, String resolvedSpecifier) throws ModuleLoadException {
+                            String src = sources.get(resolvedSpecifier);
+                            if (src == null)
+                                throw new ModuleLoadException("not found: " + resolvedSpecifier);
+                            org.mozilla.javascript.es6module.ModuleRecord r =
+                                    cx.compileModule(src, resolvedSpecifier, 1, null);
+                            cache.put(resolvedSpecifier, r);
+                            return r;
+                        }
+
+                        @Override
+                        public org.mozilla.javascript.es6module.ModuleRecord getCachedModule(
+                                String resolvedSpecifier) {
+                            return cache.get(resolvedSpecifier);
+                        }
+                    });
+
+            org.mozilla.javascript.es6module.ModuleRecord mainModule =
+                    cx.compileModule(sources.get("main.js"), "main.js", 1, null);
+            cache.put("main.js", mainModule);
+
+            org.mozilla.javascript.Scriptable ns = cx.linkAndEvaluateModule(scope, mainModule);
+            assertEquals(5.0, ((Number) ns.get("mag", ns)).doubleValue(), 0.001);
+            assertEquals(3, ((Number) ns.get("x", ns)).intValue());
+        }
+    }
 }

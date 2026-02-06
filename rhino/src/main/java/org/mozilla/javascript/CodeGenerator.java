@@ -1883,6 +1883,15 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     addUint8(incrDecrMask);
                     break;
                 }
+            case Token.GETPROP_PRIVATE:
+                {
+                    Node object = child.getFirstChild();
+                    String privateName = object.getNext().getString();
+                    visitExpression(object, 0);
+                    addStringOp(Icode_PRIVATE_PROP_INC_DEC, privateName);
+                    addUint8(incrDecrMask);
+                    break;
+                }
             default:
                 {
                     throw badTree(node);
