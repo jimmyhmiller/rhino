@@ -971,27 +971,48 @@ public class ScriptRuntime {
         Scriptable sourceObj = toObject(cx, scope, source);
         Scriptable result = cx.newObject(scope);
 
-        // Build a set of excluded keys for fast lookup
-        java.util.Set<Object> excluded = new java.util.HashSet<>();
+        // Build a set of excluded keys normalized as strings for proper comparison.
+        // Property keys are always strings (or symbols) per spec, but Rhino uses
+        // Integer for array indices in getIds(). We normalize everything to strings
+        // so computed keys (which may be Numbers) match correctly.
+        java.util.Set<String> excludedStrings = new java.util.HashSet<>();
+        java.util.Set<Symbol> excludedSymbols = new java.util.HashSet<>();
         if (excludedKeysObj instanceof NativeArray) {
             NativeArray arr = (NativeArray) excludedKeysObj;
             for (int i = 0; i < arr.getLength(); i++) {
                 Object key = arr.get(i, arr);
-                if (key != Scriptable.NOT_FOUND) {
-                    excluded.add(key);
+                if (key instanceof Symbol) {
+                    excludedSymbols.add((Symbol) key);
+                } else if (key != Scriptable.NOT_FOUND) {
+                    excludedStrings.add(toString(key));
                 }
             }
         } else if (excludedKeysObj instanceof Object[]) {
             for (Object key : (Object[]) excludedKeysObj) {
-                excluded.add(key);
+                if (key instanceof Symbol) {
+                    excludedSymbols.add((Symbol) key);
+                } else {
+                    excludedStrings.add(toString(key));
+                }
             }
         }
 
         // Copy all own enumerable properties except excluded ones
-        // Use Object.keys() semantics - own enumerable string properties
         Object[] ids = sourceObj.getIds();
         for (Object id : ids) {
-            if (excluded.contains(id)) {
+            if (id instanceof Symbol) {
+                if (!excludedSymbols.contains(id)) {
+                    Object value = ScriptableObject.getProperty(sourceObj, (Symbol) id);
+                    if (value != Scriptable.NOT_FOUND) {
+                        ScriptableObject.putProperty(result, (Symbol) id, value);
+                    }
+                }
+                continue;
+            }
+
+            // Normalize id to string for comparison with excluded set
+            String idStr = id instanceof String ? (String) id : toString(id);
+            if (excludedStrings.contains(idStr)) {
                 continue;
             }
 
@@ -1005,12 +1026,6 @@ public class ScriptRuntime {
                 value = sourceObj.get((Integer) id, sourceObj);
                 if (value != Scriptable.NOT_FOUND) {
                     result.put((Integer) id, result, value);
-                }
-            } else if (id instanceof Symbol) {
-                // Symbols are included in rest properties per ES2018
-                value = ScriptableObject.getProperty(sourceObj, (Symbol) id);
-                if (value != Scriptable.NOT_FOUND) {
-                    ScriptableObject.putProperty(result, (Symbol) id, value);
                 }
             }
         }

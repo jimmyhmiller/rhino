@@ -8336,7 +8336,10 @@ public class Parser {
 
         // Track property names for object rest
         List<String> excludedKeys = new ArrayList<>();
+        // Track computed key expression nodes for runtime exclusion
+        List<Node> computedExcludedKeyNodes = new ArrayList<>();
 
+        // Check if there's a rest element (must be the last element)
         List<AbstractObjectProperty> elements = node.getElements();
         for (int i = 0; i < elements.size(); i++) {
             AbstractObjectProperty abstractProp = elements.get(i);
@@ -8361,6 +8364,10 @@ public class Parser {
                 Node excludedArray = new Node(Token.ARRAYLIT);
                 for (String key : excludedKeys) {
                     excludedArray.addChildToBack(Node.newString(key));
+                }
+                // Add computed key expressions (evaluated at runtime)
+                for (Node keyNode : computedExcludedKeyNodes) {
+                    excludedArray.addChildToBack(keyNode);
                 }
 
                 // Create OBJECT_REST_COPY node: source, excludedKeysArray
@@ -8437,8 +8444,23 @@ public class Parser {
                     }
                 }
                 rightElem = new Node(Token.GETELEM, createName(tempName), transformedKey);
-                // Can't statically know the key for object rest exclusion
-                // keyName stays null - computed keys not excluded from rest
+                // Check if there's a rest element following - need key for exclusion
+                boolean hasRestElement =
+                        !elements.isEmpty()
+                                && elements.get(elements.size() - 1) instanceof SpreadObjectProperty
+                                && i < elements.size() - 1;
+                if (hasRestElement) {
+                    // Create a second copy of the key expression for the excluded array
+                    Node excludedKeyNode;
+                    if (transformer != null) {
+                        excludedKeyNode = transformer.transform(keyExpr);
+                    } else if (keyExpr instanceof Name) {
+                        excludedKeyNode = createName(((Name) keyExpr).getIdentifier());
+                    } else {
+                        excludedKeyNode = Node.newString("");
+                    }
+                    computedExcludedKeyNodes.add(excludedKeyNode);
+                }
             } else {
                 throw codeBug();
             }
