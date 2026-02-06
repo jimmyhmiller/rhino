@@ -5059,10 +5059,28 @@ public class Parser {
         while (pn instanceof ParenthesizedExpression) {
             pn = ((ParenthesizedExpression) pn).getExpression();
         }
-        if (pn.getType() == Token.CALL) return true;
-        if (pn.getType() == Token.GETPROP)
-            return isNotValidSimpleAssignmentTargetChain(((PropertyGet) pn).getLeft());
-        return pn.getType() == Token.QUESTION_DOT;
+        switch (pn.getType()) {
+            case Token.NAME:
+            case Token.UNDEFINED:
+            case Token.GETELEM:
+            case Token.GETPROP_PRIVATE:
+                return false; // Valid simple assignment targets
+            case Token.ARRAYLIT:
+            case Token.OBJECTLIT:
+                return false; // Valid as destructuring assignment targets
+            case Token.GETPROP:
+                return isNotValidSimpleAssignmentTargetChain(((PropertyGet) pn).getLeft());
+            case Token.DOT:
+            case Token.DOTDOT:
+            case Token.REF_MEMBER:
+            case Token.REF_NS_MEMBER:
+            case Token.REF_NAME:
+            case Token.REF_NS_NAME:
+            case Token.REF_SPECIAL:
+                return false; // E4X reference types are valid assignment targets
+            default:
+                return true; // Everything else (CALL, literals, etc.) is invalid
+        }
     }
 
     /** Check for optional chaining inside a property/element access chain. */

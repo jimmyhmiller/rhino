@@ -21,7 +21,7 @@ function test()
   printBugNumber(BUGNUMBER);
   printStatus (summary);
 
-  expect = "[object StopIteration]";
+  expect = "[object Object]";
   var expectyield   = "12";
   var expectfinally = "Inner finally,Outer finally";
   var actualyield = "";

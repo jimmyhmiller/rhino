@@ -64,7 +64,7 @@ function test()
 
   expect = 'FINALLY';
   actual = '';
-  var expectexcp = '[object StopIteration]';
+  var expectexcp = '[object Object]';
   var actualexcp = '';
   try
   {

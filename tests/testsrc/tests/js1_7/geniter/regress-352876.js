@@ -21,7 +21,7 @@ function test()
   printBugNumber(BUGNUMBER);
   printStatus (summary);
  
-  expect = '[object StopIteration]';
+  expect = '[object Object]';
   actual = '';
   try
   {

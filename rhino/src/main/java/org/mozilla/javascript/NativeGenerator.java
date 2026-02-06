@@ -28,6 +28,10 @@ public final class NativeGenerator extends IdScriptableObject {
             prototype.setPrototype(getObjectPrototype(scope));
         }
         prototype.activatePrototypeMap(MAX_PROTOTYPE_ID);
+        prototype.defineProperty(
+                SymbolKey.TO_STRING_TAG,
+                "Generator",
+                ScriptableObject.DONTENUM | ScriptableObject.READONLY);
         if (sealed) {
             prototype.sealObject();
         }

@@ -134,7 +134,7 @@ else
 
   new TestCase( SECTION,
                 "s.getJSClass()",
-                "[object Script]",
+                "[object Function]",
                 s.getJSClass() );
 }
 

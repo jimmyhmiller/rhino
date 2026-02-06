@@ -21,7 +21,7 @@ public class PromiseTest {
                         + "    });\n"
                         + "  r += ' done';\n"
                         + "  r;";
-        Utils.assertWithAllModesTopLevelScope_ES6("[object global] done", script);
+        Utils.assertWithAllModesTopLevelScope_ES6("[object Object] done", script);
     }
 
     @Test

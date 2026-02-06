@@ -87,7 +87,7 @@ public class ErrorReporterTest {
         cx.setErrorReporter(errorCollector);
 
         try {
-            // The test for errors in re-parse with IRFactory after parsing with Parser.
+            // Non-simple assignment targets like numeric literals are now caught at parse time
             cx.evaluateString(scope, "var a = 123;\n1=1", "", 1, null);
         } catch (EvaluatorException e) {
         }
@@ -96,7 +96,7 @@ public class ErrorReporterTest {
         assertEquals(1, errorCollector.errors.size());
 
         ErrorInfo errorInfo = errorCollector.errors.get(0);
-        assertEquals("Invalid assignment left-hand side.", errorInfo.message);
+        assertEquals("syntax error: Invalid left-hand side in assignment", errorInfo.message);
         assertEquals(2, errorInfo.line);
         assertEquals("1=1", errorInfo.lineSource);
     }

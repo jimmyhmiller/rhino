@@ -4,7 +4,7 @@
 
 js> defineClass("Counter")
 js> c = new Counter(7)
-[object Counter]
+[object Object]
 js> c.count
 7
 js> c.count

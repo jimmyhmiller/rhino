@@ -1182,23 +1182,46 @@ public class ScriptRuntime {
         if (obj == null) return "[object Null]";
         if (Undefined.isUndefined(obj)) return "[object Undefined]";
 
+        // Step 3: ToObject(this) - unwrap PrimitiveThisValue to get the proper wrapper
+        if (obj instanceof PrimitiveThisValue) {
+            obj = ((PrimitiveThisValue) obj).getWrapper();
+        }
+
+        // ES2024 20.1.3.6 steps 4-14: Compute builtinTag based on internal slots
+        String builtinTag;
+        // Step 4-5: IsArray recurses through proxies (getClassName delegates to target)
+        if (obj instanceof NativeArray
+                || (obj instanceof NativeProxy && "Array".equals(obj.getClassName()))) {
+            builtinTag = "Array";
+        } else if (obj instanceof Arguments) {
+            builtinTag = "Arguments";
+        } else if ("RegExp".equals(obj.getClassName())) {
+            // Check RegExp before Callable: Rhino's NativeRegExpCallable is both
+            // a RegExp and Callable, but per spec RegExp instances have [[RegExpMatcher]]
+            builtinTag = "RegExp";
+        } else if (obj instanceof Callable) {
+            builtinTag = "Function";
+        } else if (obj instanceof NativeError && ((NativeError) obj).hasErrorData()) {
+            builtinTag = "Error";
+        } else if (obj instanceof NativeBoolean) {
+            builtinTag = "Boolean";
+        } else if (obj instanceof NativeNumber) {
+            builtinTag = "Number";
+        } else if (obj instanceof NativeString) {
+            builtinTag = "String";
+        } else if (obj instanceof NativeDate) {
+            builtinTag = "Date";
+        } else {
+            builtinTag = "Object";
+        }
+
+        // Steps 15-17: Get Symbol.toStringTag; use builtinTag if not a primitive string
         Object tagValue = ScriptableObject.getProperty(obj, SymbolKey.TO_STRING_TAG);
-        // Note: Scriptable.NOT_FOUND is not a CharSequence, so we don't need to explicitly check
-        // for it
         if (tagValue instanceof CharSequence) {
             return "[object " + tagValue + "]";
         }
 
-        // ES6 19.1.3.6: Use builtin tag based on internal slots
-        // For Error objects, only instances have [[ErrorData]], not Error.prototype
-        if (obj instanceof NativeError) {
-            if (((NativeError) obj).hasErrorData()) {
-                return "[object Error]";
-            }
-            return "[object Object]";
-        }
-
-        return "[object " + obj.getClassName() + "]";
+        return "[object " + builtinTag + "]";
     }
 
     public static String toString(Object[] args, int index) {
