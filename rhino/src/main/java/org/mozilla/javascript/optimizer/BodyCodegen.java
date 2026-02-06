@@ -6084,7 +6084,27 @@ class BodyCodegen {
     private void visitGetPrivateProp(Node node, Node child) {
         // obj.#field
         generateExpression(child, node); // object
-        Node nameChild = child.getNext();
+        if (node.getIntProp(Node.OPTIONAL_CHAINING, 0) == 1) {
+            int getExpr = cfw.acquireLabel();
+            int after = cfw.acquireLabel();
+
+            cfw.add(ByteCode.DUP);
+            addOptRuntimeInvoke("isNullOrUndefined", "(Ljava/lang/Object;)Z");
+            cfw.add(ByteCode.IFEQ, getExpr);
+
+            cfw.add(ByteCode.POP);
+            Codegen.pushUndefined(cfw);
+            cfw.add(ByteCode.GOTO, after);
+
+            cfw.markLabel(getExpr);
+            finishGetPrivateProp(node, child.getNext());
+            cfw.markLabel(after);
+        } else {
+            finishGetPrivateProp(node, child.getNext());
+        }
+    }
+
+    private void finishGetPrivateProp(Node node, Node nameChild) {
         cfw.addPush(nameChild.getString()); // private name
         cfw.addALoad(contextLocal);
         cfw.addALoad(funObjLocal);

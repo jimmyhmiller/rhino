@@ -900,7 +900,28 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                 // Private property get: obj.#field
                 visitExpression(child, 0);
                 child = child.getNext();
-                addStringOp(Token.GETPROP_PRIVATE, child.getString());
+                if (node.getIntProp(Node.OPTIONAL_CHAINING, 0) == 1) {
+                    // Jump if null or undefined
+                    addIcode(Icode_DUP);
+                    stackChange(1);
+                    int putUndefinedLabel = iCodeTop;
+                    addGotoOp(Icode.Icode_IF_NULL_UNDEF);
+                    stackChange(-1);
+
+                    addStringOp(Token.GETPROP_PRIVATE, child.getString());
+                    int afterLabel = iCodeTop;
+                    addGotoOp(Token.GOTO);
+
+                    resolveForwardGoto(putUndefinedLabel);
+                    addIcode(Icode_POP);
+                    stackChange(-1);
+                    addIcode(Icode_UNDEF);
+                    stackChange(1);
+
+                    resolveForwardGoto(afterLabel);
+                } else {
+                    addStringOp(Token.GETPROP_PRIVATE, child.getString());
+                }
                 break;
 
             case Token.DELPROP:

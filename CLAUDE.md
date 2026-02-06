@@ -9,18 +9,28 @@ We're focusing on completing JavaScript language feature support.
 ### Current Status (2026-02-05)
 
 ```
-Total         37,277 / 50,756 passing (73.4%)
+Total         ~37,563 / 50,756 passing (~74.0%)
 ```
 
 **Recent Fixes:**
-- ES2022 Ergonomic brand checks (`#field in obj`) - 7 tests
-- ES2017 `await` as function name outside async contexts - 2 tests
-- ES2022 `await` identifier handling in static blocks / function expressions - 5 tests
+- Optional chaining + private fields (`obj?.#field`, `o?.c.#field`) - 4 tests
+- Duplicate private name detection (getter+setter pair allowed, others rejected) - 26 tests
+- `#constructor` private name disallowed (including static methods) - 12 tests
+- Private name escape validation (ZWNJ/ZWJ/NULL rejected at IdentifierStart) - 6 tests
+- `fields-duplicate-privatenames` runtime duplicate detection - 2 tests
+- Parser: AllPrivateNamesValid validation (undeclared #names → SyntaxError) - 52 tests
+- Parser: Escaped contextual keywords (get/set/async/static) rejected per spec - 13 tests
+- Parser: Class field ASI enforcement (same-line errors) - 6 tests
+- TokenStream: ZWNJ/ZWJ preserved in identifiers (not stripped as format chars) - 12 tests
+- Interpreter: static block literal storage sizing - 24 tests
+- Interpreter: computed numeric keys preserved in NewLiteralStorage - 80+ tests
+- Private fields: null values handled via UniqueTag.NULL_VALUE sentinel - 1 test
+- Private accessor methods: homeObject set correctly for super access - 18 tests
 
 **Next Priority Items:**
-1. **Private field compound assignment** (`this.#x += 1`) - ~100 tests failing
-2. **Private field logical assignment** (`this.#x ||= 5`) - ~30 tests failing
-3. **Interpreter static block bugs** - ArrayIndexOutOfBoundsException in some static block tests
+1. **Named function expression immutable binding** - ~18 tests (reassignment silently ignored)
+2. **Optional chaining with private fields** (`obj?.#field`) - parser/runtime support needed
+3. **eval code edge cases** - 184 tests (53% failing)
 
 ---
 
@@ -34,27 +44,18 @@ const module = await import('./module.js');
 - `import()` expression not implemented
 - Subcategories: syntax (192), usage (108), catch (176), namespace (67)
 
-### 2. Private Field Compound/Logical Assignment - ~130 tests
-```javascript
-// NOT WORKING
-class C {
-  #x = 1;
-  inc() { this.#x += 1; }      // Compound assignment fails
-  set() { this.#x ||= 5; }     // Logical assignment fails
-}
-```
-- Simple assignment works (`this.#x = 1`)
-- Compound (`+=`, `-=`) and logical (`&&=`, `||=`, `??=`) don't work
+### 2. Private Field Compound/Logical Assignment - FIXED
+- Compound and logical assignment now work
+- Only remaining issue: `#field = null` with `??=` (1 test, fixed via UniqueTag.NULL_VALUE)
 
 ### 3. Module Code Issues - 297 tests (51% failing)
 - Top-level await (~200 tests)
 - Import attributes
 - Import defer
 
-### 4. Class Remaining Issues - ~1,800 tests (21% failing)
-- Static block edge cases (reject await/yield/return)
+### 4. Class Remaining Issues - ~1,538 tests (18% failing)
 - Decorator syntax (11 tests, Stage 3)
-- Invalid private name escapes (28 tests)
+- Compiled-mode yield-spread-obj crashes (24 tests)
 
 ### 5. Eval Code Edge Cases - 184 tests (53% failing)
 - `arguments` binding in various contexts
@@ -65,10 +66,8 @@ class C {
 
 | Feature | Tests | Difficulty |
 |---------|-------|------------|
-| **Private field compound assignment** | ~100 | Medium - already working in compiled mode, need interpreter support |
-| **Private field logical assignment** | ~30 | Medium - similar to compound assignment |
-| **Interpreter literal storage bug** | ~5 | Medium - ArrayIndexOutOfBoundsException in static blocks |
-| **Private name escape sequences** | 28 | Easy - parser validation |
+| **Named function expression binding** | ~18 | Medium - immutable binding in non-strict mode |
+| **yield-spread-obj compiled crashes** | 24 | Medium - compiler crash with yield in spread |
 
 ---
 
@@ -76,7 +75,7 @@ class C {
 
 | Feature | Status |
 |---------|--------|
-| Classes (methods, fields, private, static) | ✅ 79% |
+| Classes (methods, fields, private, static) | ✅ 81% |
 | Async/await | ✅ Works |
 | Async generators (`async function*`) | ✅ Works |
 | `for-await-of` loops | ✅ Works |
@@ -87,7 +86,7 @@ class C {
 | Template literals | ✅ Works |
 | Optional chaining (`?.`) | ✅ Works |
 | Nullish coalescing (`??`) | ✅ Works |
-| Logical assignment (`&&=`, `||=`, `??=`) | ✅ Works (except private fields) |
+| Logical assignment (`&&=`, `||=`, `??=`) | ✅ Works |
 
 ---
 

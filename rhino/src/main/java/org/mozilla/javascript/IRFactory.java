@@ -1774,6 +1774,9 @@ public final class IRFactory {
         String name = node.getProperty().getIdentifier();
         // Create a GETPROP_PRIVATE node with the target and private name
         Node result = new Node(Token.GETPROP_PRIVATE, target, Node.newString(name));
+        if (node.getIntProp(Node.OPTIONAL_CHAINING, 0) == 1) {
+            result.putIntProp(Node.OPTIONAL_CHAINING, 1);
+        }
         result.setLineColumnNumber(node.getLineno(), node.getColumn());
         return result;
     }

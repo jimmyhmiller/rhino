@@ -1252,6 +1252,18 @@ class TokenStream implements Parser.CurrentPositionReporter {
                                 }
                             }
                         }
+                        // Validate that the escaped char is a valid IdentifierStart.
+                        // Reject control (Cc) and format (Cf) characters like NULL,
+                        // ZWNJ, ZWJ which are not valid IdentifierStart.
+                        // We use category checks rather than isUnicodeIdentifierStart()
+                        // because Java's Unicode tables may not include all ID_Start chars
+                        // (e.g., U+2118 has Other_ID_Start but may not be recognized
+                        // by older Java versions).
+                        int charType = Character.getType(escapeVal);
+                        if (charType == Character.CONTROL || charType == Character.FORMAT) {
+                            parser.reportError("msg.invalid.escape");
+                            return Token.ERROR;
+                        }
                         addToString(escapeVal);
                     } else {
                         addToString(c);

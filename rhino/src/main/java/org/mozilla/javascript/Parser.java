@@ -181,7 +181,8 @@ public class Parser {
     private boolean inStaticBlockAwaitContext = false;
 
     // Track declared and used private names per class scope for AllPrivateNamesValid validation
-    private final Deque<Set<String>> classPrivateNameDecls = new ArrayDeque<>();
+    // Map value is a bitmask of entry kinds (GET_ENTRY, SET_ENTRY, etc.)
+    private final Deque<Map<String, Integer>> classPrivateNameDecls = new ArrayDeque<>();
     private final Deque<Set<String>> classPrivateNameUsages = new ArrayDeque<>();
     // end of per function variables
 
@@ -1480,7 +1481,7 @@ public class Parser {
         inUseStrictDirective = true;
 
         // Push private name scope for AllPrivateNamesValid validation
-        classPrivateNameDecls.push(new HashSet<>());
+        classPrivateNameDecls.push(new HashMap<>());
         classPrivateNameUsages.push(new HashSet<>());
 
         try {
@@ -1508,10 +1509,10 @@ public class Parser {
         }
 
         // Validate AllPrivateNamesValid: all used private names must be declared
-        Set<String> declaredNames = classPrivateNameDecls.pop();
+        Map<String, Integer> declaredNames = classPrivateNameDecls.pop();
         Set<String> usedNames = classPrivateNameUsages.pop();
         for (String usedName : usedNames) {
-            if (!declaredNames.contains(usedName) && !isPrivateNameInOuterClass(usedName)) {
+            if (!declaredNames.containsKey(usedName) && !isPrivateNameInOuterClass(usedName)) {
                 reportError("msg.private.member.not.found");
             }
         }
@@ -1525,17 +1526,32 @@ public class Parser {
 
     private boolean isPrivateNameInOuterClass(String name) {
         // Check outer class scopes (skip the top which was already popped)
-        for (Set<String> outer : classPrivateNameDecls) {
-            if (outer.contains(name)) {
+        for (Map<String, Integer> outer : classPrivateNameDecls) {
+            if (outer.containsKey(name)) {
                 return true;
             }
         }
         return false;
     }
 
-    private void declarePrivateName(String name) {
+    private static final int PRIVATE_FIELD = 1;
+
+    private void declarePrivateName(String name, int entryKind) {
         if (!classPrivateNameDecls.isEmpty()) {
-            classPrivateNameDecls.peek().add(name);
+            Map<String, Integer> scope = classPrivateNameDecls.peek();
+            Integer existing = scope.get(name);
+            if (existing != null) {
+                // Check if this is a valid getter+setter pair
+                int combined = existing | entryKind;
+                if (combined == (GET_ENTRY | SET_ENTRY) && existing != entryKind) {
+                    // One getter and one setter is allowed
+                    scope.put(name, combined);
+                } else {
+                    reportError("msg.private.name.duplicate");
+                }
+            } else {
+                scope.put(name, entryKind);
+            }
         }
     }
 
@@ -1668,17 +1684,24 @@ public class Parser {
         }
         consumeToken();
 
-        // Register private name declaration for AllPrivateNamesValid validation
-        if (isPrivate && propName instanceof Name) {
-            declarePrivateName(((Name) propName).getIdentifier());
-        }
-
         // Check if this is a field or a method
         // Fields: propName = value; or propName; or propName } (no parenthesis)
         // Methods: propName(params) { body }
         int nextToken = peekToken();
-        if (!isGenerator && !isAsync && entryKind == METHOD_ENTRY && nextToken != Token.LP) {
-            // This is a field definition, not a method
+        boolean isField =
+                !isGenerator && !isAsync && entryKind == METHOD_ENTRY && nextToken != Token.LP;
+
+        // Register private name declaration for AllPrivateNamesValid and duplicate detection
+        if (isPrivate && propName instanceof Name) {
+            String privateName = ((Name) propName).getIdentifier();
+            // #constructor is not allowed as a private name
+            if ("constructor".equals(privateName)) {
+                reportError("msg.private.constructor");
+            }
+            declarePrivateName(privateName, isField ? PRIVATE_FIELD : entryKind);
+        }
+
+        if (isField) {
             return parseClassField(pos, propName, isStatic, isPrivate);
         }
 
@@ -6001,11 +6024,13 @@ public class Parser {
         boolean xml = ref instanceof XmlRef;
         InfixExpression result = xml ? new XmlMemberGet() : new PropertyGet();
         if (xml && tt == Token.DOT) result.setType(Token.DOT);
-        if (isOptionalChain) {
-            result.setType(Token.QUESTION_DOT);
-        }
         if (isPrivateAccess) {
             result.setType(Token.GETPROP_PRIVATE);
+            if (isOptionalChain) {
+                result.putIntProp(Node.OPTIONAL_CHAINING, 1);
+            }
+        } else if (isOptionalChain) {
+            result.setType(Token.QUESTION_DOT);
         }
         int pos = pn.getPosition();
         result.setPosition(pos);
