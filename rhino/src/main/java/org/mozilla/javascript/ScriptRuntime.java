@@ -1907,6 +1907,25 @@ public class ScriptRuntime {
     }
 
     /**
+     * Normalizes a computed class field key for storage. Preserves non-negative integers as Integer
+     * (for indexed property storage), Symbols as-is, and converts everything else to String via
+     * ToPropertyKey. This matches the behavior of {@link NewLiteralStorage#pushKeyComputed}.
+     */
+    public static Object normalizeFieldKey(Object key) {
+        if (isSymbol(key)) {
+            return key;
+        }
+        if (key instanceof Number) {
+            double d = ((Number) key).doubleValue();
+            int i = (int) d;
+            if (d == i && i >= 0) {
+                return Integer.valueOf(i);
+            }
+        }
+        return toPropertyKey(key);
+    }
+
+    /**
      * If id is a number or a string presentation of an int32 value, then id the returning
      * StringIdOrIndex has the index set, otherwise the stringId is set.
      */

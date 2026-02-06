@@ -3561,6 +3561,14 @@ class BodyCodegen {
             cfw.add(ByteCode.DUP);
             cfw.addPush(fieldIdx);
             addLoadPropertyId(parent, fieldProperties, fieldIdx);
+            // For computed keys, normalize to a valid property key (String, Integer,
+            // or Symbol). Without this, values like null, floats, or function objects
+            // would be stored as raw Java types that don't match the
+            // String/Number/Symbol checks in initializeInstanceFields/createClass.
+            if (isComputedPropertyKey(fieldProperties, fieldIdx)) {
+                addScriptRuntimeInvoke(
+                        "normalizeFieldKey", "(Ljava/lang/Object;)Ljava/lang/Object;");
+            }
             cfw.add(ByteCode.AASTORE);
             fieldIdx++;
         }
