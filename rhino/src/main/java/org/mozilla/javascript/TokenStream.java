@@ -639,6 +639,10 @@ class TokenStream implements Parser.CurrentPositionReporter {
         return stringHasEscapes;
     }
 
+    final boolean stringHasOctalEscape() {
+        return stringHasOctalEscape;
+    }
+
     final boolean identifierContainsEscape() {
         return identifierContainsEscape;
     }
@@ -1000,6 +1004,12 @@ class TokenStream implements Parser.CurrentPositionReporter {
                 // try to remove the separator in a fast way
                 int pos = numString.indexOf(NUMERIC_SEPARATOR);
                 if (pos != -1) {
+                    // Numeric separators are not allowed in legacy octal or
+                    // non-octal decimal integer literals (e.g. 08_0, 09_0)
+                    if (isOldOctal) {
+                        parser.addError("msg.caught.nfe");
+                        return Token.ERROR;
+                    }
                     final char[] chars = numString.toCharArray();
                     for (int i = pos + 1; i < chars.length; i++) {
                         if (chars[i] != NUMERIC_SEPARATOR) {
@@ -1010,6 +1020,12 @@ class TokenStream implements Parser.CurrentPositionReporter {
                 }
 
                 if (isBigInt) {
+                    // BigInt suffix is not allowed on legacy octal (00n, 07n)
+                    // or non-octal decimal integers (08n, 09n, 0008n)
+                    if (isOldOctal) {
+                        parser.addError("msg.caught.nfe");
+                        return Token.ERROR;
+                    }
                     this.bigInt = new BigInteger(numString, base);
                     return Token.BIGINT;
                 }
@@ -1041,6 +1057,7 @@ class TokenStream implements Parser.CurrentPositionReporter {
                 quoteChar = c;
                 stringBufferTop = 0;
                 stringHasEscapes = false;
+                stringHasOctalEscape = false;
 
                 c = getCharIgnoreLineEnd(false);
                 strLoop:
@@ -1173,21 +1190,61 @@ class TokenStream implements Parser.CurrentPositionReporter {
                                 continue strLoop;
 
                             default:
-                                if ('0' <= c && c < '8') {
+                                if (c == '0') {
+                                    // \0 is allowed in strict mode only if NOT
+                                    // followed by another digit
+                                    int next = getChar();
+                                    if ('0' <= next && next <= '9') {
+                                        // \0 followed by digit - legacy octal
+                                        if (parser.inUseStrictDirective()) {
+                                            parser.reportError("msg.syntax");
+                                            return Token.ERROR;
+                                        }
+                                        stringHasOctalEscape = true;
+                                        int val = 0;
+                                        if (next < '8') {
+                                            val = next - '0';
+                                            next = getChar();
+                                            if ('0' <= next && next < '8' && val <= 037) {
+                                                val = 8 * val + next - '0';
+                                                next = getChar();
+                                            }
+                                        }
+                                        // else: next is '8' or '9', val stays 0
+                                        ungetChar(next);
+                                        c = val;
+                                    } else {
+                                        ungetChar(next);
+                                        c = 0x00;
+                                    }
+                                } else if ('1' <= c && c <= '7') {
+                                    // Octal escape \1-\7
+                                    if (parser.inUseStrictDirective()) {
+                                        parser.reportError("msg.syntax");
+                                        return Token.ERROR;
+                                    }
+                                    stringHasOctalEscape = true;
                                     int val = c - '0';
                                     c = getChar();
                                     if ('0' <= c && c < '8') {
                                         val = 8 * val + c - '0';
                                         c = getChar();
                                         if ('0' <= c && c < '8' && val <= 037) {
-                                            // c is 3rd char of octal sequence only
-                                            // if the resulting val <= 0377
                                             val = 8 * val + c - '0';
                                             c = getChar();
                                         }
                                     }
                                     ungetChar(c);
                                     c = val;
+                                } else if (c == '8' || c == '9') {
+                                    // NonOctalDecimalEscapeSequence \8, \9
+                                    if (parser.inUseStrictDirective()) {
+                                        parser.reportError("msg.syntax");
+                                        return Token.ERROR;
+                                    }
+                                    stringHasOctalEscape = true;
+                                    // In non-strict mode, \8 and \9 are identity
+                                    // escapes (produce '8' and '9')
                                 }
                         }
                     }
@@ -2703,6 +2760,10 @@ class TokenStream implements Parser.CurrentPositionReporter {
 
     // true if the last string literal contained escape sequences or line continuations
     private boolean stringHasEscapes;
+
+    // true if the last string literal contained octal or non-octal decimal escape sequences
+    // (\0 followed by digit, \1-\7, \8, \9) which are illegal in strict mode
+    private boolean stringHasOctalEscape;
 
     // true if the last identifier contained unicode escape sequences
     private boolean identifierContainsEscape;

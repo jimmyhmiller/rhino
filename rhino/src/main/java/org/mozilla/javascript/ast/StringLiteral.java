@@ -15,6 +15,7 @@ public class StringLiteral extends AstNode {
     private String value;
     private char quoteChar;
     private boolean hasEscapes;
+    private boolean hasOctalEscape;
 
     {
         type = Token.STRING;
@@ -78,6 +79,14 @@ public class StringLiteral extends AstNode {
 
     public void setHasEscapes(boolean hasEscapes) {
         this.hasEscapes = hasEscapes;
+    }
+
+    public boolean hasOctalEscape() {
+        return hasOctalEscape;
+    }
+
+    public void setHasOctalEscape(boolean hasOctalEscape) {
+        this.hasOctalEscape = hasOctalEscape;
     }
 
     @Override

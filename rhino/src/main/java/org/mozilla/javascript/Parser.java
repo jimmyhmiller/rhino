@@ -747,6 +747,7 @@ public class Parser {
         int end = pos; // in case source is empty
 
         boolean inDirectivePrologue = true;
+        boolean directivePrologueHadOctalEscape = false;
         boolean savedStrictMode = inUseStrictDirective;
 
         // Module code is always strict per ES6 spec
@@ -783,12 +784,20 @@ public class Parser {
                 } else {
                     n = statement();
                     if (inDirectivePrologue) {
-                        String directive = getDirective(n);
-                        if (directive == null) {
+                        if (!isDirectivePrologueString(n)) {
                             inDirectivePrologue = false;
-                        } else if ("use strict".equals(directive)) {
-                            inUseStrictDirective = true;
-                            root.setInStrictMode(true);
+                        } else {
+                            if (hasOctalEscape(n)) {
+                                directivePrologueHadOctalEscape = true;
+                            }
+                            String directive = getDirective(n);
+                            if ("use strict".equals(directive)) {
+                                if (directivePrologueHadOctalEscape) {
+                                    reportError("msg.syntax");
+                                }
+                                inUseStrictDirective = true;
+                                root.setInStrictMode(true);
+                            }
                         }
                     }
                 }
@@ -848,6 +857,7 @@ public class Parser {
         // if the last argument is a String that when processed is a FunctionBody
         // that begins with a Directive Prologue that contains a Use Strict Directive.
         boolean inDirectivePrologue = true;
+        boolean directivePrologueHadOctalEscape = false;
         boolean savedStrictMode = inUseStrictDirective;
 
         pn.setLineColumnNumber(lineNumber(), columnNumber());
@@ -891,61 +901,69 @@ public class Parser {
                         default:
                             n = statement();
                             if (inDirectivePrologue) {
-                                String directive = getDirective(n);
-                                if (directive == null) {
+                                if (!isDirectivePrologueString(n)) {
                                     inDirectivePrologue = false;
-                                } else if ("use strict".equals(directive)) {
-                                    // ES6: strict mode function body with non-simple parameters is
-                                    // an error
-                                    boolean hasNonSimpleParams =
-                                            fnNode.getDefaultParams() != null
-                                                    || fnNode.hasRestParameter();
+                                } else {
+                                    if (hasOctalEscape(n)) {
+                                        directivePrologueHadOctalEscape = true;
+                                    }
+                                    String directive = getDirective(n);
+                                    if ("use strict".equals(directive)) {
+                                        if (directivePrologueHadOctalEscape) {
+                                            reportError("msg.syntax");
+                                        }
+                                        // ES6: strict mode function body with non-simple
+                                        // parameters is an error
+                                        boolean hasNonSimpleParams =
+                                                fnNode.getDefaultParams() != null
+                                                        || fnNode.hasRestParameter();
 
-                                    // Check if params include destructuring patterns
-                                    if (!hasNonSimpleParams) {
+                                        // Check if params include destructuring patterns
+                                        if (!hasNonSimpleParams) {
+                                            for (AstNode param : fnNode.getParams()) {
+                                                if (!(param instanceof Name)) {
+                                                    hasNonSimpleParams = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if (hasNonSimpleParams) {
+                                            reportError("msg.default.args.use.strict");
+                                        }
+
+                                        // Check function name for strict mode violations
+                                        String fnName = fnNode.getName();
+                                        if (fnName != null
+                                                && ("eval".equals(fnName)
+                                                        || "arguments".equals(fnName))) {
+                                            reportError("msg.bad.id.strict", fnName);
+                                        }
+
+                                        // Check parameter names for strict mode violations
+                                        // now that we know the function body is strict
+                                        Set<String> seenParams = new HashSet<>();
                                         for (AstNode param : fnNode.getParams()) {
-                                            if (!(param instanceof Name)) {
-                                                hasNonSimpleParams = true;
-                                                break;
+                                            String paramName = null;
+                                            if (param instanceof Name) {
+                                                paramName = ((Name) param).getIdentifier();
+                                            }
+                                            if (paramName != null) {
+                                                if ("eval".equals(paramName)
+                                                        || "arguments".equals(paramName)) {
+                                                    reportError("msg.bad.id.strict", paramName);
+                                                }
+                                                if (seenParams.contains(paramName)) {
+                                                    addError("msg.dup.param.strict", paramName);
+                                                }
+                                                seenParams.add(paramName);
                                             }
                                         }
-                                    }
-
-                                    if (hasNonSimpleParams) {
-                                        reportError("msg.default.args.use.strict");
-                                    }
-
-                                    // Check function name for strict mode violations
-                                    String fnName = fnNode.getName();
-                                    if (fnName != null
-                                            && ("eval".equals(fnName)
-                                                    || "arguments".equals(fnName))) {
-                                        reportError("msg.bad.id.strict", fnName);
-                                    }
-
-                                    // Check parameter names for strict mode violations
-                                    // now that we know the function body is strict
-                                    Set<String> seenParams = new HashSet<>();
-                                    for (AstNode param : fnNode.getParams()) {
-                                        String paramName = null;
-                                        if (param instanceof Name) {
-                                            paramName = ((Name) param).getIdentifier();
+                                        inUseStrictDirective = true;
+                                        fnNode.setInStrictMode(true);
+                                        if (!savedStrictMode) {
+                                            setRequiresActivation();
                                         }
-                                        if (paramName != null) {
-                                            if ("eval".equals(paramName)
-                                                    || "arguments".equals(paramName)) {
-                                                reportError("msg.bad.id.strict", paramName);
-                                            }
-                                            if (seenParams.contains(paramName)) {
-                                                addError("msg.dup.param.strict", paramName);
-                                            }
-                                            seenParams.add(paramName);
-                                        }
-                                    }
-                                    inUseStrictDirective = true;
-                                    fnNode.setInStrictMode(true);
-                                    if (!savedStrictMode) {
-                                        setRequiresActivation();
                                     }
                                 }
                             }
@@ -982,6 +1000,30 @@ public class Parser {
             }
         }
         return null;
+    }
+
+    /**
+     * Check if a node is a string literal expression statement (part of the directive prologue).
+     * Per spec, a directive prologue is a sequence of expression statements consisting entirely of
+     * string literals, even if they contain escape sequences.
+     */
+    private static boolean isDirectivePrologueString(AstNode n) {
+        if (n instanceof ExpressionStatement) {
+            AstNode e = ((ExpressionStatement) n).getExpression();
+            return e instanceof StringLiteral;
+        }
+        return false;
+    }
+
+    /** Check if a node is a string literal expression with octal or non-octal escape sequences. */
+    private static boolean hasOctalEscape(AstNode n) {
+        if (n instanceof ExpressionStatement) {
+            AstNode e = ((ExpressionStatement) n).getExpression();
+            if (e instanceof StringLiteral) {
+                return ((StringLiteral) e).hasOctalEscape();
+            }
+        }
+        return false;
     }
 
     private void parseFunctionParams(FunctionNode fnNode) throws IOException {
@@ -7271,6 +7313,7 @@ public class Parser {
         s.setValue(ts.getString());
         s.setQuoteCharacter(ts.getQuoteChar());
         s.setHasEscapes(ts.stringHasEscapes());
+        s.setHasOctalEscape(ts.stringHasOctalEscape());
         return s;
     }
 
