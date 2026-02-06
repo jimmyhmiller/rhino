@@ -7090,6 +7090,26 @@ public class ScriptRuntime {
     }
 
     /**
+     * Gets a private property from an object and returns a LookupResult with the object as thisObj.
+     * Used for private method calls (e.g., this.#method()) where the receiver must be preserved as
+     * the this binding.
+     */
+    public static LookupResult getPrivatePropAndThis(
+            Object obj, String name, Context cx, Object fnOrScript) {
+        Object value = getPrivateProp(obj, name, cx, fnOrScript);
+        Scriptable thisObj;
+        if (obj instanceof Scriptable) {
+            thisObj = (Scriptable) obj;
+        } else {
+            thisObj = toObjectOrNull(cx, obj);
+            if (thisObj == null) {
+                thisObj = getTopCallScope(cx);
+            }
+        }
+        return new LookupResult(value, thisObj, name);
+    }
+
+    /**
      * Sets a private property value on an object. Used by the interpreter and compiled code to
      * implement private field assignment (obj.#name = value).
      *

@@ -4488,6 +4488,24 @@ class BodyCodegen {
                     break;
                 }
 
+            case Token.GETPROP_PRIVATE:
+                {
+                    Node target = node.getFirstChild();
+                    generateExpression(target, node);
+                    Node id = target.getNext();
+                    cfw.addPush(id.getString());
+                    cfw.addALoad(contextLocal);
+                    cfw.addALoad(funObjLocal);
+                    addScriptRuntimeInvoke(
+                            "getPrivatePropAndThis",
+                            "(Ljava/lang/Object;"
+                                    + "Ljava/lang/String;"
+                                    + "Lorg/mozilla/javascript/Context;"
+                                    + "Ljava/lang/Object;"
+                                    + ")Lorg/mozilla/javascript/ScriptRuntime$LookupResult;");
+                    break;
+                }
+
             default: // including GETVAR
                 {
                     generateExpression(node, parent);

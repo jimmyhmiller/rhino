@@ -1776,6 +1776,17 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     }
                     break;
                 }
+            case Token.GETPROP_PRIVATE:
+                {
+                    Node target = left.getFirstChild();
+                    visitExpression(target, 0);
+                    Node id = target.getNext();
+                    String property = id.getString();
+                    // stack: ... target -> ... LookupResult
+                    addStringOp(Icode_PRIVATE_PROP_AND_THIS, property);
+                    stackChange(1);
+                    break;
+                }
             default:
                 // Including Token.GETVAR
                 visitExpression(left, 0);

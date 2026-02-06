@@ -55,9 +55,10 @@ abstract class Icode {
             Icode_VALUE_AND_THIS_OPTIONAL = Icode_ELEM_AND_THIS_OPTIONAL - 1,
             Icode_SUPER_PROP_AND_THIS = Icode_VALUE_AND_THIS_OPTIONAL - 1,
             Icode_SUPER_ELEM_AND_THIS = Icode_SUPER_PROP_AND_THIS - 1,
+            Icode_PRIVATE_PROP_AND_THIS = Icode_SUPER_ELEM_AND_THIS - 1,
 
             // Create closure object for nested functions
-            Icode_CLOSURE_EXPR = Icode_SUPER_ELEM_AND_THIS - 1,
+            Icode_CLOSURE_EXPR = Icode_PRIVATE_PROP_AND_THIS - 1,
             Icode_CLOSURE_STMT = Icode_CLOSURE_EXPR - 1,
 
             // Special calls
@@ -299,6 +300,8 @@ abstract class Icode {
                 return "SUPER_PROP_AND_THIS";
             case Icode_SUPER_ELEM_AND_THIS:
                 return "SUPER_ELEM_AND_THIS";
+            case Icode_PRIVATE_PROP_AND_THIS:
+                return "PRIVATE_PROP_AND_THIS";
             case Icode_CLOSURE_EXPR:
                 return "CLOSURE_EXPR";
             case Icode_CLOSURE_STMT:

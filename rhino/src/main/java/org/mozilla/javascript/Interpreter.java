@@ -1762,6 +1762,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_VALUE_AND_THIS] = new DoValueAndThis();
         instructionObjs[base + Icode_SUPER_PROP_AND_THIS] = new DoSuperPropAndThis();
         instructionObjs[base + Icode_SUPER_ELEM_AND_THIS] = new DoSuperElemAndThis();
+        instructionObjs[base + Icode_PRIVATE_PROP_AND_THIS] = new DoPrivatePropAndThis();
         instructionObjs[base + Icode_VALUE_AND_THIS_OPTIONAL] = new DoValueAndThisOptional();
         instructionObjs[base + Icode_CALLSPECIAL] = new DoCallSpecial();
         instructionObjs[base + Icode_CALLSPECIAL_OPTIONAL] = new DoCallSpecial();
@@ -3836,6 +3837,20 @@ public final class Interpreter extends Icode implements Evaluator {
             stack[--state.stackTop] =
                     ScriptRuntime.getSuperElemAndThis(
                             superObject, id, cx, frame.scope, frame.thisObj);
+            return null;
+        }
+    }
+
+    private static class DoPrivatePropAndThis extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            final Object[] stack = frame.stack;
+            final double[] sDbl = frame.sDbl;
+            Object obj = stack[state.stackTop];
+            if (obj == DOUBLE_MARK) obj = ScriptRuntime.wrapNumber(sDbl[state.stackTop]);
+            Object privateContext = findPrivateContext(frame);
+            stack[state.stackTop] =
+                    ScriptRuntime.getPrivatePropAndThis(obj, state.stringReg, cx, privateContext);
             return null;
         }
     }
