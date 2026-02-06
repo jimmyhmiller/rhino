@@ -1474,6 +1474,17 @@ public class ScriptRuntime {
     }
 
     /**
+     * For compound element assignment (obj[key] op= val): validates that obj is not null/undefined
+     * (throws TypeError if so), then converts key to a property key via ToPropertyKey. This ensures
+     * the error ordering matches spec (TypeError before ToString) and that ToPropertyKey is called
+     * only once (not separately in both GET and SET).
+     */
+    public static Object compoundElemKey(Object obj, Object key) {
+        requireObjectCoercible(obj);
+        return toPropertyKey(key);
+    }
+
+    /**
      * Check if a value is null or undefined. Used for nullish coalescing assignment short-circuit.
      */
     public static boolean isNullOrUndefined(Object val) {

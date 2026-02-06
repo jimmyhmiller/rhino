@@ -6318,6 +6318,20 @@ class BodyCodegen {
         child = child.getNext();
         boolean indexIsNumber = (node.getIntProp(Node.ISNUMBER_PROP, -1) != -1);
         if (type == Token.SETELEM_OP) {
+            // For non-super, non-number compound assignment, validate obj
+            // (RequireObjectCoercible) and convert key (ToPropertyKey) once to avoid
+            // double ToString and ensure proper error ordering for null/undefined bases.
+            if (!isSuper && !indexIsNumber) {
+                // Stack: [obj, obj, key]
+                cfw.add(ByteCode.DUP2); // [obj, obj, key, obj, key]
+                addScriptRuntimeInvoke(
+                        "compoundElemKey",
+                        "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
+                // [obj, obj, key, propKey]
+                cfw.add(ByteCode.SWAP); // [obj, obj, propKey, key]
+                cfw.add(ByteCode.POP); // [obj, obj, propKey]
+            }
+
             int opType = child.getType();
             boolean isLogicalOp =
                     opType == Token.AND || opType == Token.OR || opType == Token.NULLISH_COALESCING;

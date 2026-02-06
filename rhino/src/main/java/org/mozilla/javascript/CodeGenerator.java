@@ -1256,6 +1256,13 @@ class CodeGenerator<T extends ScriptOrFn<T>> extends Icode {
                     visitExpression(child, 0);
                     child = child.getNext();
                     if (type == Token.SETELEM_OP) {
+                        if (!isSuperPropertyAccess) {
+                            // Validate obj (RequireObjectCoercible) and convert key
+                            // (ToPropertyKey) once, before DUP2, to avoid double ToString
+                            // and ensure proper error ordering for null/undefined bases.
+                            addIcode(Icode_COMPOUND_ELEM_KEY);
+                        }
+
                         int opType = child.getType();
                         boolean isLogicalOp =
                                 opType == Token.AND

@@ -1805,6 +1805,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_TDZ] = new DoTdz();
         instructionObjs[base + Icode_REQ_OBJ_COERCIBLE] = new DoReqObjCoercible();
         instructionObjs[base + Icode_REQ_ITERABLE] = new DoReqIterable();
+        instructionObjs[base + Icode_COMPOUND_ELEM_KEY] = new DoCompoundElemKey();
         instructionObjs[base + Icode_OBJECT_REST_COPY] = new DoObjectRestCopy();
         instructionObjs[base + Icode_CALL_SPREAD] = new DoCallSpread();
         instructionObjs[base + Icode_NEW_SPREAD] = new DoNewSpread();
@@ -4824,6 +4825,21 @@ public final class Interpreter extends Icode implements Evaluator {
             // Check that value is iterable (has Symbol.iterator)
             ScriptRuntime.requireIterable(cx, frame.scope, value);
             // Value stays on stack unchanged
+            return null;
+        }
+    }
+
+    private static class DoCompoundElemKey extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // Stack: [obj, key] (obj at stackTop-1, key at stackTop)
+            Object key = frame.stack[state.stackTop];
+            if (key == DOUBLE_MARK) key = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            Object obj = frame.stack[state.stackTop - 1];
+            if (obj == DOUBLE_MARK) obj = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop - 1]);
+            // RequireObjectCoercible(obj) + ToPropertyKey(key)
+            Object propKey = ScriptRuntime.compoundElemKey(obj, key);
+            frame.stack[state.stackTop] = propKey;
             return null;
         }
     }

@@ -233,8 +233,13 @@ abstract class Icode {
             // RequireIterable check for array destructuring - throws TypeError if not iterable
             Icode_REQ_ITERABLE = Icode_PARAM_TDZ_ERROR - 1,
 
+            // Compound element assignment key preparation:
+            // Stack: [obj, key] -> [obj, propKey]
+            // Checks obj for null/undefined (TypeError) then converts key via ToPropertyKey
+            Icode_COMPOUND_ELEM_KEY = Icode_REQ_ITERABLE - 1,
+
             // Last icode
-            MIN_ICODE = Icode_REQ_ITERABLE;
+            MIN_ICODE = Icode_COMPOUND_ELEM_KEY;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -480,6 +485,8 @@ abstract class Icode {
                 return "PARAM_TDZ_ERROR";
             case Icode_REQ_ITERABLE:
                 return "REQ_ITERABLE";
+            case Icode_COMPOUND_ELEM_KEY:
+                return "COMPOUND_ELEM_KEY";
         }
 
         // icode without name
