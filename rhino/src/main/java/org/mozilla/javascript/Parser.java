@@ -1284,7 +1284,8 @@ public class Parser {
                 && name.length() > 0) {
             // Function statements define a symbol in the enclosing scope
             skipAnnexBHoisting =
-                    defineSymbol(Token.FUNCTION, name.getIdentifier(), false, isGenerator);
+                    defineSymbol(
+                            Token.FUNCTION, name.getIdentifier(), false, isGenerator || isAsync);
         }
 
         FunctionNode fnNode = new FunctionNode(functionSourceStart, name);
@@ -5009,6 +5010,10 @@ public class Parser {
     }
 
     private static boolean isNotValidSimpleAssignmentTarget(AstNode pn) {
+        // Unwrap parenthesized expressions: (f()) = 1 is still invalid
+        while (pn instanceof ParenthesizedExpression) {
+            pn = ((ParenthesizedExpression) pn).getExpression();
+        }
         if (pn.getType() == Token.CALL) return true;
         if (pn.getType() == Token.GETPROP)
             return isNotValidSimpleAssignmentTargetChain(((PropertyGet) pn).getLeft());
@@ -7403,7 +7408,7 @@ public class Parser {
                 || tt == Token.GETPROP
                 || tt == Token.GETELEM
                 || tt == Token.GET_REF
-                || tt == Token.CALL))
+                || tt == Token.GETPROP_PRIVATE))
             reportError(expr.getType() == Token.INC ? "msg.bad.incr" : "msg.bad.decr");
         // In strict mode, increment/decrement on arguments/eval is a SyntaxError
         if (inUseStrictDirective && tt == Token.NAME) {
