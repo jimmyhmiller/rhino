@@ -1229,25 +1229,30 @@ public class Parser {
     }
 
     private FunctionNode function(int type) throws IOException {
-        return function(type, false, false, false);
+        return function(type, false, false, false, -1);
     }
 
     private FunctionNode function(int type, boolean isMethodDefiniton) throws IOException {
-        return function(type, isMethodDefiniton, false, false);
+        return function(type, isMethodDefiniton, false, false, -1);
     }
 
     private FunctionNode function(int type, boolean isMethodDefiniton, boolean isGeneratorMethod)
             throws IOException {
-        return function(type, isMethodDefiniton, isGeneratorMethod, false);
+        return function(type, isMethodDefiniton, isGeneratorMethod, false, -1);
     }
 
     private FunctionNode function(
-            int type, boolean isMethodDefiniton, boolean isGeneratorMethod, boolean isAsync)
+            int type,
+            boolean isMethodDefiniton,
+            boolean isGeneratorMethod,
+            boolean isAsync,
+            int sourceStart)
             throws IOException {
         boolean isGenerator = isGeneratorMethod;
         int syntheticType = type;
         int baseLineno = lineNumber(); // line number where source starts
-        int functionSourceStart = ts.tokenBeg; // start of "function" kwd
+        int functionSourceStart =
+                sourceStart >= 0 ? sourceStart : ts.tokenBeg; // start of "function" kwd
         int functionStartColumn = columnNumber();
         Name name = null;
         AstNode memberExprNode = null;
@@ -1439,7 +1444,8 @@ public class Parser {
             if (matchToken(Token.MUL, true)) {
                 isGenerator = true;
             }
-            return function(FunctionNode.FUNCTION_EXPRESSION_STATEMENT, false, isGenerator, true);
+            return function(
+                    FunctionNode.FUNCTION_EXPRESSION_STATEMENT, false, isGenerator, true, asyncPos);
         }
 
         // Not followed by 'function' - could be async arrow function or just identifier
@@ -1623,6 +1629,7 @@ public class Parser {
         boolean isStatic = false;
         boolean isGenerator = false;
         boolean isAsync = false;
+        int methodSourceStart = -1; // Tracks start of method for toString source bounds
 
         // Check for 'static' keyword
         if (matchToken(Token.STATIC, true)) {
@@ -1652,6 +1659,7 @@ public class Parser {
 
         // Check for async method (must come before generator check)
         if (matchToken(Token.ASYNC, true)) {
+            int asyncBeg = ts.tokenBeg; // Save position before further peeks modify it
             if (ts.identifierContainsEscape()) {
                 // Escaped 'async' is not the keyword, treat as identifier
                 return parseClassMethodOrField(
@@ -1676,8 +1684,10 @@ public class Parser {
                 isGenerator = true;
             }
             isAsync = true;
+            methodSourceStart = asyncBeg;
         } else if (matchToken(Token.MUL, true)) {
             // Check for generator method (only if not async)
+            methodSourceStart = ts.tokenBeg; // Save position of '*'
             isGenerator = true;
         }
 
@@ -1694,10 +1704,14 @@ public class Parser {
                     && !ts.identifierContainsEscape()
                     && ("get".equals(tokenStr) || "set".equals(tokenStr))) {
                 consumeToken();
+                int getSetBeg = ts.tokenBeg; // Save position of 'get'/'set'
                 int nextTt = peekToken();
                 if (nextTt != Token.LP) {
                     // It's a getter or setter
                     entryKind = "get".equals(tokenStr) ? GET_ENTRY : SET_ENTRY;
+                    if (methodSourceStart < 0) {
+                        methodSourceStart = getSetBeg;
+                    }
                     // Check if the getter/setter target is private
                     if (nextTt == Token.PRIVATE_NAME) {
                         isPrivate = true;
@@ -1726,6 +1740,10 @@ public class Parser {
             reportError("msg.bad.prop");
             return null;
         }
+        // For plain methods without modifiers, use the property name position
+        if (methodSourceStart < 0) {
+            methodSourceStart = propName.getPosition();
+        }
         consumeToken();
 
         // Check if this is a field or a method
@@ -1751,7 +1769,14 @@ public class Parser {
 
         // Parse method
         return parseClassMethod(
-                pos, propName, isStatic, isGenerator, isAsync, entryKind, isPrivate);
+                pos,
+                propName,
+                isStatic,
+                isGenerator,
+                isAsync,
+                entryKind,
+                isPrivate,
+                methodSourceStart);
     }
 
     /**
@@ -1851,7 +1876,8 @@ public class Parser {
     private ClassElement parseClassMethod(
             int pos, AstNode propName, boolean isStatic, boolean isGenerator, boolean isAsync)
             throws IOException {
-        return parseClassMethod(pos, propName, isStatic, isGenerator, isAsync, METHOD_ENTRY, false);
+        return parseClassMethod(
+                pos, propName, isStatic, isGenerator, isAsync, METHOD_ENTRY, false, -1);
     }
 
     private ClassElement parseClassMethod(
@@ -1862,7 +1888,8 @@ public class Parser {
             boolean isAsync,
             int entryKind)
             throws IOException {
-        return parseClassMethod(pos, propName, isStatic, isGenerator, isAsync, entryKind, false);
+        return parseClassMethod(
+                pos, propName, isStatic, isGenerator, isAsync, entryKind, false, -1);
     }
 
     private ClassElement parseClassMethod(
@@ -1873,6 +1900,20 @@ public class Parser {
             boolean isAsync,
             int entryKind,
             boolean isPrivate)
+            throws IOException {
+        return parseClassMethod(
+                pos, propName, isStatic, isGenerator, isAsync, entryKind, isPrivate, -1);
+    }
+
+    private ClassElement parseClassMethod(
+            int pos,
+            AstNode propName,
+            boolean isStatic,
+            boolean isGenerator,
+            boolean isAsync,
+            int entryKind,
+            boolean isPrivate,
+            int methodSourceStart)
             throws IOException {
         // Get the property name string for validation
         String propNameStr = null;
@@ -1902,7 +1943,13 @@ public class Parser {
         // All class methods (including constructors) need isMethodDefinition=true
         // during parsing so that `super` is allowed in the parser.
         // Pass isGenerator and isAsync so the function body handles yield/await correctly.
-        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator, isAsync);
+        FunctionNode fn =
+                function(
+                        FunctionNode.FUNCTION_EXPRESSION,
+                        true,
+                        isGenerator,
+                        isAsync,
+                        methodSourceStart);
         if (isAsync) {
             fn.setIsAsync();
         }
@@ -2663,6 +2710,7 @@ public class Parser {
                     // Look ahead to determine if this is 'async function'
                     // We need to check without consuming 'async' first
                     consumeToken();
+                    int asyncPos2 = ts.tokenBeg; // Save position before peeks modify it
                     boolean asyncContainsEscape = ts.identifierContainsEscape();
                     int asyncTT = peekTokenOrEOL();
                     // Only treat as async function if async was not escaped
@@ -2676,7 +2724,8 @@ public class Parser {
                                 FunctionNode.FUNCTION_EXPRESSION_STATEMENT,
                                 false,
                                 isGenerator,
-                                true);
+                                true,
+                                asyncPos2);
                     }
 
                     // Not 'async function' - put back the async token by restarting
@@ -6385,7 +6434,12 @@ public class Parser {
                             && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
                         consumeToken();
                         boolean isGenerator = matchToken(Token.MUL, true);
-                        return function(FunctionNode.FUNCTION_EXPRESSION, false, isGenerator, true);
+                        return function(
+                                FunctionNode.FUNCTION_EXPRESSION,
+                                false,
+                                isGenerator,
+                                true,
+                                asyncPos);
                     }
                     // Check for async arrow function with single identifier param: async x => ...
                     // Must check for no line terminator between async and the identifier
@@ -7232,9 +7286,23 @@ public class Parser {
             boolean isAsync,
             boolean isShorthand)
             throws IOException {
+        // Compute the correct source start for Function.prototype.toString.
+        // For getters/setters, pos is the position of the get/set keyword.
+        // For other methods, propName.getPosition() gives the correct start:
+        // - GeneratorMethodDefinition: position of '*'
+        // - AsyncMethodDefinition: position of 'async'
+        // - ComputedPropertyKey: position of '['
+        // - Name: position of the method name
+        int sourceStart;
+        if (entryKind == GET_ENTRY || entryKind == SET_ENTRY) {
+            sourceStart = pos;
+        } else {
+            sourceStart = propName.getPosition();
+        }
         // Pass isGenerator and isAsync so the function body knows it's a generator/async for
         // yield/await parsing
-        FunctionNode fn = function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator, isAsync);
+        FunctionNode fn =
+                function(FunctionNode.FUNCTION_EXPRESSION, true, isGenerator, isAsync, sourceStart);
 
         // Validate getter/setter parameter counts per ES6 spec
         int paramCount = fn.getParams().size();

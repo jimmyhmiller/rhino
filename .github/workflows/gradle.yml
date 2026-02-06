@@ -68,16 +68,16 @@ jobs:
       uses: actions/setup-java@f2beeb24e141e01a676f977032f5a29d81c9e27e # v5.1.0
       with:
         java-version: |
-          11
+          21
           25
         distribution: 'adopt'
     - name: Check current state of test262.properties
       id: hashBefore
       run: echo "hash=${{ hashFiles('./tests/testsrc/test262.properties') }}" >> $GITHUB_OUTPUT
     - name: Run test262 tests
-      # Currently Java 11 is required to have a reproducible result
+      # Java 21 is used for a reproducible result (test262.properties is baselined on Java 21)
       env:
-        RHINO_TEST_JAVA_VERSION: "11"
+        RHINO_TEST_JAVA_VERSION: "21"
       run: >-
         ./gradlew :tests:test --tests Test262SuiteTest -DupdateTest262properties
     - name: Check updated state of test262.properties

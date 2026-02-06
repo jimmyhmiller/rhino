@@ -48,6 +48,16 @@ test {
     jvmArgs += ['--add-opens', 'java.base/java.util=ALL-UNNAMED']
     jvmArgs += ['--add-opens', 'java.base/java.lang=ALL-UNNAMED']
 
+    // Test262SuiteTest results depend on the Java version used (Unicode tables differ).
+    // Exclude it from default test runs; it is run separately by the test262 CI job.
+    // To include it, pass any test262 property: -Dtest262filter, -Dtest262raw, or -DupdateTest262properties
+    boolean includeTest262 = System.getProperty('test262filter') != null
+            || System.getProperty('updateTest262properties') != null
+            || System.getProperty('test262raw') != null
+    if (!includeTest262) {
+        exclude '**/Test262SuiteTest*'
+    }
+
     systemProperty 'test262properties', System.getProperty('test262properties')
     systemProperty 'test262filter', System.getProperty('test262filter')
     if (System.getProperty('test262raw') != null) {

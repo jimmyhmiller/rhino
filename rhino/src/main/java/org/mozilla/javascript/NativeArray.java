@@ -1236,6 +1236,9 @@ public class NativeArray extends ScriptableObject implements List {
             }
         }
         long length = getLengthProperty(cx, o);
+        if (length + args.length > NativeNumber.MAX_SAFE_INTEGER) {
+            throw ScriptRuntime.typeErrorById("msg.arraylength.too.big", length + args.length);
+        }
         for (int i = 0; i < args.length; i++) {
             setElem(cx, o, length + i, args[i]);
         }
