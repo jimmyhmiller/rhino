@@ -559,6 +559,93 @@ public class ES6ModulesTest {
     }
 
     @Test
+    public void testExportAsKeyword() {
+        // Per spec, the exported name in export specifiers can be any IdentifierName,
+        // including reserved words like function, void, null, etc.
+        AstRoot root =
+                parseModule(
+                        "const functionType = 1; const voidType = 2;\n"
+                                + "export { functionType as function, voidType as void };");
+        assertNotNull(root);
+
+        ExportDeclaration exp = (ExportDeclaration) root.getStatements().get(2);
+        assertEquals(2, exp.getNamedExports().size());
+
+        assertEquals("functionType", exp.getNamedExports().get(0).getLocalNameString());
+        assertEquals("function", exp.getNamedExports().get(0).getExportedNameString());
+
+        assertEquals("voidType", exp.getNamedExports().get(1).getLocalNameString());
+        assertEquals("void", exp.getNamedExports().get(1).getExportedNameString());
+    }
+
+    @Test
+    public void testExportAsKeywordVariousKeywords() {
+        // Test several different keyword types as exported names
+        String[] keywords = {
+            "if",
+            "for",
+            "while",
+            "class",
+            "return",
+            "typeof",
+            "instanceof",
+            "null",
+            "true",
+            "false",
+            "in",
+            "new",
+            "delete",
+            "switch",
+            "case",
+            "throw",
+            "try",
+            "catch"
+        };
+        for (String kw : keywords) {
+            AstRoot root = parseModule("const x = 1; export { x as " + kw + " };");
+            assertNotNull("Failed to parse: export { x as " + kw + " }", root);
+
+            ExportDeclaration exp = (ExportDeclaration) root.getStatements().get(1);
+            assertEquals(1, exp.getNamedExports().size());
+            assertEquals("x", exp.getNamedExports().get(0).getLocalNameString());
+            assertEquals(kw, exp.getNamedExports().get(0).getExportedNameString());
+        }
+    }
+
+    @Test
+    public void testCodegenFallbackOnComplexAsyncFunction() {
+        // Complex async functions with try/catch can trigger stack map verification errors
+        // in the compiler. Verify that compilation falls back to interpreter gracefully.
+        try (Context cx = Context.enter()) {
+            cx.setLanguageVersion(Context.VERSION_ES6);
+            cx.setOptimizationLevel(0); // compiled mode
+            org.mozilla.javascript.Scriptable scope = cx.initStandardObjects();
+
+            String source =
+                    "export async function complex(input) {\n"
+                            + "  var result = [];\n"
+                            + "  for (var i = 0; i < 10; i++) {\n"
+                            + "    try {\n"
+                            + "      var val = await Promise.resolve(i);\n"
+                            + "      if (val % 2 === 0) {\n"
+                            + "        result.push(val);\n"
+                            + "      }\n"
+                            + "    } catch (e) {\n"
+                            + "      result.push(-1);\n"
+                            + "    }\n"
+                            + "  }\n"
+                            + "  return result;\n"
+                            + "}\n";
+
+            // Should not throw - either compiles successfully or falls back to interpreter
+            org.mozilla.javascript.es6module.ModuleRecord record =
+                    cx.compileModule(source, "test-async.mjs", 1, null);
+            assertNotNull(record);
+            assertNotNull(record.getScript());
+        }
+    }
+
+    @Test
     public void testExportDefaultNamedClass() {
         // Test that export default class Foo {} creates a binding for Foo
         // and the default export resolves correctly

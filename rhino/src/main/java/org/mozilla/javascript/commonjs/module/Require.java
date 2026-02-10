@@ -44,9 +44,9 @@ import org.mozilla.javascript.ScriptableObject;
 public class Require extends BaseFunction {
     private static final long serialVersionUID = 1L;
     private final ModuleScriptProvider moduleScriptProvider;
-    private final Scriptable nativeScope;
+    protected final Scriptable nativeScope;
     private final Scriptable paths;
-    private final boolean sandboxed;
+    protected final boolean sandboxed;
     private final Script preExec;
     private final Script postExec;
     private String mainModuleId = null;
@@ -177,6 +177,29 @@ public class Require extends BaseFunction {
         }
 
         String id = (String) Context.jsToJava(args[0], String.class);
+        ResolvedId resolved = resolveModuleId(cx, scope, thisObj, id);
+        return getExportedModuleInterface(cx, resolved.id, resolved.uri, resolved.base, false);
+    }
+
+    /** Result of resolving a module ID via {@link #resolveModuleId}. */
+    public static class ResolvedId {
+        public final String id;
+        public final URI uri;
+        public final URI base;
+
+        public ResolvedId(String id, URI uri, URI base) {
+            this.id = id;
+            this.uri = uri;
+            this.base = base;
+        }
+    }
+
+    /**
+     * Resolves a module specifier to an ID, URI, and base URI. Subclasses may override this to
+     * implement alternative resolution algorithms (e.g. Node.js module resolution).
+     */
+    protected ResolvedId resolveModuleId(
+            Context cx, Scriptable scope, Scriptable thisObj, String id) {
         URI uri = null;
         URI base = null;
         if (id.startsWith("./") || id.startsWith("../")) {
@@ -195,15 +218,10 @@ public class Require extends BaseFunction {
             uri = current.resolve(id);
 
             if (base == null) {
-                // calling module is absolute, resolve to absolute URI
-                // (but without file extension)
                 id = uri.toString();
             } else {
-                // try to convert to a relative URI rooted on base
                 id = base.relativize(current).resolve(id).toString();
                 if (id.charAt(0) == '.') {
-                    // resulting URI is not contained in base,
-                    // throw error or make absolute depending on sandbox flag.
                     if (sandboxed) {
                         throw ScriptRuntime.throwError(
                                 cx, scope, "Module \"" + id + "\" is not contained in sandbox.");
@@ -212,7 +230,7 @@ public class Require extends BaseFunction {
                 }
             }
         }
-        return getExportedModuleInterface(cx, id, uri, base, false);
+        return new ResolvedId(id, uri, base);
     }
 
     @Override
@@ -220,7 +238,7 @@ public class Require extends BaseFunction {
         throw ScriptRuntime.throwError(cx, scope, "require() can not be invoked as a constructor");
     }
 
-    private Scriptable getExportedModuleInterface(
+    protected Scriptable getExportedModuleInterface(
             Context cx, String id, URI uri, URI base, boolean isMain) {
         // Check if the requested module is already completely loaded
         Scriptable exports = exportedModuleInterfaces.get(id);
@@ -304,7 +322,7 @@ public class Require extends BaseFunction {
         return exports;
     }
 
-    private Scriptable executeModuleScript(
+    protected Scriptable executeModuleScript(
             Context cx, String id, Scriptable exports, ModuleScript moduleScript, boolean isMain) {
         final ScriptableObject moduleObject = (ScriptableObject) cx.newObject(nativeScope);
         URI uri = moduleScript.getUri();

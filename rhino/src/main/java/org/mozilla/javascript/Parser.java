@@ -151,6 +151,11 @@ public class Parser {
     // Flag to indicate we're inside a parenthesized expression that could become arrow parameters.
     // In this context, OBJECT_LITERAL_DESTRUCTURING check should be deferred to parenExpr.
     private boolean inPotentialArrowParams;
+    // Flag to indicate we're inside arguments to a potential async arrow function.
+    // Used to reject 'await' as a parameter name in nested arrows.
+    private boolean inPotentialAsyncArrowParams;
+    // Tracks whether the last argumentList() call had a trailing comma
+    private boolean argumentListTrailingComma;
     protected boolean inUseStrictDirective;
 
     // Flag to indicate we're parsing an ES6 module (enables import/export)
@@ -2203,6 +2208,11 @@ public class Parser {
             params = pe;
         }
 
+        // Propagate trailing comma from FunctionCall to params
+        if (call.getIntProp(Node.TRAILING_COMMA, 0) == 1) {
+            params.putIntProp(Node.TRAILING_COMMA, 1);
+        }
+
         // Create the arrow function and mark it as async
         int baseLineno = lineNumber();
         int functionSourceStart = call.getPosition();
@@ -2392,6 +2402,9 @@ public class Parser {
             Set<String> paramNames)
             throws IOException {
         if (params instanceof ArrayLiteral || params instanceof ObjectLiteral) {
+            if (fnNode.hasRestParameter()) {
+                reportError("msg.parm.after.rest", params.getPosition(), params.getLength());
+            }
             // Check for duplicate names in destructuring pattern (arrow functions are always
             // strict)
             checkDestructuringDuplicates(params, paramNames);
@@ -2414,18 +2427,23 @@ public class Parser {
                     destructuringDefault,
                     paramNames);
         } else if (params instanceof Name) {
+            if (fnNode.hasRestParameter()) {
+                reportError("msg.parm.after.rest", params.getPosition(), params.getLength());
+            }
             fnNode.addParam(params);
             String paramName = ((Name) params).getIdentifier();
             defineSymbol(Token.LP, paramName);
 
             // await cannot be used as parameter name in async functions, modules, or static blocks
             // Note: inAsyncFunction and inStaticBlockAwaitContext are preserved for arrow functions
-            // (they inherit the enclosing context) but reset for regular functions
+            // (they inherit the enclosing context) but reset for regular functions.
+            // inPotentialAsyncArrowParams covers nested arrows in async(...) => {} params.
             if ("await".equals(paramName)
                     && (fnNode.isAsync()
                             || inAsyncFunction
                             || parsingModule
-                            || inStaticBlockAwaitContext)) {
+                            || inStaticBlockAwaitContext
+                            || inPotentialAsyncArrowParams)) {
                 reportError("msg.syntax");
             }
 
@@ -2441,7 +2459,52 @@ public class Parser {
                 addError("msg.dup.param.strict", paramName);
             }
             paramNames.add(paramName);
+        } else if (params instanceof Spread) {
+            if (fnNode.hasRestParameter()) {
+                reportError("msg.parm.after.rest", params.getPosition(), params.getLength());
+            }
+            // Trailing comma after rest parameter is a syntax error: (...a,) => {}
+            if (fnNode.getIntProp(Node.TRAILING_COMMA, 0) == 1) {
+                reportError("msg.parm.after.rest", params.getPosition(), params.getLength());
+            }
+            fnNode.setHasRestParameter(true);
+            AstNode inner = ((Spread) params).getExpression();
+            if (inner instanceof Assignment) {
+                reportError("msg.no.rest.default");
+                inner = ((Assignment) inner).getLeft();
+            }
+            if (inner instanceof Name) {
+                fnNode.addParam(inner);
+                String paramName = ((Name) inner).getIdentifier();
+                defineSymbol(Token.LP, paramName);
+                // await check for rest params (same as for regular params above)
+                if ("await".equals(paramName)
+                        && (fnNode.isAsync()
+                                || inAsyncFunction
+                                || parsingModule
+                                || inStaticBlockAwaitContext
+                                || inPotentialAsyncArrowParams)) {
+                    reportError("msg.syntax");
+                }
+                if (paramNames.contains(paramName)) {
+                    addError("msg.dup.param.strict", paramName);
+                }
+                paramNames.add(paramName);
+            } else if (inner instanceof ArrayLiteral || inner instanceof ObjectLiteral) {
+                checkDestructuringDuplicates(inner, paramNames);
+                markDestructuring(inner);
+                fnNode.addParam(inner);
+                String pname = currentScriptOrFn.getNextTempName();
+                defineSymbol(Token.LP, pname, false);
+                destructuring.put(pname, inner);
+            } else {
+                reportError("msg.no.parm", params.getPosition(), params.getLength());
+                fnNode.addParam(makeErrorNode());
+            }
         } else if (params instanceof Assignment) {
+            if (fnNode.hasRestParameter()) {
+                reportError("msg.parm.after.rest", params.getPosition(), params.getLength());
+            }
             if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
                 AstNode rhs = ((Assignment) params).getRight();
                 AstNode lhs = ((Assignment) params).getLeft();
@@ -4070,17 +4133,18 @@ public class Parser {
             // The exported name can be "default" or any IdentifierName (including keywords)
             if (matchToken(Token.NAME, true) && "as".equals(ts.getString())) {
                 int nextTt = peekToken();
-                // Allow "default" keyword as exported name (export { x as default })
-                if (nextTt == Token.DEFAULT) {
+                if (nextTt == Token.NAME) {
                     consumeToken();
-                    Name exportedNameNode = new Name(ts.tokenBeg, "default");
-                    exportedNameNode.setLineColumnNumber(lineNumber(), columnNumber());
+                    Name exportedNameNode = createNameNode(true, Token.NAME);
                     spec.setExportedName(exportedNameNode);
-                } else if (matchToken(Token.NAME, true)
+                } else if (nextTt == Token.DEFAULT
+                        || nextTt == Token.RESERVED
                         || TokenStream.isKeyword(
                                 ts.getString(), compilerEnv.getLanguageVersion(), parsingModule)) {
-                    // Allow any identifier or keyword as exported name
-                    Name exportedNameNode = createNameNode(true, Token.NAME);
+                    // Per spec, ModuleExportName can be any IdentifierName (including keywords)
+                    consumeToken();
+                    Name exportedNameNode = new Name(ts.tokenBeg, ts.getString());
+                    exportedNameNode.setLineColumnNumber(lineNumber(), columnNumber());
                     spec.setExportedName(exportedNameNode);
                 } else {
                     reportError("msg.export.expected.binding");
@@ -4290,7 +4354,13 @@ public class Parser {
                 }
             // fallthrough
             default:
-                e = assignExpr();
+                // Per ES spec, return takes an Expression (includes comma operator),
+                // while yield takes an AssignmentExpression (excludes comma operator).
+                if (tt == Token.RETURN) {
+                    e = expr(false);
+                } else {
+                    e = assignExpr();
+                }
                 end = getNodeEnd(e);
         }
 
@@ -5069,6 +5139,21 @@ public class Parser {
             return returnOrYield(tt, true);
         }
 
+        // Handle rest parameter in potential arrow function params: (...args) => ...
+        if (tt == Token.DOTDOTDOT
+                && inPotentialArrowParams
+                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+            consumeToken();
+            int spreadPos = ts.tokenBeg;
+            int spreadLineno = lineNumber();
+            int spreadColumn = columnNumber();
+            AstNode inner = assignExpr();
+            Spread spread = new Spread(spreadPos, ts.tokenEnd - spreadPos);
+            spread.setLineColumnNumber(spreadLineno, spreadColumn);
+            spread.setExpression(inner);
+            return spread;
+        }
+
         // Intentionally not calling lineNumber/columnNumber here!
         // We have not consumed any token yet, so the position would be invalid
         int startLine = ts.lineno, startColumn = ts.getTokenColumn();
@@ -5816,6 +5901,7 @@ public class Parser {
     }
 
     private List<AstNode> argumentList() throws IOException {
+        argumentListTrailingComma = false;
         if (matchToken(Token.RP, true)) return null;
 
         List<AstNode> result = new ArrayList<>();
@@ -5825,6 +5911,7 @@ public class Parser {
             do {
                 if (peekToken() == Token.RP) {
                     // Quick fix to handle scenario like f1(a,); but not f1(a,b
+                    argumentListTrailingComma = true;
                     break;
                 }
                 // In ES6 generators, yield is a valid expression in function arguments
@@ -6025,8 +6112,27 @@ public class Parser {
         f.setTarget(pn);
         f.setLp(ts.tokenBeg - pos);
         f.setHasLineTerminatorBeforeLp(hasLineTerminatorBeforeLp);
+
+        // When target is 'async', this might be async ({...}) => {} arrow function.
+        // Set inPotentialArrowParams to allow destructuring defaults in object patterns,
+        // and inPotentialAsyncArrowParams to reject 'await' as param in nested arrows.
+        boolean wasInPotentialArrowParams = inPotentialArrowParams;
+        boolean wasInPotentialAsyncArrowParams = inPotentialAsyncArrowParams;
+        if (pn instanceof Name
+                && "async".equals(((Name) pn).getIdentifier())
+                && !((Name) pn).containsEscape()
+                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
+                && !hasLineTerminatorBeforeLp) {
+            inPotentialArrowParams = true;
+            inPotentialAsyncArrowParams = true;
+        }
         List<AstNode> args = argumentList();
+        inPotentialArrowParams = wasInPotentialArrowParams;
+        inPotentialAsyncArrowParams = wasInPotentialAsyncArrowParams;
         if (args != null && args.size() > ARGC_LIMIT) reportError("msg.too.many.function.args");
+        if (argumentListTrailingComma) {
+            f.putIntProp(Node.TRAILING_COMMA, 1);
+        }
         f.setArguments(args);
         f.setRp(ts.tokenBeg - pos);
         f.setLength(ts.tokenEnd - pos);
@@ -7036,6 +7142,21 @@ public class Parser {
                             entryKind = GET_ENTRY;
                         } else if ("set".equals(propertyName)) {
                             entryKind = SET_ENTRY;
+                        } else if ("async".equals(propertyName)
+                                && compilerEnv.getLanguageVersion() >= Context.VERSION_ES6) {
+                            // Async method: async foo() {}, async *foo() {}, async [expr]() {}
+                            boolean isGenerator = matchToken(Token.MUL, true);
+                            int asyncPos = ppos;
+                            pname = objliteralProperty();
+                            if (pname == null) {
+                                reportError("msg.bad.prop");
+                            }
+                            consumeToken();
+                            pname =
+                                    new AsyncMethodDefinition(
+                                            asyncPos, ts.tokenEnd - asyncPos, pname, isGenerator);
+                            pname.setLineColumnNumber(lineNumber(), columnNumber());
+                            entryKind = METHOD_ENTRY;
                         }
                     }
                     if (entryKind == GET_ENTRY || entryKind == SET_ENTRY) {
@@ -7199,35 +7320,8 @@ public class Parser {
             case Token.ASYNC:
                 if (compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
                         && !ts.identifierContainsEscape()) {
-                    int pos = ts.tokenBeg;
-                    nextToken();
-                    // Check for line terminator after async (not allowed)
-                    int nextTt = peekTokenOrEOL();
-                    if (nextTt == Token.EOL) {
-                        // Line terminator after async - treat 'async' as a property name
-                        pname = createNameNode(false, Token.NAME, "async");
-                        break;
-                    }
-                    // Check if it's a property named 'async' (async: value or async,)
-                    nextTt = peekToken();
-                    if (nextTt == Token.COLON || nextTt == Token.COMMA || nextTt == Token.RC) {
-                        // Property named 'async'
-                        pname = createNameNode(false, Token.NAME, "async");
-                        break;
-                    }
-                    int lineno = lineNumber();
-                    int column = columnNumber();
-                    // Check for async generator: async * name() {}
-                    boolean isGenerator = matchToken(Token.MUL, true);
-                    pname = objliteralProperty();
-                    if (pname == null) {
-                        reportError("msg.bad.prop");
-                        return null;
-                    }
-                    pname = new AsyncMethodDefinition(pos, ts.tokenEnd - pos, pname, isGenerator);
-                    pname.setLineColumnNumber(lineno, column);
+                    pname = createNameNode(false, Token.NAME, "async");
                 } else {
-                    // In non-ES6 mode or escaped 'async', treat as identifier
                     pname = createNameNode();
                 }
                 break;
@@ -7253,7 +7347,7 @@ public class Parser {
         // for |var {x: x, y: y} = o|, as implemented in spidermonkey JS 1.8.
         int tt = peekToken();
         if ((tt == Token.COMMA || tt == Token.RC)
-                && ptt == Token.NAME
+                && (ptt == Token.NAME || ptt == Token.ASYNC)
                 && compilerEnv.getLanguageVersion() >= Context.VERSION_1_8) {
             if (!inDestructuringAssignment
                     && compilerEnv.getLanguageVersion() < Context.VERSION_ES6) {

@@ -81,6 +81,9 @@ decycle {
     // accepted cycle: o.m.j.es6module is strongly coupled to o.m.j (ES6 modules need core runtime)
     ignoring from: "org.mozilla.javascript.*", to: "org.mozilla.javascript.es6module.*"
 
+    // accepted cycle: o.m.j.node.module is strongly coupled to o.m.j (Node module resolution needs core runtime)
+    ignoring from: "org.mozilla.javascript.*", to: "org.mozilla.javascript.node.module.*"
+
     // accepted cycle: typedarrays are strongly coupled. (See #1893 of an idea, how to remove)
     ignoring from: "org.mozilla.javascript.ScriptRuntime", to: "org.mozilla.javascript.typedarrays.*"
     ignoring from: "org.mozilla.javascript.NativeArrayIterator", to: "org.mozilla.javascript.typedarrays.NativeTypedArrayView"

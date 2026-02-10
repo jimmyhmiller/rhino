@@ -1362,7 +1362,7 @@ public class Context implements Closeable {
         Object bytecode;
         try {
             bytecode = compiler.compile(compilerEnv, tree, source, false);
-        } catch (ClassFileFormatException e) {
+        } catch (ClassFileFormatException | IllegalStateException e) {
             // Fall back to interpreter - need to re-parse since AST was modified
             Parser p2 = new Parser(compilerEnv, errorReporter);
             AstRoot ast2 = p2.parseModule(source, sourceName, lineno);
@@ -2890,7 +2890,7 @@ public class Context implements Closeable {
             }
 
             bytecode = compiler.compile(compilerEnv, tree, sourceString, returnFunction);
-        } catch (ClassFileFormatException e) {
+        } catch (ClassFileFormatException | IllegalStateException e) {
             // we hit some class file limit, fall back to interpreter or report
 
             // we have to recreate the tree because the compile call might have changed the tree

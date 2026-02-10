@@ -41,6 +41,8 @@ import org.mozilla.javascript.commonjs.module.ModuleScope;
 import org.mozilla.javascript.commonjs.module.Require;
 import org.mozilla.javascript.config.RhinoConfig;
 import org.mozilla.javascript.es6module.ModuleRecord;
+import org.mozilla.javascript.node.module.DefaultNodeFileSystem;
+import org.mozilla.javascript.node.module.NodeModuleLoader;
 import org.mozilla.javascript.tools.Console;
 import org.mozilla.javascript.tools.SourceReader;
 import org.mozilla.javascript.tools.ToolErrorReporter;
@@ -68,6 +70,7 @@ public class Main {
     static boolean sandboxed = false;
     static boolean useRequire = false;
     static boolean useEsModules = false;
+    static boolean useNodeModules = false;
     static Require require;
     private static SecurityProxy securityImpl;
     private static final ScriptCache scriptCache = new ScriptCache(32);
@@ -95,7 +98,9 @@ public class Main {
         public Object run(Context cx) {
             cx.setTrackUnhandledPromiseRejections(true);
             timers.install(global);
-            if (useRequire) {
+            if (useNodeModules) {
+                require = global.installNodeRequire(cx);
+            } else if (useRequire) {
                 require = global.installRequire(cx, modulePath, sandboxed);
             }
             if (type == PROCESS_FILES) {
@@ -375,6 +380,10 @@ public class Main {
                 useEsModules = true;
                 continue;
             }
+            if (arg.equals("--node-modules")) {
+                useNodeModules = true;
+                continue;
+            }
             if (arg.equals("-w")) {
                 errorReporter.setIsReportingWarnings(true);
                 continue;
@@ -524,9 +533,11 @@ public class Main {
             }
             console.println();
             console.flush();
+        } else if (useNodeModules && useEsModules && filename.equals(mainModule)) {
+            processNodeModule(cx, filename);
         } else if (useEsModules && filename.equals(mainModule)) {
             processModule(cx, filename);
-        } else if (useRequire && filename.equals(mainModule)) {
+        } else if ((useRequire || useNodeModules) && filename.equals(mainModule)) {
             require.requireMain(cx, filename);
         } else {
             processFile(cx, getScope(filename), filename);
@@ -576,6 +587,31 @@ public class Main {
 
         ModuleRecord record = cx.compileModule(source, absolutePath, 1, null);
         loader.cache.put(absolutePath, record);
+        cx.linkAndEvaluateModule(global, record);
+    }
+
+    static void processNodeModule(Context cx, String filename) throws IOException {
+        DefaultNodeFileSystem fs = new DefaultNodeFileSystem();
+        NodeModuleLoader loader = new NodeModuleLoader(fs);
+        loader.setGlobalScope(global);
+        cx.setModuleLoader(loader);
+
+        File file = new File(filename).getAbsoluteFile();
+        String absolutePath = file.getAbsolutePath();
+        String source = (String) readFileOrUrl(filename, true);
+
+        if (source.length() > 0 && source.charAt(0) == '#') {
+            for (int i = 1; i != source.length(); ++i) {
+                int c = source.charAt(i);
+                if (c == '\n' || c == '\r') {
+                    source = source.substring(i);
+                    break;
+                }
+            }
+        }
+
+        ModuleRecord record = cx.compileModule(source, absolutePath, 1, null);
+        loader.getCachedModule(absolutePath); // seed cache via loadModule next time
         cx.linkAndEvaluateModule(global, record);
     }
 

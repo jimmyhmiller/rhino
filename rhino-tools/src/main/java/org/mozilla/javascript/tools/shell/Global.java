@@ -51,6 +51,12 @@ import org.mozilla.javascript.commonjs.module.Require;
 import org.mozilla.javascript.commonjs.module.RequireBuilder;
 import org.mozilla.javascript.commonjs.module.provider.SoftCachingModuleScriptProvider;
 import org.mozilla.javascript.commonjs.module.provider.UrlModuleSourceProvider;
+import org.mozilla.javascript.node.module.DefaultNodeFileSystem;
+import org.mozilla.javascript.node.module.NodeFileSystem;
+import org.mozilla.javascript.node.module.NodeModuleResolver;
+import org.mozilla.javascript.node.module.NodeModuleSourceProvider;
+import org.mozilla.javascript.node.module.NodeRequire;
+import org.mozilla.javascript.node.module.PackageJsonReader;
 import org.mozilla.javascript.serialize.ScriptableInputStream;
 import org.mozilla.javascript.serialize.ScriptableOutputStream;
 import org.mozilla.javascript.tools.Console;
@@ -177,6 +183,18 @@ public class Global extends ImporterTopLevel {
         rb.setModuleScriptProvider(
                 new SoftCachingModuleScriptProvider(new UrlModuleSourceProvider(uris, null)));
         Require require = rb.createRequire(cx, this);
+        require.install(this);
+        return require;
+    }
+
+    public Require installNodeRequire(Context cx) {
+        NodeFileSystem fs = new DefaultNodeFileSystem();
+        PackageJsonReader pkgReader = new PackageJsonReader(fs);
+        NodeModuleResolver resolver = new NodeModuleResolver(fs, pkgReader);
+        NodeModuleSourceProvider sourceProvider = new NodeModuleSourceProvider(resolver, fs);
+        SoftCachingModuleScriptProvider scriptProvider =
+                new SoftCachingModuleScriptProvider(sourceProvider);
+        NodeRequire require = new NodeRequire(cx, this, scriptProvider, resolver, fs, false);
         require.install(this);
         return require;
     }
