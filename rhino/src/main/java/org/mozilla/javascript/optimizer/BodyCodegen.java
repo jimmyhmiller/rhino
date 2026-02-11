@@ -2237,7 +2237,7 @@ class BodyCodegen {
                 }
 
             default:
-                throw new RuntimeException("Unexpected node type " + type);
+                throw new IllegalStateException("Unexpected node type " + type);
         }
     }
 

@@ -1684,6 +1684,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_GENERATOR_RETURN] = new DoGeneratorReturn();
         instructionObjs[base + Icode_AWAIT] = new DoAwait();
         instructionObjs[base + Icode_IMPORT_CALL] = new DoImportCall();
+        instructionObjs[base + Icode_IMPORT_META] = new DoImportMeta();
         instructionObjs[base + Token.THROW] = new DoThrow();
         instructionObjs[base + Token.RETHROW] = new DoRethrow();
         instructionObjs[base + Token.GE] = new DoCompare();
@@ -2484,6 +2485,23 @@ public final class Interpreter extends Icode implements Evaluator {
             frame.stack[state.stackTop] = result;
 
             frame.pc += 2;
+            return null;
+        }
+    }
+
+    private static class DoImportMeta extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            // import.meta returns an object with url set to the module source name
+            Scriptable metaObj = cx.newObject(frame.scope);
+            String sourceName = frame.fnOrScript.getDescriptor().getSourceName();
+            if (sourceName != null) {
+                ScriptableObject.putProperty(metaObj, "url", sourceName);
+            } else {
+                ScriptableObject.putProperty(metaObj, "url", Undefined.instance);
+            }
+            state.stackTop++;
+            frame.stack[state.stackTop] = metaObj;
             return null;
         }
     }

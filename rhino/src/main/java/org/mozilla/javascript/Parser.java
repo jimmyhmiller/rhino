@@ -4005,11 +4005,19 @@ public class Parser {
             tt = peekToken();
             if (tt == Token.NAME && "as".equals(ts.getString())) {
                 consumeToken(); // consume "as"
-                if (!matchToken(Token.NAME, true)) {
+                // The alias can be an identifier or a reserved word like "default"
+                int nextTt = peekToken();
+                if (nextTt == Token.DEFAULT) {
+                    consumeToken();
+                    Name aliasName = new Name(ts.tokenBeg, "default");
+                    aliasName.setLineColumnNumber(lineNumber(), columnNumber());
+                    pn.setStarExportAlias(aliasName);
+                } else if (matchToken(Token.NAME, true)) {
+                    Name aliasName = createNameNode(true, Token.NAME);
+                    pn.setStarExportAlias(aliasName);
+                } else {
                     reportError("msg.export.expected.binding");
                 }
-                Name aliasName = createNameNode(true, Token.NAME);
-                pn.setStarExportAlias(aliasName);
             }
 
             // Require "from"
@@ -4460,7 +4468,7 @@ public class Parser {
      * </pre>
      */
     private AstNode awaitExpr() throws IOException {
-        if (!insideFunctionBody()) {
+        if (!insideFunctionBody() && !parsingModule) {
             reportError("msg.bad.await");
         }
         // await is not allowed inside static initialization blocks
@@ -5810,15 +5818,9 @@ public class Parser {
                 return node;
 
             case Token.AWAIT:
-                // await is a unary operator in async functions
-                if (inAsyncFunction) {
+                // await is a unary operator in async functions and at module top-level
+                if (inAsyncFunction || parsingModule) {
                     return awaitExpr();
-                }
-                // In module code, await is reserved - report error
-                if (parsingModule) {
-                    consumeToken();
-                    reportError("msg.syntax");
-                    return new ErrorNode();
                 }
                 // Outside async functions and module code, treat as identifier
                 {
@@ -6577,12 +6579,25 @@ public class Parser {
                 break;
 
             case Token.IMPORT:
-                // Dynamic import() expression
                 consumeToken();
                 {
                     int importPos = ts.tokenBeg;
                     int importLineno = lineNumber();
                     int importColumn = columnNumber();
+                    // import.meta
+                    if (matchToken(Token.DOT, true)) {
+                        if (!matchToken(Token.NAME, true) || !"meta".equals(ts.getString())) {
+                            reportError("msg.syntax");
+                        }
+                        if (!parsingModule) {
+                            reportError("msg.import.meta.outside.module");
+                        }
+                        Name metaNode = new Name(importPos, ts.tokenEnd - importPos, "import.meta");
+                        metaNode.setLineColumnNumber(importLineno, importColumn);
+                        metaNode.setType(Token.IMPORT_META);
+                        return metaNode;
+                    }
+                    // Dynamic import() expression
                     return parseImportCallExpr(importPos, importLineno, importColumn);
                 }
 

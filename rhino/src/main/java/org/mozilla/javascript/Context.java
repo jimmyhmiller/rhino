@@ -3030,8 +3030,17 @@ public class Context implements Closeable {
     }
 
     private static boolean frameMatches(StackTraceElement e) {
-        return (e.getFileName() == null || !e.getFileName().endsWith(".java"))
-                && e.getLineNumber() > 0;
+        if (e.getLineNumber() > 0
+                && (e.getFileName() == null || !e.getFileName().endsWith(".java"))) {
+            return true;
+        }
+        // Also match generated Rhino classes even without line numbers,
+        // so errors during class initialization (_reInit) include the source name.
+        if (e.getClassName() != null
+                && e.getClassName().startsWith("org.mozilla.javascript.gen.")) {
+            return true;
+        }
+        return false;
     }
 
     RegExpProxy getRegExpProxy() {

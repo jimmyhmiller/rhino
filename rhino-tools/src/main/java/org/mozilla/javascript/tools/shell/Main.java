@@ -190,6 +190,9 @@ public class Main {
         Scriptable argsObj = cx.newArray(global, array);
         global.defineProperty("arguments", argsObj, ScriptableObject.DONTENUM);
 
+        // Set process.argv: [executable, scriptFile, ...args]
+        NativeProcess.setArgv(global, mainModule, args);
+
         for (String file : fileList) {
             try {
                 processSource(cx, file);

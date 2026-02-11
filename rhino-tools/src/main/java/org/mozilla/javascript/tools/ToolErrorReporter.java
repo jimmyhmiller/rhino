@@ -166,6 +166,9 @@ public class ToolErrorReporter implements ErrorReporter {
                 Object[] args = {lineStr, message};
                 message = getMessage("msg.format2", args);
             }
+        } else if (sourceName != null) {
+            Object[] args = {sourceName, message};
+            message = getMessage("msg.format4", args);
         } else {
             Object[] args = {message};
             message = getMessage("msg.format1", args);

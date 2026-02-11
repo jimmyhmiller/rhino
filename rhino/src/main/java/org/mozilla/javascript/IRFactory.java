@@ -209,6 +209,8 @@ public final class IRFactory {
                 return transformImport((ImportDeclaration) node);
             case Token.IMPORT_CALL:
                 return transformImportCall((ImportCall) node);
+            case Token.IMPORT_META:
+                return new Node(Token.IMPORT_META, node.getLineno(), node.getColumn());
             case Token.EXPORT:
                 return transformExport((ExportDeclaration) node);
 

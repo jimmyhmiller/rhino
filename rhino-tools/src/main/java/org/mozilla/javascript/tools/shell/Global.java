@@ -134,6 +134,7 @@ public class Global extends ImporterTopLevel {
         // that these functions are not part of ECMA.
         initStandardObjects(cx, sealedStdLib);
         NativeConsole.init(this, sealedStdLib, new ShellConsolePrinter());
+        NativeProcess.init(cx, this, sealedStdLib);
         defineFunctionProperties(TOP_COMMANDS, Global.class, ScriptableObject.DONTENUM);
 
         // Set up "environment" in the global scope to provide access to the

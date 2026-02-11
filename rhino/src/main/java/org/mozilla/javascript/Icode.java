@@ -244,8 +244,11 @@ abstract class Icode {
             // Dynamic import() expression
             Icode_IMPORT_CALL = Icode_PRIVATE_PROP_INC_DEC - 1,
 
+            // import.meta expression
+            Icode_IMPORT_META = Icode_IMPORT_CALL - 1,
+
             // Last icode
-            MIN_ICODE = Icode_IMPORT_CALL;
+            MIN_ICODE = Icode_IMPORT_META;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -497,6 +500,8 @@ abstract class Icode {
                 return "PRIVATE_PROP_INC_DEC";
             case Icode_IMPORT_CALL:
                 return "IMPORT_CALL";
+            case Icode_IMPORT_META:
+                return "IMPORT_META";
         }
 
         // icode without name

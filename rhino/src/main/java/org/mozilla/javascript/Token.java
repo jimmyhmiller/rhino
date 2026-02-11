@@ -274,7 +274,8 @@ public class Token {
             ASYNC = REQ_ITERABLE + 1, // ES2017 async keyword
             AWAIT = ASYNC + 1, // ES2017 await keyword
             IMPORT_CALL = AWAIT + 1, // ES2020 dynamic import()
-            LAST_TOKEN = IMPORT_CALL + 1;
+            IMPORT_META = IMPORT_CALL + 1, // ES2020 import.meta
+            LAST_TOKEN = IMPORT_META + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -725,6 +726,8 @@ public class Token {
                 return "AWAIT";
             case IMPORT_CALL:
                 return "IMPORT_CALL";
+            case IMPORT_META:
+                return "IMPORT_META";
         }
 
         // Token without name

@@ -55,6 +55,7 @@ public class NativeRegExp extends IdScriptableObject {
     public static final int JSREG_DOTALL = 0x8; // 's' flag: dotAll
     public static final int JSREG_STICKY = 0x10; // 'y' flag: sticky
     public static final int JSREG_UNICODE = 0x20; // 'u' flag: unicode mode
+    public static final int JSREG_UNICODE_SETS = 0x40; // 'v' flag: unicodeSets mode
 
     // type of match to perform
     public static final int TEST = 0;
@@ -204,6 +205,13 @@ public class NativeRegExp extends IdScriptableObject {
                 cx,
                 "unicode",
                 (Scriptable thisObj) -> getFlagGetter(proto, thisObj, "unicode", JSREG_UNICODE),
+                null,
+                accessorAttrs);
+        proto.defineProperty(
+                cx,
+                "unicodeSets",
+                (Scriptable thisObj) ->
+                        getFlagGetter(proto, thisObj, "unicodeSets", JSREG_UNICODE_SETS),
                 null,
                 accessorAttrs);
 
@@ -487,7 +495,8 @@ public class NativeRegExp extends IdScriptableObject {
         if ((re.flags & JSREG_MULTILINE) != 0) buf.append('m');
         if ((re.flags & JSREG_DOTALL) != 0) buf.append('s');
         if ((re.flags & JSREG_STICKY) != 0) buf.append('y');
-        if ((re.flags & JSREG_UNICODE) != 0) buf.append('u');
+        if ((re.flags & JSREG_UNICODE_SETS) != 0) buf.append('v');
+        else if ((re.flags & JSREG_UNICODE) != 0) buf.append('u');
     }
 
     NativeRegExp() {}
@@ -887,6 +896,9 @@ public class NativeRegExp extends IdScriptableObject {
                     f = JSREG_STICKY;
                 } else if (c == 'u') {
                     f = JSREG_UNICODE;
+                } else if (c == 'v') {
+                    // 'v' flag (unicodeSets) implies unicode mode
+                    f = JSREG_UNICODE_SETS | JSREG_UNICODE;
                 } else {
                     reportError("msg.invalid.re.flag", String.valueOf(c));
                 }
@@ -1632,7 +1644,7 @@ public class NativeRegExp extends IdScriptableObject {
         String content = new String(src, contentBegin, contentEnd - contentBegin - 1);
         int encodedProp = UnicodeProperties.lookup(content);
         if (encodedProp == -1) {
-            reportError("msg.invalid.escape", "");
+            reportError("msg.invalid.unicode.property", content);
             return false;
         }
 
