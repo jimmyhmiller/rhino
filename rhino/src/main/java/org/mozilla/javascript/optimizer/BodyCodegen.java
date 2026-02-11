@@ -2185,6 +2185,20 @@ class BodyCodegen {
                     break;
                 }
 
+            case Token.IMPORT_CALL:
+                {
+                    cfw.addALoad(contextLocal);
+                    cfw.addALoad(variableObjectLocal);
+                    generateExpression(child, node);
+                    addScriptRuntimeInvoke(
+                            "dynamicImport",
+                            "(Lorg/mozilla/javascript/Context;"
+                                    + "Lorg/mozilla/javascript/Scriptable;"
+                                    + "Ljava/lang/Object;"
+                                    + ")Ljava/lang/Object;");
+                    break;
+                }
+
             case Token.WITHEXPR:
                 {
                     Node with = child.getNext();

@@ -53,6 +53,7 @@ import org.mozilla.javascript.ast.GeneratorExpressionLoop;
 import org.mozilla.javascript.ast.GeneratorMethodDefinition;
 import org.mozilla.javascript.ast.IdeErrorReporter;
 import org.mozilla.javascript.ast.IfStatement;
+import org.mozilla.javascript.ast.ImportCall;
 import org.mozilla.javascript.ast.ImportDeclaration;
 import org.mozilla.javascript.ast.ImportSpecifier;
 import org.mozilla.javascript.ast.InfixExpression;
@@ -2697,13 +2698,26 @@ public class Parser {
                 return withStatement();
 
             case Token.IMPORT:
+                consumeToken();
+                if (peekToken() == Token.LP) {
+                    // Dynamic import() expression used as statement
+                    lineno = lineNumber();
+                    column = columnNumber();
+                    pn = parseImportCallExpr(pos, lineno, column);
+                    pn = memberExprTail(true, pn);
+                    pn = exprContinuation(pn);
+                    pn = new ExpressionStatement(pn, !insideFunctionBody());
+                    pn.setLineColumnNumber(lineno, column);
+                    break;
+                }
+                // Static import declaration
                 if (!parsingModule) {
                     reportError("msg.import.not.module");
                 }
                 if (nestingOfStatement > 0 || nestingOfFunction > 0) {
                     reportError("msg.import.decl.at.top.level");
                 }
-                return parseImport();
+                return parseImportBody(pos);
 
             case Token.EXPORT:
                 if (!parsingModule) {
@@ -3768,11 +3782,12 @@ public class Parser {
      *   from ModuleSpecifier
      * </pre>
      */
-    private ImportDeclaration parseImport() throws IOException {
-        if (currentToken != Token.IMPORT) codeBug();
-        consumeToken();
-
-        int pos = ts.tokenBeg;
+    /**
+     * Parse the body of an import declaration (after the IMPORT token has been consumed).
+     *
+     * @param pos the position of the import keyword
+     */
+    private ImportDeclaration parseImportBody(int pos) throws IOException {
         int lineno = lineNumber();
         int column = columnNumber();
 
@@ -3849,6 +3864,34 @@ public class Parser {
         pn.setLength(ts.tokenEnd - pos);
         autoInsertSemicolon(pn);
         return pn;
+    }
+
+    /**
+     * Parse a dynamic import() call expression. The IMPORT token and LP have already been peeked
+     * (IMPORT consumed, LP not yet consumed).
+     *
+     * @param importPos the position of the import keyword
+     * @param lineno the line number of the import keyword
+     * @param column the column of the import keyword
+     */
+    private ImportCall parseImportCallExpr(int importPos, int lineno, int column)
+            throws IOException {
+        mustMatchToken(Token.LP, "msg.no.paren.arg", true);
+        AstNode arg = assignExpr();
+        // Allow trailing comma and optional second argument (import attributes)
+        if (matchToken(Token.COMMA, true)) {
+            if (peekToken() != Token.RP) {
+                // Second argument (options object for import attributes) - parse but ignore
+                assignExpr();
+                // Allow trailing comma after second argument too
+                matchToken(Token.COMMA, true);
+            }
+        }
+        mustMatchToken(Token.RP, "msg.no.paren.arg", true);
+        ImportCall node = new ImportCall(importPos, ts.tokenEnd - importPos);
+        node.setLineColumnNumber(lineno, column);
+        node.setArgument(arg);
+        return node;
     }
 
     /**
@@ -5996,6 +6039,9 @@ public class Parser {
             NewExpression nx = new NewExpression(pos);
 
             AstNode target = memberExpr(false);
+            if (target instanceof ImportCall) {
+                reportError("msg.syntax");
+            }
             int end = getNodeEnd(target);
             nx.setTarget(target);
             nx.setLineColumnNumber(lineno, column);
@@ -6529,6 +6575,16 @@ public class Parser {
                 consumeToken();
                 reportError("msg.syntax");
                 break;
+
+            case Token.IMPORT:
+                // Dynamic import() expression
+                consumeToken();
+                {
+                    int importPos = ts.tokenBeg;
+                    int importLineno = lineNumber();
+                    int importColumn = columnNumber();
+                    return parseImportCallExpr(importPos, importLineno, importColumn);
+                }
 
             case Token.AWAIT:
                 // Outside async functions, module code, and static blocks,

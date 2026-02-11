@@ -273,7 +273,8 @@ public class Token {
             REQ_ITERABLE = PARAM_TDZ_ERROR + 1, // RequireIterable check for array destructuring
             ASYNC = REQ_ITERABLE + 1, // ES2017 async keyword
             AWAIT = ASYNC + 1, // ES2017 await keyword
-            LAST_TOKEN = AWAIT + 1;
+            IMPORT_CALL = AWAIT + 1, // ES2020 dynamic import()
+            LAST_TOKEN = IMPORT_CALL + 1;
 
     /**
      * Returns a name for the token. If Rhino is compiled with certain hardcoded debugging flags in
@@ -722,6 +723,8 @@ public class Token {
                 return "ASYNC";
             case AWAIT:
                 return "AWAIT";
+            case IMPORT_CALL:
+                return "IMPORT_CALL";
         }
 
         // Token without name

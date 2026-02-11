@@ -24,6 +24,8 @@ import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.mozilla.javascript.ast.FunctionNode;
 import org.mozilla.javascript.dtoa.DoubleFormatter;
+import org.mozilla.javascript.es6module.ModuleLoader;
+import org.mozilla.javascript.es6module.ModuleRecord;
 import org.mozilla.javascript.lc.type.TypeInfo;
 import org.mozilla.javascript.lc.type.impl.factory.ConcurrentFactory;
 import org.mozilla.javascript.typedarrays.NativeArrayBuffer;
@@ -8416,5 +8418,43 @@ public class ScriptRuntime {
             return msg != null ? msg : ex.getClass().getName();
         }
         return String.valueOf(ex);
+    }
+
+    /**
+     * Handle the dynamic import() expression. Resolves, loads, links, and evaluates the module,
+     * returning a Promise that resolves to the module namespace object.
+     */
+    public static Object dynamicImport(Context cx, Scriptable scope, Object specifier) {
+        try {
+            String specifierStr = toString(specifier);
+
+            ModuleLoader loader = cx.getModuleLoader();
+            if (loader == null) {
+                throw constructError(
+                        "Error", "Cannot use import() without a module loader configured");
+            }
+
+            // Find the referrer module from scope chain
+            ModuleRecord referrer = null;
+            Scriptable s = scope;
+            while (s != null) {
+                if (s instanceof ModuleScope) {
+                    referrer = ((ModuleScope) s).getModuleRecord();
+                    break;
+                }
+                s = s.getParentScope();
+            }
+
+            String resolved = loader.resolveModule(specifierStr, referrer);
+            ModuleRecord dep = loader.getCachedModule(resolved);
+            if (dep == null) {
+                dep = loader.loadModule(cx, resolved);
+            }
+
+            Scriptable ns = cx.linkAndEvaluateModule(scope, dep);
+            return NativePromise.resolveValue(cx, scope, ns);
+        } catch (Exception e) {
+            return wrapInRejectedPromise(cx, scope, e);
+        }
     }
 }

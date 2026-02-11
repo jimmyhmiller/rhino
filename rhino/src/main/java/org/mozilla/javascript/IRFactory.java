@@ -43,6 +43,7 @@ import org.mozilla.javascript.ast.GeneratorExpression;
 import org.mozilla.javascript.ast.GeneratorExpressionLoop;
 import org.mozilla.javascript.ast.GeneratorMethodDefinition;
 import org.mozilla.javascript.ast.IfStatement;
+import org.mozilla.javascript.ast.ImportCall;
 import org.mozilla.javascript.ast.ImportDeclaration;
 import org.mozilla.javascript.ast.InfixExpression;
 import org.mozilla.javascript.ast.Jump;
@@ -206,6 +207,8 @@ public final class IRFactory {
                 return transformIf((IfStatement) node);
             case Token.IMPORT:
                 return transformImport((ImportDeclaration) node);
+            case Token.IMPORT_CALL:
+                return transformImportCall((ImportCall) node);
             case Token.EXPORT:
                 return transformExport((ExportDeclaration) node);
 
@@ -2145,6 +2148,11 @@ public final class IRFactory {
         Node kid = node.getValue() == null ? null : transform(node.getValue());
         if (kid != null) return new Node(Token.AWAIT, kid, node.getLineno(), node.getColumn());
         return new Node(Token.AWAIT, node.getLineno(), node.getColumn());
+    }
+
+    private Node transformImportCall(ImportCall node) {
+        Node arg = transform(node.getArgument());
+        return new Node(Token.IMPORT_CALL, arg, node.getLineno(), node.getColumn());
     }
 
     private Node transformSpread(Spread node) {

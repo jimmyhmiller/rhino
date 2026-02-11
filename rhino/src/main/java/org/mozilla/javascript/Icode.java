@@ -241,8 +241,11 @@ abstract class Icode {
             // Private property increment/decrement (++/-- on obj.#field)
             Icode_PRIVATE_PROP_INC_DEC = Icode_COMPOUND_ELEM_KEY - 1,
 
+            // Dynamic import() expression
+            Icode_IMPORT_CALL = Icode_PRIVATE_PROP_INC_DEC - 1,
+
             // Last icode
-            MIN_ICODE = Icode_PRIVATE_PROP_INC_DEC;
+            MIN_ICODE = Icode_IMPORT_CALL;
 
     static String bytecodeName(int bytecode) {
         if (!validBytecode(bytecode)) {
@@ -492,6 +495,8 @@ abstract class Icode {
                 return "COMPOUND_ELEM_KEY";
             case Icode_PRIVATE_PROP_INC_DEC:
                 return "PRIVATE_PROP_INC_DEC";
+            case Icode_IMPORT_CALL:
+                return "IMPORT_CALL";
         }
 
         // icode without name

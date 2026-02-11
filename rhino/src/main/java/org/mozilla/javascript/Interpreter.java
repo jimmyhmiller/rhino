@@ -968,6 +968,7 @@ public final class Interpreter extends Icode implements Evaluator {
                 case Token.YIELD:
                 case Icode_YIELD_STAR:
                 case Icode_AWAIT:
+                case Icode_IMPORT_CALL:
                 case Icode_GENERATOR:
                 case Icode_GENERATOR_END:
                 case Icode_GENERATOR_RETURN:
@@ -1171,6 +1172,7 @@ public final class Interpreter extends Icode implements Evaluator {
             case Token.YIELD:
             case Icode_YIELD_STAR:
             case Icode_AWAIT:
+            case Icode_IMPORT_CALL:
             case Icode_GENERATOR:
             case Icode_GENERATOR_END:
             case Icode_GENERATOR_RETURN:
@@ -1681,6 +1683,7 @@ public final class Interpreter extends Icode implements Evaluator {
         instructionObjs[base + Icode_GENERATOR_END] = new DoGeneratorEnd();
         instructionObjs[base + Icode_GENERATOR_RETURN] = new DoGeneratorReturn();
         instructionObjs[base + Icode_AWAIT] = new DoAwait();
+        instructionObjs[base + Icode_IMPORT_CALL] = new DoImportCall();
         instructionObjs[base + Token.THROW] = new DoThrow();
         instructionObjs[base + Token.RETHROW] = new DoRethrow();
         instructionObjs[base + Token.GE] = new DoCompare();
@@ -2464,6 +2467,22 @@ public final class Interpreter extends Icode implements Evaluator {
             frame.stack[state.stackTop] = result;
 
             // Skip the line number data (2 bytes)
+            frame.pc += 2;
+            return null;
+        }
+    }
+
+    private static class DoImportCall extends InstructionClass {
+        @Override
+        NewState execute(Context cx, CallFrame frame, InterpreterState state, int op) {
+            Object specifier = frame.stack[state.stackTop];
+            if (specifier == DOUBLE_MARK) {
+                specifier = ScriptRuntime.wrapNumber(frame.sDbl[state.stackTop]);
+            }
+
+            Object result = ScriptRuntime.dynamicImport(cx, frame.scope, specifier);
+            frame.stack[state.stackTop] = result;
+
             frame.pc += 2;
             return null;
         }
