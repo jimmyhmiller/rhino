@@ -6,7 +6,15 @@
 
 package org.mozilla.javascript.node.module;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import org.mozilla.javascript.BaseFunction;
 import org.mozilla.javascript.Context;
@@ -26,11 +34,77 @@ import org.mozilla.javascript.es6module.ModuleRecord;
  */
 public class NodeModuleLoader implements ModuleLoader {
 
+    private static final Set<String> NODE_BUILTINS = new HashSet<>();
+
+    static {
+        String[] builtins = {
+            "assert",
+            "async_hooks",
+            "buffer",
+            "child_process",
+            "cluster",
+            "console",
+            "constants",
+            "crypto",
+            "dgram",
+            "diagnostics_channel",
+            "dns",
+            "domain",
+            "events",
+            "fs",
+            "http",
+            "http2",
+            "https",
+            "inspector",
+            "module",
+            "net",
+            "os",
+            "path",
+            "perf_hooks",
+            "process",
+            "punycode",
+            "querystring",
+            "readline",
+            "repl",
+            "stream",
+            "string_decoder",
+            "sys",
+            "timers",
+            "tls",
+            "trace_events",
+            "tty",
+            "url",
+            "util",
+            "v8",
+            "vm",
+            "wasi",
+            "worker_threads",
+            "zlib"
+        };
+        for (String b : builtins) {
+            NODE_BUILTINS.add(b);
+        }
+    }
+
+    private static boolean isNodeBuiltin(String specifier) {
+        if (specifier.startsWith("node:")) {
+            return true;
+        }
+        return NODE_BUILTINS.contains(specifier);
+    }
+
+    private static final String BUILTIN_PREFIX = "__rhino_node_builtin__:";
+
     private final NodeFileSystem fs;
     private final NodeModuleResolver resolver;
     private final ConcurrentHashMap<String, ModuleRecord> esmCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> cjsCache = new ConcurrentHashMap<>();
     private Scriptable globalScope;
+    private boolean stubNodeBuiltins = false;
+
+    public void setStubNodeBuiltins(boolean stub) {
+        this.stubNodeBuiltins = stub;
+    }
 
     public NodeModuleLoader() {
         this(new DefaultNodeFileSystem());
@@ -59,6 +133,10 @@ public class NodeModuleLoader implements ModuleLoader {
     @Override
     public String resolveModule(String specifier, ModuleRecord referrer)
             throws ModuleResolutionException {
+        if (stubNodeBuiltins && isNodeBuiltin(specifier)) {
+            return BUILTIN_PREFIX + specifier;
+        }
+
         try {
             String parentPath;
             if (referrer != null && referrer.getSpecifier() != null) {
@@ -82,6 +160,39 @@ public class NodeModuleLoader implements ModuleLoader {
         ModuleRecord cached = esmCache.get(resolvedSpecifier);
         if (cached != null) {
             return cached;
+        }
+
+        if (resolvedSpecifier.startsWith(BUILTIN_PREFIX)) {
+            String name = resolvedSpecifier.substring(BUILTIN_PREFIX.length());
+            if (name.startsWith("node:")) name = name.substring(5);
+            String stubSource = getBuiltinStubSource(name);
+            String source =
+                    "var __stub__ = "
+                            + stubSource
+                            + ";\n"
+                            + "export default __stub__;\n"
+                            + "var __keys__ = Object.keys(__stub__);\n"
+                            + "for (var __i__ = 0; __i__ < __keys__.length; __i__++) {\n"
+                            + "  // named exports handled below\n"
+                            + "}\n";
+            // Build source with explicit named exports
+            StringBuilder sb = new StringBuilder();
+            sb.append("var __stub__ = ").append(stubSource).append(";\n");
+            sb.append("export default __stub__;\n");
+            // We need to know the keys statically for ESM exports, so parse them from the stub
+            String[] keys = extractStubKeys(stubSource);
+            for (String key : keys) {
+                if (!"default".equals(key) && isValidJsIdentifier(key)) {
+                    sb.append("export var ")
+                            .append(key)
+                            .append(" = __stub__.")
+                            .append(key)
+                            .append(";\n");
+                }
+            }
+            ModuleRecord record = cx.compileModule(sb.toString(), resolvedSpecifier, 1, null);
+            esmCache.put(resolvedSpecifier, record);
+            return record;
         }
 
         try {
@@ -210,6 +321,9 @@ public class NodeModuleLoader implements ModuleLoader {
                     public Object call(
                             Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
                         String id = Context.toString(args[0]);
+                        if (self.stubNodeBuiltins && isNodeBuiltin(id)) {
+                            return self.getNodeBuiltinStub(cx, id);
+                        }
                         ResolvedModule resolved = self.resolver.cjsResolve(id, parentPath);
                         return self.loadCjsModuleExports(cx, resolved.getPath());
                     }
@@ -265,6 +379,84 @@ public class NodeModuleLoader implements ModuleLoader {
                 };
         helper.setPrototype(ScriptableObject.getFunctionPrototype(scope));
         ScriptableObject.putProperty(scope, "__rhinoCjsHelper__", helper);
+    }
+
+    private final ConcurrentHashMap<String, Object> builtinStubCache = new ConcurrentHashMap<>();
+
+    private Object getNodeBuiltinStub(Context cx, String id) {
+        // Strip node: prefix
+        String name = id.startsWith("node:") ? id.substring(5) : id;
+        return builtinStubCache.computeIfAbsent(
+                name,
+                k -> {
+                    String source = getBuiltinStubSource(k);
+                    Script script = cx.compileString(source, "<node:" + k + ">", 1, null);
+                    return script.exec(cx, globalScope, globalScope);
+                });
+    }
+
+    private static final String STUBS_RESOURCE_PATH = "/org/mozilla/javascript/node/stubs/";
+
+    private static String getBuiltinStubSource(String name) {
+        String resourceName = STUBS_RESOURCE_PATH + name + ".js";
+        InputStream is = NodeModuleLoader.class.getResourceAsStream(resourceName);
+        if (is == null) {
+            return "({})";
+        }
+        try (BufferedReader reader =
+                new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+            return sb.toString();
+        } catch (IOException e) {
+            return "({})";
+        }
+    }
+
+    private static String[] extractStubKeys(String stubSource) {
+        // Simple extraction of top-level keys from "({ key: ..., key2: ... })"
+        // Looks for identifiers followed by ":" at the top level of the object literal
+        List<String> keys = new ArrayList<>();
+        int depth = 0;
+        int i = 0;
+        while (i < stubSource.length()) {
+            char c = stubSource.charAt(i);
+            if (c == '(' || c == '{') {
+                depth++;
+                i++;
+            } else if (c == ')' || c == '}') {
+                depth--;
+                i++;
+            } else if (c == '\'' || c == '"') {
+                // skip string
+                char quote = c;
+                i++;
+                while (i < stubSource.length() && stubSource.charAt(i) != quote) {
+                    if (stubSource.charAt(i) == '\\') i++;
+                    i++;
+                }
+                i++; // closing quote
+            } else if (depth == 2 && Character.isJavaIdentifierStart(c)) {
+                // At top level of the object (depth 2 because of "({...})")
+                int start = i;
+                while (i < stubSource.length()
+                        && Character.isJavaIdentifierPart(stubSource.charAt(i))) {
+                    i++;
+                }
+                String word = stubSource.substring(start, i);
+                // Skip whitespace
+                while (i < stubSource.length() && stubSource.charAt(i) == ' ') i++;
+                if (i < stubSource.length() && stubSource.charAt(i) == ':') {
+                    keys.add(word);
+                }
+            } else {
+                i++;
+            }
+        }
+        return keys.toArray(new String[0]);
     }
 
     private static String escapeJsString(String s) {

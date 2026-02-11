@@ -5456,7 +5456,7 @@ public class ScriptRuntime {
         // Find the class constructor from the current function
         BaseFunction constructor = getPrivateConstructor(fnOrScript);
         if (constructor == null) {
-            throw typeError("msg.private.not.in.class");
+            throw typeErrorById("msg.private.not.in.class");
         }
 
         // Check if the object has the brand for this class
@@ -6656,7 +6656,7 @@ public class ScriptRuntime {
         if (propertyIds == null) return;
         for (Object id : propertyIds) {
             if ("prototype".equals(id)) {
-                throw typeError("msg.class.static.prototype");
+                throw typeErrorById("msg.class.static.prototype");
             }
         }
     }
@@ -6803,7 +6803,7 @@ public class ScriptRuntime {
                 // ES6 15.4.5 step 5.d: If IsConstructor(superclass) is false, throw a TypeError
                 // This rejects arrow functions, bound functions without [[Construct]], etc.
                 if (!AbstractEcmaObjectOperations.isConstructor(cx, superClass)) {
-                    throw typeError("msg.class.extends.not.callable");
+                    throw typeErrorById("msg.class.extends.not.callable");
                 }
                 Scriptable superConstructor = (Scriptable) superClass;
 
@@ -6816,12 +6816,12 @@ public class ScriptRuntime {
 
                 // Check for missing property (NOT_FOUND) or undefined - both throw TypeError
                 if (superProtoObj == Scriptable.NOT_FOUND || Undefined.isUndefined(superProtoObj)) {
-                    throw typeError("msg.class.extends.prototype.not.object");
+                    throw typeErrorById("msg.class.extends.prototype.not.object");
                 }
                 // null is valid (creates class with null prototype like Object.create(null))
                 if (superProtoObj != null) {
                     if (!(superProtoObj instanceof Scriptable)) {
-                        throw typeError("msg.class.extends.prototype.not.object");
+                        throw typeErrorById("msg.class.extends.prototype.not.object");
                     }
                     superProto = (Scriptable) superProtoObj;
                 }
@@ -7021,7 +7021,7 @@ public class ScriptRuntime {
         // Find the class constructor from the current function
         BaseFunction constructor = getPrivateConstructor(fnOrScript);
         if (constructor == null) {
-            throw typeError("msg.private.not.in.class");
+            throw typeErrorById("msg.private.not.in.class");
         }
 
         // First check if it's a private method (instance methods are on the class, not the
@@ -7052,7 +7052,7 @@ public class ScriptRuntime {
             if (getterIdx >= 0 || setterIdx >= 0 || methodIdx >= 0) {
                 // Brand check: ensure obj is an instance of this class
                 if (!hasPrivateBrand(obj, constructor)) {
-                    throw typeError("msg.private.brand.check.failed");
+                    throw typeErrorById("msg.private.brand.check.failed");
                 }
 
                 Object[] methodValues = constructor.getPrivateMethodValues();
@@ -7062,7 +7062,7 @@ public class ScriptRuntime {
                     return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
                 } else if (setterIdx >= 0) {
                     // Only setter exists - reading is an error
-                    throw typeError("msg.private.setter.only");
+                    throw typeErrorById("msg.private.setter.only");
                 } else {
                     // Regular method - return the function
                     return methodValues != null ? methodValues[methodIdx] : Undefined.instance;
@@ -7095,7 +7095,7 @@ public class ScriptRuntime {
             if (getterIdx >= 0 || setterIdx >= 0 || methodIdx >= 0) {
                 // For static private, obj should be the constructor
                 if (obj != constructor) {
-                    throw typeError("msg.private.brand.check.failed");
+                    throw typeErrorById("msg.private.brand.check.failed");
                 }
 
                 Object[] methodValues = constructor.getPrivateStaticMethodValues();
@@ -7105,7 +7105,7 @@ public class ScriptRuntime {
                     return getter.call(cx, getTopCallScope(cx), (Scriptable) obj, emptyArgs);
                 } else if (setterIdx >= 0) {
                     // Only setter exists - reading is an error
-                    throw typeError("msg.private.setter.only");
+                    throw typeErrorById("msg.private.setter.only");
                 } else {
                     // Regular method - return the function
                     return methodValues != null ? methodValues[methodIdx] : Undefined.instance;
@@ -7120,7 +7120,7 @@ public class ScriptRuntime {
                 if (name.equals(staticFieldIds[i])) {
                     // For static private, obj should be the constructor
                     if (obj != constructor) {
-                        throw typeError("msg.private.brand.check.failed");
+                        throw typeErrorById("msg.private.brand.check.failed");
                     }
                     // Get from constructor's associated values
                     PrivateKey key = new PrivateKey(constructor, name);
@@ -7138,7 +7138,7 @@ public class ScriptRuntime {
                 if (name.equals(fieldIds[i])) {
                     // Brand check: ensure obj has this class's private fields
                     if (!hasPrivateBrand(obj, constructor)) {
-                        throw typeError("msg.private.brand.check.failed");
+                        throw typeErrorById("msg.private.brand.check.failed");
                     }
                     // Get from instance's associated values
                     PrivateKey key = new PrivateKey(constructor, name);
@@ -7152,7 +7152,7 @@ public class ScriptRuntime {
             }
         }
 
-        throw typeError("msg.private.member.not.found");
+        throw typeErrorById("msg.private.member.not.found");
     }
 
     /**
@@ -7191,7 +7191,7 @@ public class ScriptRuntime {
         // Find the class constructor from the current function
         BaseFunction constructor = getPrivateConstructor(fnOrScript);
         if (constructor == null) {
-            throw typeError("msg.private.not.in.class");
+            throw typeErrorById("msg.private.not.in.class");
         }
 
         // Check for private method setter (accessor)
@@ -7221,7 +7221,7 @@ public class ScriptRuntime {
             if (getterIdx >= 0 || setterIdx >= 0 || methodIdx >= 0) {
                 // Brand check
                 if (!hasPrivateBrand(obj, constructor)) {
-                    throw typeError("msg.private.brand.check.failed");
+                    throw typeErrorById("msg.private.brand.check.failed");
                 }
 
                 if (setterIdx >= 0) {
@@ -7232,10 +7232,10 @@ public class ScriptRuntime {
                     return value;
                 } else if (getterIdx >= 0) {
                     // Only getter exists - writing is an error
-                    throw typeError("msg.private.getter.only");
+                    throw typeErrorById("msg.private.getter.only");
                 } else {
                     // Regular method - cannot assign to methods
-                    throw typeError("msg.private.method.assign");
+                    throw typeErrorById("msg.private.method.assign");
                 }
             }
         }
@@ -7265,7 +7265,7 @@ public class ScriptRuntime {
             if (getterIdx >= 0 || setterIdx >= 0 || methodIdx >= 0) {
                 // For static private, obj should be the constructor
                 if (obj != constructor) {
-                    throw typeError("msg.private.brand.check.failed");
+                    throw typeErrorById("msg.private.brand.check.failed");
                 }
 
                 if (setterIdx >= 0) {
@@ -7276,10 +7276,10 @@ public class ScriptRuntime {
                     return value;
                 } else if (getterIdx >= 0) {
                     // Only getter exists - writing is an error
-                    throw typeError("msg.private.getter.only");
+                    throw typeErrorById("msg.private.getter.only");
                 } else {
                     // Regular method - cannot assign to methods
-                    throw typeError("msg.private.method.assign");
+                    throw typeErrorById("msg.private.method.assign");
                 }
             }
         }
@@ -7291,7 +7291,7 @@ public class ScriptRuntime {
                 if (name.equals(staticFieldIds[i])) {
                     // For static private, obj should be the constructor
                     if (obj != constructor) {
-                        throw typeError("msg.private.brand.check.failed");
+                        throw typeErrorById("msg.private.brand.check.failed");
                     }
                     // Set in constructor's associated values
                     // Use NULL_VALUE sentinel since setAssociatedValue removes on null
@@ -7310,7 +7310,7 @@ public class ScriptRuntime {
                 if (name.equals(fieldIds[i])) {
                     // Brand check
                     if (!hasPrivateBrand(obj, constructor)) {
-                        throw typeError("msg.private.brand.check.failed");
+                        throw typeErrorById("msg.private.brand.check.failed");
                     }
                     // Set in instance's associated values
                     // Use NULL_VALUE sentinel since setAssociatedValue removes on null
@@ -7325,7 +7325,7 @@ public class ScriptRuntime {
             }
         }
 
-        throw typeError("msg.private.member.not.found");
+        throw typeErrorById("msg.private.member.not.found");
     }
 
     public static Object privatePropIncrDecr(

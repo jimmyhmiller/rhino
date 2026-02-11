@@ -71,6 +71,7 @@ public class Main {
     static boolean useRequire = false;
     static boolean useEsModules = false;
     static boolean useNodeModules = false;
+    static boolean stubNodeBuiltins = false;
     static Require require;
     private static SecurityProxy securityImpl;
     private static final ScriptCache scriptCache = new ScriptCache(32);
@@ -384,6 +385,10 @@ public class Main {
                 useNodeModules = true;
                 continue;
             }
+            if (arg.equals("--stub-node-builtins")) {
+                stubNodeBuiltins = true;
+                continue;
+            }
             if (arg.equals("-w")) {
                 errorReporter.setIsReportingWarnings(true);
                 continue;
@@ -593,6 +598,7 @@ public class Main {
     static void processNodeModule(Context cx, String filename) throws IOException {
         DefaultNodeFileSystem fs = new DefaultNodeFileSystem();
         NodeModuleLoader loader = new NodeModuleLoader(fs);
+        loader.setStubNodeBuiltins(stubNodeBuiltins);
         loader.setGlobalScope(global);
         cx.setModuleLoader(loader);
 

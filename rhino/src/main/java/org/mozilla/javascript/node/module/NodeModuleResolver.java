@@ -197,8 +197,9 @@ public class NodeModuleResolver {
                 }
             } else {
                 // subpath without exports — resolve as file
+                // packageSubpath starts with "./" so strip both characters
                 String subFile =
-                        fs.getAbsolutePath(fs.resolve(packageDir, packageSubpath.substring(1)));
+                        fs.getAbsolutePath(fs.resolve(packageDir, packageSubpath.substring(2)));
                 String found = resolveEsmFile(subFile);
                 if (found != null) {
                     return new ResolvedModule(found, esmFileFormat(found));

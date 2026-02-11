@@ -1516,7 +1516,7 @@ public class Parser {
 
         // Parse optional extends clause
         if (matchToken(Token.EXTENDS, true)) {
-            superClass = memberExpr(false);
+            superClass = memberExpr(true);
         }
 
         // Parse class body
@@ -1711,8 +1711,20 @@ public class Parser {
                 consumeToken();
                 int getSetBeg = ts.tokenBeg; // Save position of 'get'/'set'
                 int nextTt = peekToken();
-                if (nextTt != Token.LP) {
-                    // It's a getter or setter
+                if (nextTt == Token.LP) {
+                    // It's a method named 'get' or 'set' - get() or set()
+                    return parseClassMethod(
+                            pos,
+                            createNameNode(false, Token.NAME, tokenStr),
+                            isStatic,
+                            false,
+                            false);
+                } else if (nextTt == Token.ASSIGN || nextTt == Token.SEMI || nextTt == Token.RC) {
+                    // It's a field named 'get' or 'set' - get = expr; or get; or get }
+                    return parseClassMethodOrField(
+                            pos, createNameNode(false, Token.NAME, tokenStr), isStatic);
+                } else {
+                    // It's a getter or setter - get name() {} or set name(v) {}
                     entryKind = "get".equals(tokenStr) ? GET_ENTRY : SET_ENTRY;
                     if (methodSourceStart < 0) {
                         methodSourceStart = getSetBeg;
@@ -1721,14 +1733,6 @@ public class Parser {
                     if (nextTt == Token.PRIVATE_NAME) {
                         isPrivate = true;
                     }
-                } else {
-                    // It's a method named 'get' or 'set'
-                    return parseClassMethod(
-                            pos,
-                            createNameNode(false, Token.NAME, tokenStr),
-                            isStatic,
-                            false,
-                            false);
                 }
             }
         }
@@ -3814,7 +3818,7 @@ public class Parser {
             if (!matchToken(Token.NAME, true) || !"as".equals(ts.getString())) {
                 reportError("msg.import.expected.as");
             }
-            if (!matchToken(Token.NAME, true)) {
+            if (!matchToken(Token.NAME, true) && !matchToken(Token.ASYNC, true)) {
                 reportError("msg.import.expected.binding");
             }
             Name nsName = createNameNode(true, Token.NAME);
@@ -3879,7 +3883,7 @@ public class Parser {
 
             // Check for "as localName"
             if (matchToken(Token.NAME, true) && "as".equals(ts.getString())) {
-                if (!matchToken(Token.NAME, true)) {
+                if (!matchToken(Token.NAME, true) && !matchToken(Token.ASYNC, true)) {
                     reportError("msg.import.expected.binding");
                 }
                 Name localNameNode = createNameNode(true, Token.NAME);

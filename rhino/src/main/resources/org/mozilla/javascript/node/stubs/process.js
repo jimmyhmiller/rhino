@@ -1,0 +1,23 @@
+({
+  env: {},
+  argv: [],
+  version: 'v0.0.0',
+  versions: {},
+  platform: 'java',
+  arch: 'unknown',
+  pid: 0,
+  nextTick: function(fn) { Promise.resolve().then(fn); },
+  stdout: { write: function() {}, isTTY: false },
+  stderr: { write: function() {}, isTTY: false },
+  stdin: { isTTY: false },
+  cwd: function() { return '/'; },
+  exit: function() {},
+  on: function() { return this; },
+  once: function() { return this; },
+  off: function() { return this; },
+  removeListener: function() { return this; },
+  emit: function() { return false; },
+  addListener: function() { return this; },
+  umask: function() { return 0; },
+  hrtime: function() { return [0, 0]; }
+})

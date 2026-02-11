@@ -1534,7 +1534,19 @@ public class Context implements Closeable {
                         ModuleRecord.Status depStatus = dep.getStatus();
                         // Only evaluate if linked and not already evaluated/evaluating
                         if (depStatus == ModuleRecord.Status.LINKED) {
-                            evaluateModuleInternal(dep, globalScope);
+                            try {
+                                evaluateModuleInternal(dep, globalScope);
+                            } catch (EcmaError ee) {
+                                String from = moduleRecord.getSpecifier();
+                                if (from == null) from = "<entry>";
+                                throw new EcmaError(
+                                        ee.getName(),
+                                        ee.getErrorMessage() + "\n    from " + from,
+                                        ee.sourceName(),
+                                        ee.lineNumber(),
+                                        ee.lineSource(),
+                                        ee.columnNumber());
+                            }
                         }
                     }
                 } catch (ModuleLoader.ModuleResolutionException e) {

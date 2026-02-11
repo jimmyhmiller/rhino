@@ -438,7 +438,8 @@ public final class IRFactory {
                                 acl,
                                 acl.isForEach(),
                                 acl.isForOf(),
-                                false); // No for-await-of in array comprehensions
+                                false, // No for-await-of in array comprehensions
+                                null);
             }
         } finally {
             for (int i = 0; i < pushed; i++) {
@@ -633,8 +634,19 @@ public final class IRFactory {
         try {
             int declType = -1;
             AstNode iter = loop.getIterator();
+            // Collect destructuring variable names from AST before transform consumes them
+            java.util.List<String> destructuringNames = null;
             if (iter instanceof VariableDeclaration) {
                 declType = iter.getType();
+                if (declType == Token.LET || declType == Token.CONST) {
+                    VariableDeclaration vd = (VariableDeclaration) iter;
+                    for (VariableInitializer vi : vd.getVariables()) {
+                        if (vi.isDestructuring()) {
+                            destructuringNames = new java.util.ArrayList<>();
+                            collectAstDestructuringNames(vi.getTarget(), destructuringNames);
+                        }
+                    }
+                }
             }
             Node lhs = transform(iter);
             Node obj = transform(loop.getIteratedObject());
@@ -649,7 +661,8 @@ public final class IRFactory {
                             loop,
                             loop.isForEach(),
                             loop.isForOf(),
-                            loop.isForAwaitOf());
+                            loop.isForAwaitOf(),
+                            destructuringNames);
             // Add ES6 completion value handling for for-in/for-of loops
             // The result is a LOCAL_BLOCK containing the loop
             if (parser.compilerEnv.getLanguageVersion() >= Context.VERSION_ES6
@@ -1481,7 +1494,8 @@ public final class IRFactory {
                                 acl,
                                 acl.isForEach(),
                                 acl.isForOf(),
-                                false); // No for-await-of in generator expressions
+                                false, // No for-await-of in generator expressions
+                                null);
             }
         } finally {
             for (int i = 0; i < pushed; i++) {
@@ -2518,13 +2532,16 @@ public final class IRFactory {
             AstNode ast,
             boolean isForEach,
             boolean isForOf,
-            boolean isForAwaitOf) {
+            boolean isForAwaitOf,
+            java.util.List<String> preCollectedDestructuringNames) {
         astNodePos.push(ast);
         try {
             int destructuring = -1;
             int destructuringLen = 0;
             Node lvalue;
             int type = lhs.getType();
+            int declTypeOrig =
+                    type; // Save original declaration type before destructuring overwrites
             if (type == Token.VAR || type == Token.LET || type == Token.CONST) {
                 Node kid = lhs.getLastChild();
                 int kidType = kid.getType();
@@ -2607,16 +2624,22 @@ public final class IRFactory {
                 loop.addChildToFront(lhs);
 
             // Mark for-in/for-of loops with let/const for per-iteration bindings
-            if ((type == Token.LET || type == Token.CONST) && destructuring == -1) {
-                // Get the variable name from lhs
-                Node kid = lhs.getLastChild();
-                if (kid != null && kid.getType() == Token.NAME) {
-                    java.util.List<String> varNames = new java.util.ArrayList<>();
-                    varNames.add(kid.getString());
+            if (declTypeOrig == Token.LET || declTypeOrig == Token.CONST) {
+                java.util.List<String> varNames = new java.util.ArrayList<>();
+                if (destructuring == -1) {
+                    // Simple variable: for (const x of ...)
+                    Node kid = lhs.getLastChild();
+                    if (kid != null && kid.getType() == Token.NAME) {
+                        varNames.add(kid.getString());
+                    }
+                } else if (preCollectedDestructuringNames != null
+                        && !preCollectedDestructuringNames.isEmpty()) {
+                    // Destructuring: names were collected from AST before transform
+                    varNames = preCollectedDestructuringNames;
+                }
+                if (!varNames.isEmpty()) {
                     loop.putIntProp(Node.PER_ITERATION_SCOPE_PROP, 1);
                     loop.putProp(Node.PER_ITERATION_NAMES_PROP, varNames);
-                    // Mark the declaration so NodeTransformer doesn't initialize it
-                    // (it should stay in TDZ until assigned by the iterator)
                     lhs.putIntProp(Node.FOR_IN_OF_LOOP_VAR, 1);
                 }
             }
@@ -2645,6 +2668,32 @@ public final class IRFactory {
             return localBlock;
         } finally {
             astNodePos.pop();
+        }
+    }
+
+    /** Collect all variable names from an AST destructuring pattern (before IR transform). */
+    private static void collectAstDestructuringNames(AstNode node, java.util.List<String> names) {
+        if (node == null) return;
+        if (node instanceof Name) {
+            names.add(((Name) node).getIdentifier());
+        } else if (node instanceof ArrayLiteral) {
+            for (AstNode elem : ((ArrayLiteral) node).getElements()) {
+                collectAstDestructuringNames(elem, names);
+            }
+        } else if (node instanceof ObjectLiteral) {
+            for (var prop : ((ObjectLiteral) node).getElements()) {
+                // The right side of the property is the binding target
+                if (prop instanceof ObjectProperty) {
+                    collectAstDestructuringNames(((ObjectProperty) prop).getValue(), names);
+                }
+            }
+        } else {
+            // Handle rest elements, default values, etc. by walking AST children
+            for (Node child = node.getFirstChild(); child != null; child = child.getNext()) {
+                if (child instanceof AstNode) {
+                    collectAstDestructuringNames((AstNode) child, names);
+                }
+            }
         }
     }
 
