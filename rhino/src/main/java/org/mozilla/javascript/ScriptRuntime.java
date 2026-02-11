@@ -8322,7 +8322,8 @@ public class ScriptRuntime {
         if (promise.isFulfilled()) {
             return promise.getResult();
         } else if (promise.isRejected()) {
-            // Throw the rejection value
+            // Mark the promise as handled since await converts the rejection into a throw
+            cx.getUnhandledPromiseTracker().promiseHandled(promise);
             Object reason = promise.getResult();
             throw new JavaScriptException(reason, "", 0);
         } else {

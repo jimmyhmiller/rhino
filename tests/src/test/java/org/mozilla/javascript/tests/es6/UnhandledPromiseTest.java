@@ -171,6 +171,35 @@ public class UnhandledPromiseTest {
         assertTrue(handled.get());
     }
 
+    @Test
+    public void asyncAwaitChainOnlyOneUnhandled() {
+        // When an async function chain rejects, only the outermost unhandled promise
+        // should be tracked, not every intermediate promise in the chain.
+        exec(
+                "async function inner() { throw 'error'; }\n"
+                        + "async function middle() { return await inner(); }\n"
+                        + "async function outer() { return await middle(); }\n"
+                        + "outer();\n");
+        assertEquals(1, cx.getUnhandledPromiseTracker().enumerate().size());
+    }
+
+    @Test
+    public void asyncAwaitCatchHandlesAll() {
+        // When an async function chain rejects but the outermost caller catches,
+        // there should be no unhandled rejections.
+        scope.put("caught", scope, Boolean.FALSE);
+        exec(
+                "async function inner() { throw 'error'; }\n"
+                        + "async function middle() { return await inner(); }\n"
+                        + "async function outer() {\n"
+                        + "  try { return await middle(); }\n"
+                        + "  catch(e) { caught = true; }\n"
+                        + "}\n"
+                        + "outer();\n");
+        assertTrue(cx.getUnhandledPromiseTracker().enumerate().isEmpty());
+        assertTrue(Context.toBoolean(scope.get("caught", scope)));
+    }
+
     private void exec(String script) {
         cx.evaluateString(scope, "load('./testsrc/assert.js'); " + script, "test.js", 0, null);
     }
