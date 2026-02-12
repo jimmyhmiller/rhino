@@ -86,7 +86,7 @@ public class NodeModuleLoader implements ModuleLoader {
         }
     }
 
-    private static boolean isNodeBuiltin(String specifier) {
+    static boolean isNodeBuiltin(String specifier) {
         if (specifier.startsWith("node:")) {
             return true;
         }
@@ -397,7 +397,7 @@ public class NodeModuleLoader implements ModuleLoader {
 
     private static final String STUBS_RESOURCE_PATH = "/org/mozilla/javascript/node/stubs/";
 
-    private static String getBuiltinStubSource(String name) {
+    static String getBuiltinStubSource(String name) {
         String resourceName = STUBS_RESOURCE_PATH + name + ".js";
         InputStream is = NodeModuleLoader.class.getResourceAsStream(resourceName);
         if (is == null) {

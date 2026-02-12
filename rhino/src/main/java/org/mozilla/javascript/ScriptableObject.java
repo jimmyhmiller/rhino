@@ -2781,7 +2781,17 @@ public abstract class ScriptableObject extends SlotMapOwner
 
             if (cp.isConst(name)) throw ScriptRuntime.typeErrorById("msg.const.redecl", name);
         }
-        if (isConst) throw ScriptRuntime.typeErrorById("msg.var.redecl", name);
+
+        // ES6 13.2.5.1 CanDeclareGlobalVar / 13.2.5.2 CanDeclareGlobalLexical:
+        // const/let declarations cannot shadow non-configurable properties.
+        // If the property is configurable, the declaration replaces it.
+        if (isConst && base instanceof ScriptableObject) {
+            ScriptableObject so = (ScriptableObject) base;
+            Slot slot = so.getMap().query(name, 0);
+            if (slot != null && (slot.getAttributes() & PERMANENT) != 0) {
+                throw ScriptRuntime.typeErrorById("msg.var.redecl", name);
+            }
+        }
 
         // ES6 8.1.1.4.16 CanDeclareGlobalFunction: function declarations cannot
         // shadow non-configurable, non-writable global properties. If writable,

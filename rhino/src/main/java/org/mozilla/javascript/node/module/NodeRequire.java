@@ -7,8 +7,10 @@
 package org.mozilla.javascript.node.module;
 
 import java.net.URI;
+import java.util.concurrent.ConcurrentHashMap;
 import org.mozilla.javascript.BaseFunction;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.Script;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
@@ -26,6 +28,9 @@ public class NodeRequire extends Require {
     private static final long serialVersionUID = 1L;
     private final NodeModuleResolver resolver;
     private final NodeFileSystem fs;
+    private final Scriptable nativeScope;
+    private boolean stubNodeBuiltins = false;
+    private final ConcurrentHashMap<String, Object> builtinStubCache = new ConcurrentHashMap<>();
 
     public NodeRequire(
             Context cx,
@@ -35,9 +40,32 @@ public class NodeRequire extends Require {
             NodeFileSystem fs,
             boolean sandboxed) {
         super(cx, nativeScope, moduleScriptProvider, null, null, sandboxed);
+        this.nativeScope = nativeScope;
         this.resolver = resolver;
         this.fs = fs;
         installResolve(cx, nativeScope);
+    }
+
+    public void setStubNodeBuiltins(boolean stub) {
+        this.stubNodeBuiltins = stub;
+    }
+
+    @Override
+    public Object call(Context cx, Scriptable scope, Scriptable thisObj, Object[] args) {
+        if (stubNodeBuiltins && args != null && args.length >= 1) {
+            String id = (String) Context.jsToJava(args[0], String.class);
+            if (NodeModuleLoader.isNodeBuiltin(id)) {
+                String name = id.startsWith("node:") ? id.substring(5) : id;
+                return builtinStubCache.computeIfAbsent(
+                        name,
+                        k -> {
+                            String source = NodeModuleLoader.getBuiltinStubSource(k);
+                            Script script = cx.compileString(source, "<node:" + k + ">", 1, null);
+                            return script.exec(cx, nativeScope, nativeScope);
+                        });
+            }
+        }
+        return super.call(cx, scope, thisObj, args);
     }
 
     @Override

@@ -24,13 +24,17 @@ public class PackageJson {
 
     @SuppressWarnings("unchecked")
     public PackageJson(Map<String, Object> parsed, String directory) {
-        this.name = (String) parsed.get("name");
-        this.main = (String) parsed.get("main");
-        String t = (String) parsed.get("type");
+        this.name = stringOrNull(parsed.get("name"));
+        this.main = stringOrNull(parsed.get("main"));
+        String t = stringOrNull(parsed.get("type"));
         this.type = t != null ? t : "commonjs";
         this.exports = parsed.get("exports");
         this.imports = parsed.get("imports");
         this.directory = directory;
+    }
+
+    private static String stringOrNull(Object value) {
+        return value instanceof String ? (String) value : null;
     }
 
     public String getName() {

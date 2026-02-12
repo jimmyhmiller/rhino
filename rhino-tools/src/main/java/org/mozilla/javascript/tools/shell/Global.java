@@ -189,6 +189,10 @@ public class Global extends ImporterTopLevel {
     }
 
     public Require installNodeRequire(Context cx) {
+        return installNodeRequire(cx, false);
+    }
+
+    public Require installNodeRequire(Context cx, boolean stubNodeBuiltins) {
         NodeFileSystem fs = new DefaultNodeFileSystem();
         PackageJsonReader pkgReader = new PackageJsonReader(fs);
         NodeModuleResolver resolver = new NodeModuleResolver(fs, pkgReader);
@@ -196,6 +200,7 @@ public class Global extends ImporterTopLevel {
         SoftCachingModuleScriptProvider scriptProvider =
                 new SoftCachingModuleScriptProvider(sourceProvider);
         NodeRequire require = new NodeRequire(cx, this, scriptProvider, resolver, fs, false);
+        require.setStubNodeBuiltins(stubNodeBuiltins);
         require.install(this);
         return require;
     }

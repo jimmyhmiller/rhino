@@ -100,7 +100,7 @@ public class Main {
             cx.setTrackUnhandledPromiseRejections(true);
             timers.install(global);
             if (useNodeModules) {
-                require = global.installNodeRequire(cx);
+                require = global.installNodeRequire(cx, stubNodeBuiltins);
             } else if (useRequire) {
                 require = global.installRequire(cx, modulePath, sandboxed);
             }
