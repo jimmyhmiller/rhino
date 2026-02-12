@@ -4463,17 +4463,17 @@ public final class Interpreter extends Icode implements Evaluator {
                         "msg.var.redecl",
                         frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg));
             }
-            if ((varAttributes[state.indexReg] & ScriptableObject.UNINITIALIZED_CONST) != 0) {
-                Object value = frame.stack[state.stackTop];
-                vars[state.indexReg] = value;
-                varAttributes[state.indexReg] &= ~ScriptableObject.UNINITIALIZED_CONST;
-                varDbls[state.indexReg] = frame.sDbl[state.stackTop];
-                // Sync const variables with NativeCall for closure access
-                if (frame.useActivation) {
-                    String varName =
-                            frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
-                    frame.scope.put(varName, frame.scope, value);
-                }
+            // Always set the value. SETCONSTVAR is only emitted for const
+            // initializations (const x = expr), and in loops each iteration
+            // must re-initialize the binding with a fresh value.
+            Object value = frame.stack[state.stackTop];
+            vars[state.indexReg] = value;
+            varAttributes[state.indexReg] &= ~ScriptableObject.UNINITIALIZED_CONST;
+            varDbls[state.indexReg] = frame.sDbl[state.stackTop];
+            // Sync const variables with NativeCall for closure access
+            if (frame.useActivation) {
+                String varName = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                frame.scope.put(varName, frame.scope, value);
             }
             return null;
         }
@@ -4490,17 +4490,17 @@ public final class Interpreter extends Icode implements Evaluator {
                         "msg.var.redecl",
                         frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg));
             }
-            if ((varAttributes[state.indexReg] & ScriptableObject.UNINITIALIZED_CONST) != 0) {
-                Object value = frame.stack[state.stackTop];
-                vars[state.indexReg] = value;
-                varAttributes[state.indexReg] &= ~ScriptableObject.UNINITIALIZED_CONST;
-                varDbls[state.indexReg] = frame.sDbl[state.stackTop];
-                // Sync const variables with NativeCall for closure access
-                if (frame.useActivation) {
-                    String varName =
-                            frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
-                    frame.scope.put(varName, frame.scope, value);
-                }
+            // Always set the value. SETCONSTVAR is only emitted for const
+            // initializations (const x = expr), and in loops each iteration
+            // must re-initialize the binding with a fresh value.
+            Object value = frame.stack[state.stackTop];
+            vars[state.indexReg] = value;
+            varAttributes[state.indexReg] &= ~ScriptableObject.UNINITIALIZED_CONST;
+            varDbls[state.indexReg] = frame.sDbl[state.stackTop];
+            // Sync const variables with NativeCall for closure access
+            if (frame.useActivation) {
+                String varName = frame.fnOrScript.getDescriptor().getParamOrVarName(state.indexReg);
+                frame.scope.put(varName, frame.scope, value);
             }
             return null;
         }

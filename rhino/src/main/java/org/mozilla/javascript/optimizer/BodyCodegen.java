@@ -2255,6 +2255,12 @@ class BodyCodegen {
                 emitTdzCheckIfNeeded();
             }
             generateExpression(child.getNext(), node); // id
+            // If the index produces a raw double but GETELEM won't use GETINDEX
+            // (which accepts double), wrap to Object for GETELEMENT/GETELEMENTSUPER.
+            if (node.getIntProp(Node.ISNUMBER_PROP, -1) == -1
+                    && expressionProducesDouble(child.getNext())) {
+                addDoubleWrap();
+            }
         }
         cfw.addALoad(contextLocal);
         cfw.addALoad(variableObjectLocal);
@@ -3031,7 +3037,26 @@ class BodyCodegen {
             generateExpression(child.getFirstChild(), node);
         } else {
             generateExpression(child, node);
+            if (expressionProducesDouble(child)) {
+                addDoubleWrap();
+            }
         }
+    }
+
+    /**
+     * Check if generateExpression for a node leaves a raw double on the stack. ISNUMBER_PROP means
+     * different things for different node types: for arithmetic and NUMBER it means the result is
+     * double, but for GETELEM it means only the index is numeric (result is Object).
+     */
+    private boolean expressionProducesDouble(Node node) {
+        int flag = node.getIntProp(Node.ISNUMBER_PROP, -1);
+        if (flag == -1) return false;
+        int type = node.getType();
+        // GETELEM's ISNUMBER_PROP means numeric index (via GETINDEX), result is always Object
+        if (type == Token.GETELEM || type == Token.GETELEM_SUPER) return false;
+        // ADD with LEFT or RIGHT returns Object (mixed-type addition)
+        if (type == Token.ADD && flag != Node.BOTH) return false;
+        return true;
     }
 
     private void addLoadPropertyId(Node node, Object[] properties, int i) {
@@ -3039,7 +3064,11 @@ class BodyCodegen {
         if (id instanceof Node) {
             // Will be a node of type Token.COMPUTED_PROPERTY wrapping the actual expression
             Node computedPropertyNode = (Node) id;
-            generateExpression(computedPropertyNode.getFirstChild(), node);
+            Node expr = computedPropertyNode.getFirstChild();
+            generateExpression(expr, node);
+            if (expressionProducesDouble(expr)) {
+                addDoubleWrap();
+            }
         } else {
             if (id instanceof String) {
                 cfw.addPush((String) id);
@@ -4237,6 +4266,9 @@ class BodyCodegen {
                 // Handle regular argument
                 cfw.add(ByteCode.DUP);
                 generateExpression(argChild, node);
+                if (expressionProducesDouble(argChild)) {
+                    addDoubleWrap();
+                }
                 cfw.addInvoke(
                         ByteCode.INVOKEVIRTUAL,
                         "org/mozilla/javascript/NewLiteralStorage",
@@ -5983,40 +6015,16 @@ class BodyCodegen {
         generateExpression(child.getNext(), node);
         boolean isNumber = (node.getIntProp(Node.ISNUMBER_PROP, -1) != -1);
         int reg = varRegisters[varIndex];
-        int beyond = cfw.acquireLabel();
-        int noAssign = cfw.acquireLabel();
+        // Always set the value. SETCONSTVAR is only emitted for const
+        // initializations (const x = expr), and in loops each iteration
+        // must re-initialize the binding with a fresh value.
         if (isNumber) {
-            cfw.addILoad(reg + 2);
-            cfw.add(ByteCode.IFNE, noAssign);
-            int stack = cfw.getStackTop();
-            cfw.addPush(1);
-            cfw.addIStore(reg + 2);
             cfw.addDStore(reg);
-            if (needValue) {
-                cfw.addDLoad(reg);
-                cfw.markLabel(noAssign, stack);
-            } else {
-                cfw.add(ByteCode.GOTO, beyond);
-                cfw.markLabel(noAssign, stack);
-                cfw.add(ByteCode.POP2);
-            }
+            if (needValue) cfw.addDLoad(reg);
         } else {
-            cfw.addILoad(reg + 1);
-            cfw.add(ByteCode.IFNE, noAssign);
-            int stack = cfw.getStackTop();
-            cfw.addPush(1);
-            cfw.addIStore(reg + 1);
             cfw.addAStore(reg);
-            if (needValue) {
-                cfw.addALoad(reg);
-                cfw.markLabel(noAssign, stack);
-            } else {
-                cfw.add(ByteCode.GOTO, beyond);
-                cfw.markLabel(noAssign, stack);
-                cfw.add(ByteCode.POP);
-            }
+            if (needValue) cfw.addALoad(reg);
         }
-        cfw.markLabel(beyond);
     }
 
     private void visitGetProp(Node node, Node child) {

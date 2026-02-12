@@ -6,6 +6,8 @@
 
 package org.mozilla.javascript;
 
+import java.util.HashMap;
+import java.util.Map;
 import org.mozilla.javascript.es6module.ModuleLoader;
 import org.mozilla.javascript.es6module.ModuleRecord;
 
@@ -22,6 +24,12 @@ public class ModuleScope extends TopLevel {
     private static final long serialVersionUID = 1L;
 
     private final ModuleRecord moduleRecord;
+
+    /** Cache of import local name -> source module, to avoid repeated module resolution I/O. */
+    private transient Map<String, ModuleRecord> resolvedImports;
+
+    /** Cache of import local name -> ImportEntry for fast lookup. */
+    private transient Map<String, ModuleRecord.ImportEntry> importEntryMap;
 
     /**
      * Creates a module scope.
@@ -46,6 +54,15 @@ public class ModuleScope extends TopLevel {
         return "Module";
     }
 
+    private void ensureImportEntryMap() {
+        if (importEntryMap == null) {
+            importEntryMap = new HashMap<>();
+            for (ModuleRecord.ImportEntry entry : moduleRecord.getImportEntries()) {
+                importEntryMap.put(entry.getLocalName(), entry);
+            }
+        }
+    }
+
     /**
      * Gets a property, with special handling for import bindings.
      *
@@ -53,11 +70,10 @@ public class ModuleScope extends TopLevel {
      */
     @Override
     public Object get(String name, Scriptable start) {
-        // First check if this is an import binding
-        for (ModuleRecord.ImportEntry entry : moduleRecord.getImportEntries()) {
-            if (entry.getLocalName().equals(name)) {
-                return resolveImportBinding(entry);
-            }
+        ensureImportEntryMap();
+        ModuleRecord.ImportEntry entry = importEntryMap.get(name);
+        if (entry != null) {
+            return resolveImportBinding(entry);
         }
         // Otherwise use normal property lookup
         return super.get(name, start);
@@ -66,10 +82,23 @@ public class ModuleScope extends TopLevel {
     /**
      * Resolves an import binding to its source module's export value.
      *
+     * <p>Source modules are cached after first resolution to avoid repeated filesystem I/O. Export
+     * bindings are still fetched each time to support ES module live bindings.
+     *
      * @param entry the import entry to resolve
      * @return the imported value
      */
     private Object resolveImportBinding(ModuleRecord.ImportEntry entry) {
+        String localName = entry.getLocalName();
+
+        // Check cache for already-resolved source module
+        if (resolvedImports != null) {
+            ModuleRecord sourceModule = resolvedImports.get(localName);
+            if (sourceModule != null) {
+                return getBindingFromModule(entry, sourceModule);
+            }
+        }
+
         Context cx = Context.getCurrentContext();
         if (cx == null || cx.getModuleLoader() == null) {
             throw ScriptRuntime.constructError(
@@ -86,31 +115,37 @@ public class ModuleScope extends TopLevel {
                         "Error", "Module '" + entry.getModuleRequest() + "' not loaded");
             }
 
-            if (entry.isNamespaceImport()) {
-                // import * as ns from 'module'
-                return sourceModule.getNamespaceObject();
-            } else {
-                // import { name } from 'module' or import name from 'module'
-                String importName = entry.getImportName();
-                if ("default".equals(importName)) {
-                    return sourceModule.getExportBinding("default");
-                }
-                return sourceModule.getExportBinding(importName);
+            // Cache the resolved source module
+            if (resolvedImports == null) {
+                resolvedImports = new HashMap<>();
             }
+            resolvedImports.put(localName, sourceModule);
+
+            return getBindingFromModule(entry, sourceModule);
         } catch (ModuleLoader.ModuleResolutionException e) {
             throw ScriptRuntime.constructError(
                     "Error", "Cannot resolve import from '" + entry.getModuleRequest() + "'");
         }
     }
 
+    private static Object getBindingFromModule(
+            ModuleRecord.ImportEntry entry, ModuleRecord sourceModule) {
+        if (entry.isNamespaceImport()) {
+            return sourceModule.getNamespaceObject();
+        }
+        String importName = entry.getImportName();
+        if ("default".equals(importName)) {
+            return sourceModule.getExportBinding("default");
+        }
+        return sourceModule.getExportBinding(importName);
+    }
+
     /** Checks if a binding exists, including import bindings. */
     @Override
     public boolean has(String name, Scriptable start) {
-        // Check import bindings
-        for (ModuleRecord.ImportEntry entry : moduleRecord.getImportEntries()) {
-            if (entry.getLocalName().equals(name)) {
-                return true;
-            }
+        ensureImportEntryMap();
+        if (importEntryMap.containsKey(name)) {
+            return true;
         }
         return super.has(name, start);
     }
@@ -118,11 +153,9 @@ public class ModuleScope extends TopLevel {
     /** Sets a property. Import bindings are immutable and will throw in strict mode. */
     @Override
     public void put(String name, Scriptable start, Object value) {
-        // Check if this is an import binding (immutable)
-        for (ModuleRecord.ImportEntry entry : moduleRecord.getImportEntries()) {
-            if (entry.getLocalName().equals(name)) {
-                throw ScriptRuntime.typeErrorById("msg.modify.readonly", name);
-            }
+        ensureImportEntryMap();
+        if (importEntryMap.containsKey(name)) {
+            throw ScriptRuntime.typeErrorById("msg.modify.readonly", name);
         }
         super.put(name, start, value);
     }

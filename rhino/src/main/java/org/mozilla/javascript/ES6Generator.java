@@ -244,36 +244,65 @@ public final class ES6Generator extends ScriptableObject {
         state = State.EXECUTING;
 
         try {
-            Object r =
-                    function.resumeGenerator(
-                            cx, scope, NativeGenerator.GENERATOR_SEND, savedState, value);
+            Object currentValue = value;
 
-            if (r instanceof YieldStarResult) {
-                // This special result tells us that we are executing a "yield *"
+            while (true) {
+                Object r =
+                        function.resumeGenerator(
+                                cx,
+                                scope,
+                                NativeGenerator.GENERATOR_SEND,
+                                savedState,
+                                currentValue);
+
+                if (!(r instanceof YieldStarResult)) {
+                    // Normal yield
+                    ScriptableObject.putProperty(result, ES6Iterator.VALUE_PROPERTY, r);
+                    break;
+                }
+
+                // yield* expression -- handle iteratively to avoid mutual recursion
+                // between resumeLocal and resumeDelegee which can overflow the stack
+                // when generators have many consecutive yield* expressions (e.g. Lit SSR)
                 state = State.SUSPENDED_YIELD;
                 YieldStarResult ysResult = (YieldStarResult) r;
                 try {
                     delegee = ScriptRuntime.callIterator(ysResult.getResult(), cx, scope);
                 } catch (RhinoException re) {
-                    // Need to handle exceptions if the iterator cannot be called.
                     return resumeAbruptLocal(cx, scope, NativeGenerator.GENERATOR_THROW, re);
                 }
 
-                Scriptable delResult;
+                // Get first value from delegee directly instead of calling resumeDelegee
                 try {
-                    // Re-execute but update state in case we end up back here
-                    // Value shall be Undefined based on the very complex spec!
-                    delResult = resumeDelegee(cx, scope, Undefined.instance);
-                } finally {
-                    state = State.EXECUTING;
-                }
-                if (ScriptRuntime.isIteratorDone(cx, delResult)) {
-                    state = State.COMPLETED;
-                }
-                return delResult;
-            }
+                    var nextFn =
+                            ScriptRuntime.getPropAndThis(
+                                    delegee, ES6Iterator.NEXT_METHOD, cx, scope);
+                    Object nr = nextFn.call(cx, scope, new Object[] {Undefined.instance});
+                    Scriptable nextResult = ScriptableObject.ensureScriptable(nr);
 
-            ScriptableObject.putProperty(result, ES6Iterator.VALUE_PROPERTY, r);
+                    if (ScriptRuntime.isIteratorDone(cx, nextResult)) {
+                        // Delegee immediately done (e.g. empty iterable),
+                        // resume generator with the final value
+                        delegee = null;
+                        currentValue =
+                                ScriptableObject.getProperty(
+                                        nextResult, ES6Iterator.VALUE_PROPERTY);
+                        // Set EXECUTING only after getProperty succeeds;
+                        // if the value getter throws, state must remain
+                        // SUSPENDED_YIELD so resumeAbruptLocal works.
+                        state = State.EXECUTING;
+                        continue;
+                    }
+
+                    // Delegee has values to produce; return the first one.
+                    // delegee remains set so js_next will use resumeDelegee for the rest.
+                    return nextResult;
+
+                } catch (RhinoException re) {
+                    delegee = null;
+                    return resumeAbruptLocal(cx, scope, NativeGenerator.GENERATOR_THROW, re);
+                }
+            }
 
         } catch (NativeGenerator.GeneratorClosedException gce) {
             state = State.COMPLETED;
