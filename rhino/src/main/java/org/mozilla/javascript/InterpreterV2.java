@@ -62,7 +62,7 @@ public class InterpreterV2 extends Icode implements Evaluator {
         int previousLineNumber = -1;
         while (frame.pc < instructions.length) {
             if (frame.throwable != null) {
-                int exState = getExState(cx, frame.throwable);
+                int exState = getExState(cx, frame.generatorState, frame.throwable);
                 ContinuationJump cjump =
                         frame.throwable instanceof ContinuationJump
                                 ? (ContinuationJump) frame.throwable
@@ -251,17 +251,14 @@ public class InterpreterV2 extends Icode implements Evaluator {
         throw (Error) throwable;
     }
 
-    private static int getExState(Context cx, Object throwable) {
+    private static int getExState(Context cx, GeneratorState generatorState, Object throwable) {
         int exState;
 
-        // TODO: Get generators working
-        // if (generatorState != null
-        //         && generatorState.operation == NativeGenerator.GENERATOR_CLOSE
-        //         && throwable == generatorState.value) {
-        //     exState = EX_FINALLY_STATE;
-        // } else
-        //
-        if (throwable instanceof JavaScriptException) {
+        if (generatorState != null
+                && generatorState.operation == NativeGenerator.GENERATOR_CLOSE
+                && throwable == generatorState.value) {
+            exState = EX_FINALLY_STATE;
+        } else if (throwable instanceof JavaScriptException) {
             exState = EX_CATCH_STATE;
         } else if (throwable instanceof EcmaError) {
             // an offical ECMA error object,
@@ -571,6 +568,9 @@ public class InterpreterV2 extends Icode implements Evaluator {
             if (operation == NativeGenerator.GENERATOR_CLOSE) {
                 try {
                     return interpretV2(cx, activeFrame, generatorState);
+                } catch (NativeGenerator.GeneratorClosedException e) {
+                    // Re-throw GeneratorClosedException so ES6Generator can catch and complete
+                    throw e;
                 } catch (RuntimeException e) {
                     // Only propagate exceptions other than closingException
                     if (e != value) throw e;
