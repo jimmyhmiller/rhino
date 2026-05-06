@@ -21,6 +21,7 @@ import org.mozilla.javascript.ast.ScriptNode;
 import org.mozilla.javascript.ast.TemplateCharacters;
 import org.mozilla.javascript.interpreterv2.instruction.Add;
 import org.mozilla.javascript.interpreterv2.instruction.ArrayLit;
+import org.mozilla.javascript.interpreterv2.instruction.ArrayLitWithSpread;
 import org.mozilla.javascript.interpreterv2.instruction.BigInt;
 import org.mozilla.javascript.interpreterv2.instruction.BindName;
 import org.mozilla.javascript.interpreterv2.instruction.BitAnd;
@@ -1513,6 +1514,57 @@ public class Compiler {
                 {
                     updateLineNumber(node);
 
+                    int[] skipIndices = (int[]) node.getProp(Node.SKIP_INDEXES_PROP);
+                    int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
+
+                    if (numberOfSpread > 0) {
+                        var elements = new ArrayList<Operand>();
+                        var spreadFlags = new ArrayList<Boolean>();
+                        while (child != null) {
+                            updateLineNumber(child);
+                            if (child.getType() == Token.DOTDOTDOT) {
+                                elements.add(getOperand(child.getFirstChild(), 0));
+                                spreadFlags.add(Boolean.TRUE);
+                            } else {
+                                elements.add(getOperand(child, 0));
+                                spreadFlags.add(Boolean.FALSE);
+                            }
+                            child = child.getNext();
+                        }
+
+                        int count = elements.size();
+                        boolean[] isSpread = new boolean[count];
+                        for (int i = 0; i < count; i++) {
+                            isSpread[i] = spreadFlags.get(i);
+                        }
+
+                        int[] sourcePositions = null;
+                        if (skipIndices != null) {
+                            sourcePositions = new int[count];
+                            int sourcePos = 0;
+                            int skipIdx = 0;
+                            for (int i = 0; i < count; i++) {
+                                while (skipIdx < skipIndices.length
+                                        && skipIndices[skipIdx] == sourcePos) {
+                                    sourcePos++;
+                                    skipIdx++;
+                                }
+                                sourcePositions[i] = sourcePos;
+                                sourcePos++;
+                            }
+                        }
+
+                        int nonSpreadCount = count - numberOfSpread;
+                        addInstruction(
+                                new ArrayLitWithSpread(
+                                        elements.toArray(Operand.EMPTY_ARRAY),
+                                        isSpread,
+                                        skipIndices,
+                                        sourcePositions,
+                                        nonSpreadCount));
+                        return;
+                    }
+
                     var elements = new ArrayList<Operand>();
                     while (child != null) {
                         updateLineNumber(child);
@@ -1520,7 +1572,6 @@ public class Compiler {
                         child = child.getNext();
                     }
 
-                    int[] skipIndices = (int[]) node.getProp(Node.SKIP_INDEXES_PROP);
                     addInstruction(
                             new ArrayLit(elements.toArray(Operand.EMPTY_ARRAY), skipIndices));
                     return;
