@@ -75,12 +75,7 @@ public class CallFrameV2 implements ICallFrame, Serializable {
         }
         localShift = compilerData.maxVars;
 
-        this.thisObj =
-                compilerData.functionType != CompilerData.FunctionType.Script
-                                && useActivation
-                                && compilerData.isStrict
-                        ? Undefined.SCRIPTABLE_UNDEFINED
-                        : thisObj;
+        this.thisObj = thisObj;
         this.parentFrame = parentFrame;
         frameIndex = (short) ((parentFrame == null) ? 0 : parentFrame.frameIndex + 1);
 
