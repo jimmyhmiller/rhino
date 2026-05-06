@@ -102,6 +102,7 @@ import org.mozilla.javascript.interpreterv2.instruction.NotEqual;
 import org.mozilla.javascript.interpreterv2.instruction.Num;
 import org.mozilla.javascript.interpreterv2.instruction.ObjectLit;
 import org.mozilla.javascript.interpreterv2.instruction.ObjectLitWithSpread;
+import org.mozilla.javascript.interpreterv2.instruction.ObjectRest;
 import org.mozilla.javascript.interpreterv2.instruction.Pop;
 import org.mozilla.javascript.interpreterv2.instruction.PopResult;
 import org.mozilla.javascript.interpreterv2.instruction.Pos;
@@ -857,6 +858,40 @@ public class Compiler {
                 }
             case Token.USE_STACK:
                 {
+                    return;
+                }
+            case Token.OBJECT_REST:
+                {
+                    Object[] excludedKeys = (Object[]) node.getProp(Node.OBJECT_IDS_PROP);
+                    if (excludedKeys == null) {
+                        excludedKeys = new Object[0];
+                    }
+                    int computedCount = 0;
+                    int staticCount = 0;
+                    for (Object key : excludedKeys) {
+                        if (key instanceof Node) {
+                            computedCount++;
+                        } else {
+                            staticCount++;
+                        }
+                    }
+                    Object[] staticKeys = new Object[staticCount];
+                    int si = 0;
+                    for (Object key : excludedKeys) {
+                        if (!(key instanceof Node)) {
+                            staticKeys[si++] = key;
+                        }
+                    }
+
+                    var sourceOperand = getOperand(child, 0);
+                    Operand[] computedKeys = new Operand[computedCount];
+                    int ci = 0;
+                    for (Object key : excludedKeys) {
+                        if (key instanceof Node) {
+                            computedKeys[ci++] = getOperand((Node) key, 0);
+                        }
+                    }
+                    addInstruction(new ObjectRest(sourceOperand, staticKeys, computedKeys));
                     return;
                 }
             case Token.REF_CALL:

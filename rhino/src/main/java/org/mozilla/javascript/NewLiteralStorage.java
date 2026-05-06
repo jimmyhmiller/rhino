@@ -273,8 +273,8 @@ public abstract class NewLiteralStorage {
 
     /**
      * Set the inferred name on a function value placed under {@code propKey} in an object literal,
-     * matching the semantics of {@code SetFunctionName} (ECMA 9.2.13). Used by both V1
-     * (via {@link NewLiteralStorage}) and V2 (directly from its ObjectLit instruction).
+     * matching the semantics of {@code SetFunctionName} (ECMA 9.2.13). Used by both V1 (via {@link
+     * NewLiteralStorage}) and V2 (directly from its ObjectLit instruction).
      *
      * @param propKey the property key (String, Symbol, or other id)
      * @param value the candidate function value
