@@ -3,6 +3,7 @@ package org.mozilla.javascript.interpreterv2.instruction;
 import java.util.Arrays;
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.NewLiteralStorage;
 import org.mozilla.javascript.Node;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
@@ -59,6 +60,13 @@ public class ObjectLit implements Instruction {
             }
 
             frame.popN(-totalPops);
+        }
+
+        if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
+            for (int i = 0; i < values.length; i++) {
+                int gs = getterSetters == null ? 0 : getterSetters[i];
+                NewLiteralStorage.inferFunctionName(ids[i], values[i], gs);
+            }
         }
 
         var object = (Scriptable) objectOperand.retrieve(cx, frame);
