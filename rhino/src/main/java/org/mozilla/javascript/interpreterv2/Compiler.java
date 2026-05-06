@@ -383,6 +383,18 @@ public class Compiler {
         }
 
         if (theFunction.isGenerator()) {
+            // For generators with default parameters, generate parameter initialization
+            // BEFORE Generator/ThawFrame so defaults are evaluated when f() is called rather
+            // than deferred to iter.next(). Ref: ECMA 2026, 10.2.11
+            // FunctionDeclarationInstantiation.
+            Node paramInitBlock = theFunction.getGeneratorParamInitBlock();
+            if (paramInitBlock != null) {
+                Node paramInit = paramInitBlock.getFirstChild();
+                while (paramInit != null) {
+                    generateStatement(paramInit, 0);
+                    paramInit = paramInit.getNext();
+                }
+            }
             addInstruction(new Generator((short) theFunction.getBaseLineno()));
             addInstruction(new ThawFrame(false, (short) theFunction.getBaseLineno()));
         }
