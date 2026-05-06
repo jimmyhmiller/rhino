@@ -49,7 +49,7 @@ public final class Interpreter extends Icode implements Evaluator {
         // amount of stack frames before this one on the interpretation stack
         final short frameIndex;
         // The frame that the iterator was executing.
-        final CallFrame previousInterpreterFrame;
+        final ICallFrame previousInterpreterFrame;
         final int parentPC;
         // If true indicates read-only frame that is a part of continuation
         boolean frozen;
@@ -96,7 +96,7 @@ public final class Interpreter extends Icode implements Evaluator {
                 ScriptOrFn fnOrScript,
                 InterpreterData code,
                 CallFrame parentFrame,
-                CallFrame previousInterpreterFrame) {
+                ICallFrame previousInterpreterFrame) {
             idata = code;
             debuggerFrame =
                     cx.debugger != null
@@ -121,7 +121,7 @@ public final class Interpreter extends Icode implements Evaluator {
                 this.parentPC =
                         previousInterpreterFrame == null
                                 ? -1
-                                : previousInterpreterFrame.pcSourceLineStart;
+                                : previousInterpreterFrame.getPcSourceLineStart();
             } else {
                 this.parentPC = parentFrame.pcSourceLineStart;
             }
@@ -149,7 +149,7 @@ public final class Interpreter extends Icode implements Evaluator {
         /* Copy the frame for *continuations*. Here we want to make
         fresh copies of the stack and everything related to it. */
         private CallFrame(
-                CallFrame original, CallFrame parentFrame, CallFrame previousInterpreterFrame) {
+                CallFrame original, CallFrame parentFrame, ICallFrame previousInterpreterFrame) {
             if (!original.frozen) Kit.codeBug();
 
             stack = Arrays.copyOf(original.stack, original.stack.length);
@@ -165,7 +165,7 @@ public final class Interpreter extends Icode implements Evaluator {
                 parentPC =
                         previousInterpreterFrame == null
                                 ? -1
-                                : previousInterpreterFrame.pcSourceLineStart;
+                                : previousInterpreterFrame.getPcSourceLineStart();
             } else {
                 frameIndex = original.frameIndex;
                 parentPC = parentFrame.pcSourceLineStart;
@@ -201,7 +201,7 @@ public final class Interpreter extends Icode implements Evaluator {
         private CallFrame(
                 CallFrame original,
                 CallFrame parentFrame,
-                CallFrame previousInterpreterFrame,
+                ICallFrame previousInterpreterFrame,
                 boolean keepFrozen) {
             if (!original.frozen) Kit.codeBug();
 
@@ -217,7 +217,7 @@ public final class Interpreter extends Icode implements Evaluator {
                 parentPC =
                         previousInterpreterFrame == null
                                 ? -1
-                                : previousInterpreterFrame.pcSourceLineStart;
+                                : previousInterpreterFrame.getPcSourceLineStart();
             } else {
                 frameIndex = original.frameIndex;
                 parentPC = parentFrame.pcSourceLineStart;
@@ -363,7 +363,7 @@ public final class Interpreter extends Icode implements Evaluator {
             return new CallFrame(this, false);
         }
 
-        CallFrame shallowCloneFrozen(CallFrame newPreviousInterpreeterFrame) {
+        CallFrame shallowCloneFrozen(ICallFrame newPreviousInterpreeterFrame) {
             return new CallFrame(this, this.parentFrame, newPreviousInterpreeterFrame, true);
         }
 
@@ -514,6 +514,21 @@ public final class Interpreter extends Icode implements Evaluator {
         @Override
         public DebuggableScript getData() {
             return fnOrScript.getDescriptor();
+        }
+
+        @Override
+        public int getParentPC() {
+            return parentPC;
+        }
+
+        @Override
+        public ICallFrame getPreviousInterpreterFrame() {
+            return previousInterpreterFrame;
+        }
+
+        @Override
+        public ScriptOrFn<?> getFnOrScript() {
+            return fnOrScript;
         }
     }
 
@@ -1055,17 +1070,28 @@ public final class Interpreter extends Icode implements Evaluator {
             ex.interpreterStackInfo = null;
         } else {
             ex.interpreterStackInfo = cx.lastInterpreterFrame;
-            ex.interpreterLineData = ((CallFrame) cx.lastInterpreterFrame).pcSourceLineStart;
+            ex.interpreterLineData = ((ICallFrame) cx.lastInterpreterFrame).getPcSourceLineStart();
         }
+    }
+
+    private static int lineNumberFromPc(JSCode<?> code, int pc) {
+        if (code instanceof InterpreterData) {
+            return getIndex(((InterpreterData) code).itsICode, pc);
+        }
+        if (code instanceof org.mozilla.javascript.interpreterv2.CompilerData) {
+            return ((org.mozilla.javascript.interpreterv2.CompilerData<?>) code)
+                    .getLineNumberFromPc(pc);
+        }
+        return -1;
     }
 
     @Override
     public String getSourcePositionFromStack(Context cx, int[] linep) {
-        CallFrame frame = (CallFrame) cx.lastInterpreterFrame;
-        InterpreterData idata = frame.idata;
-        JSDescriptor desc = frame.fnOrScript.getDescriptor();
-        if (frame.pcSourceLineStart >= 0) {
-            linep[0] = getIndex(idata.itsICode, frame.pcSourceLineStart);
+        ICallFrame frame = (ICallFrame) cx.lastInterpreterFrame;
+        JSDescriptor<?> desc = frame.getFnOrScript().getDescriptor();
+        JSCode<?> code = desc.getCode();
+        if (frame.getPcSourceLineStart() >= 0) {
+            linep[0] = lineNumberFromPc(code, frame.getPcSourceLineStart());
         } else {
             linep[0] = 0;
         }
@@ -1078,11 +1104,11 @@ public final class Interpreter extends Icode implements Evaluator {
         StringBuilder sb = new StringBuilder(nativeStackTrace.length() + 1000);
         String lineSeparator = SecurityUtilities.getSystemProperty("line.separator");
 
-        CallFrame calleeFrame = null;
-        CallFrame frame = (CallFrame) ex.interpreterStackInfo;
+        ICallFrame calleeFrame = null;
+        ICallFrame frame = (ICallFrame) ex.interpreterStackInfo;
         int offset = 0;
         while (frame != null) {
-            CallFrame callerFrame = frame;
+            ICallFrame callerFrame = frame;
             int pos = nativeStackTrace.indexOf(tag, offset);
             if (pos < 0) {
                 break;
@@ -1101,8 +1127,8 @@ public final class Interpreter extends Icode implements Evaluator {
             offset = pos;
 
             while (callerFrame != null) {
-                InterpreterData idata = callerFrame.idata;
-                JSDescriptor desc = callerFrame.fnOrScript.getDescriptor();
+                JSDescriptor<?> desc = callerFrame.getFnOrScript().getDescriptor();
+                JSCode<?> code = desc.getCode();
                 sb.append(lineSeparator);
                 sb.append("\tat script");
                 if (desc.getName() != null && desc.getName().length() != 0) {
@@ -1111,17 +1137,17 @@ public final class Interpreter extends Icode implements Evaluator {
                 }
                 sb.append('(');
                 sb.append(desc.getSourceName());
-                int pc = calleeFrame == null ? ex.interpreterLineData : calleeFrame.parentPC;
+                int pc = calleeFrame == null ? ex.interpreterLineData : calleeFrame.getParentPC();
                 if (pc >= 0) {
                     // Include line info only if available
                     sb.append(':');
-                    sb.append(getIndex(idata.itsICode, pc));
+                    sb.append(lineNumberFromPc(code, pc));
                 }
                 sb.append(')');
                 calleeFrame = callerFrame;
-                callerFrame = callerFrame.parentFrame;
+                callerFrame = callerFrame.getParentFrame();
             }
-            frame = calleeFrame.previousInterpreterFrame;
+            frame = calleeFrame.getPreviousInterpreterFrame();
         }
         sb.append(nativeStackTrace.substring(offset));
 
@@ -1151,30 +1177,30 @@ public final class Interpreter extends Icode implements Evaluator {
 
         List<ScriptStackElement[]> list = new ArrayList<>();
 
-        CallFrame calleeFrame = null;
-        CallFrame frame = (CallFrame) ex.interpreterStackInfo;
+        ICallFrame calleeFrame = null;
+        ICallFrame frame = (ICallFrame) ex.interpreterStackInfo;
         while (frame != null) {
-            CallFrame callerFrame = frame;
+            ICallFrame callerFrame = frame;
             List<ScriptStackElement> group = new ArrayList<>();
             while (callerFrame != null) {
-                InterpreterData idata = callerFrame.idata;
-                JSDescriptor desc = callerFrame.fnOrScript.getDescriptor();
+                JSDescriptor<?> desc = callerFrame.getFnOrScript().getDescriptor();
+                JSCode<?> code = desc.getCode();
                 String fileName = desc.getSourceName();
                 String functionName = null;
                 int lineNumber = -1;
-                int pc = calleeFrame == null ? ex.interpreterLineData : calleeFrame.parentPC;
+                int pc = calleeFrame == null ? ex.interpreterLineData : calleeFrame.getParentPC();
                 if (pc >= 0) {
-                    lineNumber = getIndex(idata.itsICode, pc);
+                    lineNumber = lineNumberFromPc(code, pc);
                 }
                 if (desc.getName() != null && desc.getName().length() != 0) {
                     functionName = desc.getName();
                 }
                 calleeFrame = callerFrame;
-                callerFrame = callerFrame.parentFrame;
+                callerFrame = callerFrame.getParentFrame();
                 group.add(new ScriptStackElement(fileName, functionName, lineNumber));
             }
             list.add(group.toArray(new ScriptStackElement[0]));
-            frame = calleeFrame.previousInterpreterFrame;
+            frame = calleeFrame.getPreviousInterpreterFrame();
         }
         return list.toArray(new ScriptStackElement[list.size()][]);
     }
@@ -1268,7 +1294,7 @@ public final class Interpreter extends Icode implements Evaluator {
     public static Object resumeGenerator(
             Context cx, Scriptable scope, int operation, Object savedState, Object value) {
         CallFrame frame = (CallFrame) savedState;
-        CallFrame activeFrame = frame.shallowCloneFrozen((CallFrame) cx.lastInterpreterFrame);
+        CallFrame activeFrame = frame.shallowCloneFrozen((ICallFrame) cx.lastInterpreterFrame);
         try {
             GeneratorState generatorState = new GeneratorState(operation, value);
             if (operation == NativeGenerator.GENERATOR_CLOSE) {
@@ -5068,7 +5094,7 @@ public final class Interpreter extends Icode implements Evaluator {
                         code,
                         parentFrame,
                         parentFrame == null
-                                ? (CallFrame) cx.lastInterpreterFrame
+                                ? (ICallFrame) cx.lastInterpreterFrame
                                 : parentFrame.previousInterpreterFrame);
         frame.initializeArgs(
                 cx, callerScope, args, argsDbl, boundArgs, argShift, argCount, homeObj);
