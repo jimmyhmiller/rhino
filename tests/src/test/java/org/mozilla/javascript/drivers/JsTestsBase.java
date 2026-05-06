@@ -16,7 +16,7 @@ import org.mozilla.javascript.TopLevel;
 import org.mozilla.javascript.testutils.Utils;
 
 public abstract class JsTestsBase {
-    private boolean interpretedMode;
+    private Context.EvaluationMethod evaluationMethod;
 
     private static ContextFactory threadSafeFactory;
 
@@ -25,8 +25,8 @@ public abstract class JsTestsBase {
         threadSafeFactory = Utils.contextFactoryWithFeatures(Context.FEATURE_THREAD_SAFE_OBJECTS);
     }
 
-    public void setInterpretedMode(boolean interpretedMode) {
-        this.interpretedMode = interpretedMode;
+    public void setEvaluationMethod(Context.EvaluationMethod evaluationMethod) {
+        this.evaluationMethod = evaluationMethod;
     }
 
     public void runJsTest(Context cx, TopLevel shared, String name, String source) {
@@ -46,7 +46,7 @@ public abstract class JsTestsBase {
 
     public void runJsTests(File[] tests) throws IOException {
         try (Context cx = threadSafeFactory.enterContext()) {
-            cx.setInterpretedMode(this.interpretedMode);
+            cx.setEvaluationMethod(this.evaluationMethod);
             TopLevel shared = cx.initStandardObjects();
             for (File f : tests) {
                 int length = (int) f.length(); // don't worry about very long

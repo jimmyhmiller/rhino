@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
+import org.mozilla.javascript.Context;
 import org.mozilla.javascript.tools.shell.ShellContextFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -624,8 +625,10 @@ public class JsDriver {
         }
 
         ShellContextFactory factory = new ShellContextFactory();
-        if (arguments.getOptimizationLevel() < 0) {
-            factory.setInterpretedMode(true);
+        if (arguments.getOptimizationLevel() == -2) {
+            factory.setEvaluationMethod(Context.EvaluationMethod.InterpreterV2);
+        } else if (arguments.getOptimizationLevel() < 0) {
+            factory.setEvaluationMethod(Context.EvaluationMethod.Interpreter);
         }
         factory.setStrictMode(arguments.isStrict());
 
