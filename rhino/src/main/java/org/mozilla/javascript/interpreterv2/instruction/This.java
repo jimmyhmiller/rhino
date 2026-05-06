@@ -2,6 +2,7 @@ package org.mozilla.javascript.interpreterv2.instruction;
 
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 
 public class This implements Instruction {
     public static final This instance = new This();
@@ -21,6 +22,6 @@ public class This implements Instruction {
 
     @Override
     public String toDebugString() {
-        return "This{}";
+        return InstructionFormatter.formatInstruction(this);
     }
 }

@@ -1,9 +1,3 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript.interpreterv2;
 
 import java.io.Serializable;
@@ -12,7 +6,6 @@ import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Kit;
 import org.mozilla.javascript.NativeContinuation;
 
-/** Represents a jump to a continuation point in the interpreter. */
 public final class ContinuationJump implements Serializable {
     private static final long serialVersionUID = 7687739156004308247L;
 
@@ -21,7 +14,7 @@ public final class ContinuationJump implements Serializable {
     public Object result;
     public double resultDbl;
 
-    public ContinuationJump(NativeContinuation c, CallFrameV2 current) {
+    ContinuationJump(NativeContinuation c, CallFrameV2 current) {
         this.capturedFrame = (CallFrameV2) c.getImplementation();
         if (this.capturedFrame == null || current == null) {
             // Continuation and current execution does not share

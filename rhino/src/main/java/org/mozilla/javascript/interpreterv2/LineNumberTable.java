@@ -1,9 +1,3 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript.interpreterv2;
 
 import java.util.ArrayList;
@@ -11,6 +5,7 @@ import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.logging.Logger;
 
 /**
  * Packed array-based line number table implementation.
@@ -37,6 +32,7 @@ import java.util.Set;
  * bytes per PC + 4 bytes per line number (no object overhead).
  */
 public class LineNumberTable {
+    private static final Logger LOG = Logger.getLogger(LineNumberTable.class.getName());
 
     private final short[] pcs;
     private final short[] lineOffsets;
@@ -139,9 +135,7 @@ public class LineNumberTable {
     }
 
     public static short getPcFirstLineNumber(LineNumberTable lineNumberTable) {
-        if (lineNumberTable == null
-                || lineNumberTable.pcs == null
-                || lineNumberTable.pcs.length == 0) {
+        if (isEmpty(lineNumberTable)) {
             return -1;
         }
         return lineNumberTable.pcs[0];
@@ -155,9 +149,7 @@ public class LineNumberTable {
      * @return List of line numbers, or null if PC not found or synthetic
      */
     public static List<Integer> getLineSetFromPc(LineNumberTable lineNumberTable, int pc) {
-        if (lineNumberTable == null
-                || lineNumberTable.pcs == null
-                || lineNumberTable.pcs.length == 0) {
+        if (isEmpty(lineNumberTable)) {
             return null;
         }
 
@@ -194,9 +186,7 @@ public class LineNumberTable {
      * @return The last line number, or -1 if not found or synthetic
      */
     public static int getLineNumberFromPc(LineNumberTable lineNumberTable, int pc) {
-        if (lineNumberTable == null
-                || lineNumberTable.pcs == null
-                || lineNumberTable.pcs.length == 0) {
+        if (isEmpty(lineNumberTable)) {
             return -1;
         }
 
@@ -246,9 +236,7 @@ public class LineNumberTable {
      * @return Debug string showing PC -> lines mapping
      */
     public static String getDebugString(LineNumberTable lineNumberTable) {
-        if (lineNumberTable == null
-                || lineNumberTable.pcs == null
-                || lineNumberTable.pcs.length == 0) {
+        if (isEmpty(lineNumberTable)) {
             return "[]";
         }
 

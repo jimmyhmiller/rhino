@@ -1,7 +1,10 @@
 package org.mozilla.javascript.interpreterv2.instruction;
 
+import static org.mozilla.javascript.InterpreterV2.addInstructionCount;
+
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 
 public class ReturnSubroutine implements Instruction {
     private final int returnPcOffset;
@@ -14,11 +17,17 @@ public class ReturnSubroutine implements Instruction {
     public void interpret(Context cx, CallFrameV2 frame) {
         frame.pc += 1;
 
+        if (cx.instructionThreshold != 0) {
+            addInstructionCount(cx, frame, 0);
+        }
+
         // Normal return from GOSUB
         if (frame.hasSubRoutineReturnPC(returnPcOffset)) {
             var returnPc = frame.getSubRoutineReturnPC(returnPcOffset);
             frame.pc = (int) returnPc;
-            frame.pcPrevBranch = frame.pc;
+            if (cx.instructionThreshold != 0) {
+                frame.pcPrevBranch = frame.pc;
+            }
             return;
         }
 
@@ -29,5 +38,10 @@ public class ReturnSubroutine implements Instruction {
     @Override
     public int stackChange() {
         return 0;
+    }
+
+    @Override
+    public String toDebugString() {
+        return InstructionFormatter.formatInstruction(this, "returnPcOffset", returnPcOffset);
     }
 }

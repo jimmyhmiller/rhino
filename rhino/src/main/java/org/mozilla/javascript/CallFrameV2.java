@@ -1,34 +1,29 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript;
 
+import static org.mozilla.javascript.InterpreterV2.initFunction;
 import static org.mozilla.javascript.UniqueTag.DOUBLE_MARK;
 
+import java.io.Serializable;
+import java.util.Arrays;
+import org.mozilla.javascript.debug.DebugFrame;
 import org.mozilla.javascript.debug.DebuggableScript;
 import org.mozilla.javascript.interpreterv2.CompilerData;
+import org.mozilla.javascript.interpreterv2.GeneratorState;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
-/**
- * CallFrameV2 represents an activation frame for InterpreterV2.
- *
- * <p>This is a stub implementation that will be expanded in a later commit.
- */
-public class CallFrameV2 implements ICallFrame {
-
-    public CallFrameV2 parentFrame;
-    public int frameIndex;
+public class CallFrameV2 implements ICallFrame, Serializable {
+    public final CallFrameV2 parentFrame;
+    public final short frameIndex;
+    public final ICallFrame previousInterpreterFrame;
+    public final int parentPC;
     public boolean frozen;
 
-    public InterpretedFunctionV2 fnOrScript;
-    public CompilerData compilerData;
+    public ScriptOrFn<?> fnOrScript;
+    public CompilerData<?> compilerData;
 
-    public Object[] stack;
-    public int[] stackAttributes;
-    public double[] doubleStack;
+    public final Object[] stack;
+    public final byte[] stackAttributes;
+    public final double[] doubleStack;
 
     public Object result;
     public double resultDbl;
@@ -38,23 +33,283 @@ public class CallFrameV2 implements ICallFrame {
 
     public Scriptable thisObj;
 
+    public final DebugFrame debuggerFrame;
     public final boolean useActivation;
+
     public CallFrameV2 varSource;
     public final int localShift;
-    public final int emptyStackTop;
+    public final short emptyStackTop;
     public Object throwable;
     public int pcPrevBranch;
-
-    // Additional fields for future generator support
-    public boolean isContinuationsTopFrame;
     public boolean shouldYieldToParent;
+    public GeneratorState generatorState;
 
-    /** Minimal constructor for stub implementation. */
-    public CallFrameV2() {
-        this.useActivation = false;
-        this.localShift = 0;
-        this.emptyStackTop = -1;
-        this.varSource = this;
+    public CallFrameV2(
+            Context cx,
+            Scriptable callerScope,
+            Scriptable thisObj,
+            Scriptable homeObj,
+            Object[] args,
+            double[] doubleArgs,
+            int argShift,
+            int argCount,
+            ScriptOrFn<?> fnOrScript,
+            CallFrameV2 parentFrame,
+            ICallFrame previousInterpreterFrame) {
+        compilerData = (CompilerData<?>) fnOrScript.getDescriptor().getCode();
+        debuggerFrame =
+                cx.debugger != null ? cx.debugger.getFrame(cx, fnOrScript.getDescriptor()) : null;
+        useActivation =
+                debuggerFrame != null || fnOrScript.getDescriptor().requiresActivationFrame();
+        emptyStackTop = (short) (compilerData.maxVars + compilerData.maxLocals - 1);
+        this.fnOrScript = fnOrScript;
+        varSource = this;
+        this.previousInterpreterFrame = previousInterpreterFrame;
+        if (parentFrame == null) {
+            this.parentPC =
+                    previousInterpreterFrame == null
+                            ? -1
+                            : previousInterpreterFrame.getPcSourceLineStart();
+        } else {
+            this.parentPC = parentFrame.pc;
+        }
+        localShift = compilerData.maxVars;
+
+        this.thisObj =
+                compilerData.functionType != CompilerData.FunctionType.Script
+                                && useActivation
+                                && compilerData.isStrict
+                        ? Undefined.SCRIPTABLE_UNDEFINED
+                        : thisObj;
+        this.parentFrame = parentFrame;
+        frameIndex = (short) ((parentFrame == null) ? 0 : parentFrame.frameIndex + 1);
+
+        result = Undefined.instance;
+        stackTop = emptyStackTop;
+
+        // Start of initializeArgs()
+        if (useActivation) {
+            // Copy args to new array to pass to enterActivationFunction or debuggerFrame.onEnter
+            if (doubleArgs != null) {
+                args = wrapArguments(args, doubleArgs, argShift, argCount);
+            }
+            argShift = 0;
+            doubleArgs = null;
+        }
+
+        JSDescriptor<?> desc = fnOrScript.getDescriptor();
+        if (compilerData.functionType != CompilerData.FunctionType.Script) {
+            scope = fnOrScript.getDeclarationScope();
+
+            if (useActivation) {
+                if (compilerData.functionType == CompilerData.FunctionType.ArrowFunction) {
+                    scope =
+                            ScriptRuntime.createArrowFunctionActivation(
+                                    (JSFunction) fnOrScript,
+                                    cx,
+                                    scope,
+                                    args,
+                                    desc.isStrict(),
+                                    desc.hasRestArg(),
+                                    desc.requiresArgumentObject());
+                } else {
+                    scope =
+                            ScriptRuntime.createFunctionActivation(
+                                    (JSFunction) fnOrScript,
+                                    cx,
+                                    scope,
+                                    args,
+                                    desc.isStrict(),
+                                    desc.hasRestArg(),
+                                    desc.requiresArgumentObject());
+                }
+            }
+        } else {
+            scope = callerScope;
+            // SNC: eval() inside a strict-mode function needs its own activation so that
+            // `var` declarations do not leak to the caller's scope.
+            if (desc.isEvalFunction() && desc.isStrict()) {
+                NativeObject evalScope = new NativeObject();
+                evalScope.setParentScope(scope);
+                evalScope.setPrototype(null);
+                scope = evalScope;
+            }
+
+            ScriptRuntime.initScript(fnOrScript, thisObj, cx, scope, desc.isEvalFunction());
+        }
+
+        if (compilerData.nestedFunctions != null) {
+            if (compilerData.functionType != CompilerData.FunctionType.Script
+                    && !desc.requiresActivationFrame()) {
+                Kit.codeBug();
+            }
+            for (int i = 0; i < compilerData.nestedFunctions.length; i++) {
+                var fdata = compilerData.nestedFunctions[i];
+                if (fdata.functionType == CompilerData.FunctionType.FunctionStatement) {
+                    initFunction(cx, this.scope, desc, i);
+                }
+            }
+        }
+        final int maxFrameArray = compilerData.maxFrameSize;
+        // TODO: move this check into InterpreterData construction
+        if (maxFrameArray != emptyStackTop + compilerData.maxStack + 1) Kit.codeBug();
+
+        // Initialize args, vars, locals and stack
+        stack = new Object[maxFrameArray];
+        stackAttributes = new byte[maxFrameArray];
+        doubleStack = new double[maxFrameArray];
+
+        int varCount = compilerData.getParamAndVarCount();
+        for (int i = 0; i < varCount; i++) {
+            if (compilerData.getParamOrVarConst(i)) {
+                this.stackAttributes[i] = (byte) ScriptableObject.CONST;
+            }
+        }
+        int definedArgs = compilerData.argCount;
+        if (definedArgs > argCount) {
+            definedArgs = argCount;
+        }
+
+        // Fill the frame structure
+
+        if (frameIndex > cx.getMaximumInterpreterStackDepth()) {
+            throw Context.reportRuntimeError("Exceeded maximum stack depth");
+        }
+
+        frozen = false;
+
+        System.arraycopy(args, argShift, stack, 0, definedArgs);
+        if (doubleArgs != null) {
+            System.arraycopy(doubleArgs, argShift, doubleStack, 0, definedArgs);
+        }
+        for (int i = definedArgs; i != compilerData.maxVars; ++i) {
+            stack[i] = Undefined.instance;
+        }
+
+        if (compilerData.hasRestParams) {
+            Object[] vals;
+            int offset = compilerData.argCount - 1;
+            if (argCount >= compilerData.argCount) {
+                vals = new Object[argCount - offset];
+
+                argShift = argShift + offset;
+                for (int valsIdx = 0; valsIdx != vals.length; ++argShift, ++valsIdx) {
+                    Object val = args[argShift];
+                    if (val == UniqueTag.DOUBLE_MARK) {
+                        val = ScriptRuntime.wrapNumber(doubleArgs[argShift]);
+                    }
+                    vals[valsIdx] = val;
+                }
+            } else {
+                vals = ScriptRuntime.emptyArgs;
+            }
+            stack[offset] = cx.newArray(scope, vals);
+        }
+    }
+
+    // Orphan copy (for generators) or regular copy
+    private CallFrameV2(CallFrameV2 original, boolean makeOrphan) {
+        this(
+                original,
+                makeOrphan ? null : original.parentFrame,
+                makeOrphan ? null : original.previousInterpreterFrame);
+    }
+
+    // Full copy with new linkage
+    private CallFrameV2(
+            CallFrameV2 original, CallFrameV2 parentFrame, ICallFrame previousInterpreterFrame) {
+        if (!original.frozen) Kit.codeBug();
+
+        stack = Arrays.copyOf(original.stack, original.stack.length);
+        stackAttributes = Arrays.copyOf(original.stackAttributes, original.stackAttributes.length);
+        doubleStack = Arrays.copyOf(original.doubleStack, original.doubleStack.length);
+
+        frozen = false;
+        this.parentFrame = parentFrame;
+        this.previousInterpreterFrame = previousInterpreterFrame;
+        if (parentFrame == null) {
+            frameIndex = 0;
+            parentPC =
+                    previousInterpreterFrame == null
+                            ? -1
+                            : previousInterpreterFrame.getPcSourceLineStart();
+        } else {
+            frameIndex = original.frameIndex;
+            parentPC = parentFrame.pc;
+        }
+
+        fnOrScript = original.fnOrScript;
+        compilerData = original.compilerData;
+
+        varSource = original.varSource;
+        localShift = original.localShift;
+        emptyStackTop = original.emptyStackTop;
+
+        debuggerFrame = original.debuggerFrame;
+        useActivation = original.useActivation;
+
+        thisObj = original.thisObj;
+
+        result = original.result;
+        resultDbl = original.resultDbl;
+        pc = original.pc;
+        pcPrevBranch = original.pcPrevBranch;
+        scope = original.scope;
+
+        stackTop = original.stackTop;
+        throwable = original.throwable;
+        shouldYieldToParent = original.shouldYieldToParent;
+        generatorState = original.generatorState;
+    }
+
+    /* Shallow copy for running a generator. Reuses the existing stack arrays. */
+    private CallFrameV2(
+            CallFrameV2 original,
+            CallFrameV2 parentFrame,
+            ICallFrame previousInterpreterFrame,
+            boolean keepFrozen) {
+        if (!original.frozen) Kit.codeBug();
+
+        stack = original.stack;
+        stackAttributes = original.stackAttributes;
+        doubleStack = original.doubleStack;
+
+        frozen = keepFrozen;
+        this.parentFrame = parentFrame;
+        this.previousInterpreterFrame = previousInterpreterFrame;
+        if (parentFrame == null) {
+            frameIndex = 0;
+            parentPC =
+                    previousInterpreterFrame == null
+                            ? -1
+                            : previousInterpreterFrame.getPcSourceLineStart();
+        } else {
+            frameIndex = original.frameIndex;
+            parentPC = parentFrame.pc;
+        }
+
+        fnOrScript = original.fnOrScript;
+        compilerData = original.compilerData;
+
+        varSource = original.varSource;
+        localShift = original.localShift;
+        emptyStackTop = original.emptyStackTop;
+
+        debuggerFrame = original.debuggerFrame;
+        useActivation = original.useActivation;
+
+        thisObj = original.thisObj;
+
+        result = original.result;
+        resultDbl = original.resultDbl;
+        pc = original.pc;
+        pcPrevBranch = original.pcPrevBranch;
+        scope = original.scope;
+
+        stackTop = original.stackTop;
+        throwable = original.throwable;
+        shouldYieldToParent = original.shouldYieldToParent;
+        generatorState = original.generatorState;
     }
 
     public void push(Object val) {
@@ -94,6 +349,7 @@ public class CallFrameV2 implements ICallFrame {
     }
 
     public double popDouble() {
+        assert stack[stackTop] == DOUBLE_MARK;
         var value = doubleStack[stackTop];
         stack[stackTop] = null;
         stackTop -= 1;
@@ -118,6 +374,26 @@ public class CallFrameV2 implements ICallFrame {
 
     public boolean isStackEmpty() {
         return stackTop == emptyStackTop;
+    }
+
+    public void saveExceptionScope(int exceptionIndex, Scriptable scope) {
+        stack[localShift + exceptionIndex] = scope;
+    }
+
+    public void saveSubRoutineReturnPC(int returnPcOffset, double subRoutineReturnPC) {
+        stack[localShift + returnPcOffset] = DOUBLE_MARK;
+        doubleStack[localShift + returnPcOffset] = subRoutineReturnPC;
+    }
+
+    public boolean hasSubRoutineReturnPC(int returnPcOffset) {
+        return stack[localShift + returnPcOffset] == DOUBLE_MARK;
+    }
+
+    public double getSubRoutineReturnPC(int returnPcOffset) {
+        if (stack[localShift + returnPcOffset] != DOUBLE_MARK) {
+            throw new IllegalStateException("Use hasSubRoutineReturnPC first");
+        }
+        return doubleStack[localShift + returnPcOffset];
     }
 
     public Object getVarAndWrap(int index) {
@@ -159,7 +435,7 @@ public class CallFrameV2 implements ICallFrame {
     }
 
     public void setVarAttribute(int index, int attributes) {
-        varSource.stackAttributes[index] &= ~attributes;
+        varSource.stackAttributes[index] &= (byte) ~attributes;
     }
 
     public Object getLocal(int index) {
@@ -183,6 +459,7 @@ public class CallFrameV2 implements ICallFrame {
         resultDbl = value;
     }
 
+    // TODO(Cam): For object literals, we want to wrap literal values, but not getters and setters
     public Object[] getArguments(Context cx, Operand[] arguments) {
         if (arguments.length == 0) {
             return ScriptRuntime.emptyArgs;
@@ -194,30 +471,20 @@ public class CallFrameV2 implements ICallFrame {
         return args;
     }
 
-    public void popN(int n) {
-        for (int i = 0; i < n; i++) {
-            pop();
+    private static Object[] wrapArguments(
+            Object[] stack, double[] doubleStack, int shift, int count) {
+        if (count == 0) {
+            return ScriptRuntime.emptyArgs;
         }
-    }
-
-    public void saveExceptionScope(int exceptionIndex, Scriptable scope) {
-        stack[localShift + exceptionIndex] = scope;
-    }
-
-    public void saveSubRoutineReturnPC(int returnPcOffset, double subRoutineReturnPC) {
-        stack[localShift + returnPcOffset] = subRoutineReturnPC;
-    }
-
-    public boolean hasSubRoutineReturnPC(int returnPcOffset) {
-        Object value = stack[localShift + returnPcOffset];
-        return value instanceof Double;
-    }
-
-    public double getSubRoutineReturnPC(int returnPcOffset) {
-        if (!hasSubRoutineReturnPC(returnPcOffset)) {
-            throw new IllegalStateException("Use hasSubRoutineReturnPC first");
+        Object[] args = new Object[count];
+        for (int i = 0; i != count; ++i, ++shift) {
+            Object val = stack[shift];
+            if (val == UniqueTag.DOUBLE_MARK) {
+                val = ScriptRuntime.wrapNumber(doubleStack[shift]);
+            }
+            args[i] = val;
         }
-        return (Double) stack[localShift + returnPcOffset];
+        return args;
     }
 
     @Override
@@ -232,11 +499,66 @@ public class CallFrameV2 implements ICallFrame {
 
     @Override
     public int getPcSourceLineStart() {
+        // This is not equivalent to frame v1, but it is still correct. This is used to find the
+        // line number from the pc, which for frame v1 requires having the pc corresponding to the
+        // LINE instruction, basically. However, with the line number table implementation that we
+        // use in v2, it's ok if we use _any_ pc that corresponds to that same line number. So we
+        // can simply return the current pc and get the correct behavior.
         return pc;
     }
 
     @Override
     public DebuggableScript getData() {
-        return compilerData;
+        return fnOrScript.getDescriptor();
+    }
+
+    @Override
+    public ScriptOrFn<?> getFnOrScript() {
+        return fnOrScript;
+    }
+
+    @Override
+    public int getParentPC() {
+        return parentPC;
+    }
+
+    @Override
+    public ICallFrame getPreviousInterpreterFrame() {
+        return previousInterpreterFrame;
+    }
+
+    public CallFrameV2 cloneFrozen() {
+        return new CallFrameV2(this, false);
+    }
+
+    public CallFrameV2 captureForGenerator() {
+        return new CallFrameV2(this, true);
+    }
+
+    /* Shallow clone for running a generator. We're only doing
+    this to maintain the correct chain of parents for exception
+    stacks, so we'll reuse the existing stack arrays. */
+    public CallFrameV2 shallowCloneFrozen(ICallFrame newPreviousInterpreterFrame) {
+        return new CallFrameV2(this, this.parentFrame, newPreviousInterpreterFrame, true);
+    }
+
+    public void syncStateToFrame(CallFrameV2 otherFrame) {
+        otherFrame.frozen = frozen;
+        otherFrame.result = result;
+        otherFrame.resultDbl = resultDbl;
+        otherFrame.pc = pc;
+        otherFrame.pcPrevBranch = pcPrevBranch;
+        otherFrame.scope = scope;
+
+        otherFrame.stackTop = stackTop;
+        otherFrame.throwable = throwable;
+        otherFrame.shouldYieldToParent = shouldYieldToParent;
+        otherFrame.generatorState = generatorState;
+    }
+
+    public void popN(int n) {
+        for (int i = 0; i < n; i++) {
+            pop();
+        }
     }
 }

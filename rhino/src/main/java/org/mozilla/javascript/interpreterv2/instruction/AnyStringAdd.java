@@ -1,9 +1,3 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript.interpreterv2.instruction;
 
 import static org.mozilla.javascript.UniqueTag.DOUBLE_MARK;
@@ -17,7 +11,6 @@ import org.mozilla.javascript.interpreterv2.InstructionSimplification;
 import org.mozilla.javascript.interpreterv2.KnownType;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
-/** Optimized string concatenation when right operand is a known string. */
 public class AnyStringAdd implements Instruction {
     private final Operand lhs;
     private final Operand rhs;

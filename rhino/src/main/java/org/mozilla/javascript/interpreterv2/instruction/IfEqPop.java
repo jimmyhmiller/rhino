@@ -1,10 +1,13 @@
 package org.mozilla.javascript.interpreterv2.instruction;
 
+import static org.mozilla.javascript.InterpreterV2.addInstructionCount;
+import static org.mozilla.javascript.InterpreterV2.doShallowEquals;
+
 import java.util.Collections;
 import java.util.Set;
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
-import org.mozilla.javascript.ScriptRuntime;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
 public class IfEqPop extends JumpInstruction {
@@ -18,13 +21,13 @@ public class IfEqPop extends JumpInstruction {
 
     @Override
     public void interpret(Context cx, CallFrameV2 frame) {
-        Object val = value.retrieve(cx, frame);
-        Object tst = test.retrieve(cx, frame);
-        boolean condition = ScriptRuntime.shallowEq(val, tst);
-
+        var condition = doShallowEquals(cx, frame, value, test);
         if (!condition) {
             frame.pc += 1;
         } else {
+            if (cx.instructionThreshold != 0) {
+                addInstructionCount(cx, frame, 2);
+            }
             frame.pc += offset;
             frame.pcPrevBranch = frame.pc;
             value.cleanup(frame);
@@ -34,6 +37,18 @@ public class IfEqPop extends JumpInstruction {
     @Override
     public int stackChange() {
         return value.stackChange() + test.stackChange();
+    }
+
+    @Override
+    public String toDebugString() {
+        return InstructionFormatter.formatInstruction(
+                this,
+                "value",
+                value,
+                "test",
+                test,
+                "offset",
+                InstructionFormatter.formatOffset(offset));
     }
 
     @Override

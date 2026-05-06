@@ -1,9 +1,3 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript.interpreterv2.instruction;
 
 import java.util.Arrays;
@@ -13,6 +7,7 @@ import org.mozilla.javascript.Node;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.Token;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
 public class ObjectLit implements Instruction {
@@ -93,14 +88,13 @@ public class ObjectLit implements Instruction {
                                                 : p)
                         .toArray();
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("ObjectLit{object=");
-        objectOperand.appendDebugString(sb);
-        sb.append(", properties=");
-        sb.append(Arrays.toString(cleanedProperties));
-        sb.append(", copyArray=");
-        sb.append(copyArray);
-        sb.append("}");
-        return sb.toString();
+        return InstructionFormatter.formatInstruction(
+                this,
+                "object",
+                objectOperand,
+                "properties",
+                cleanedProperties,
+                "copyArray",
+                copyArray);
     }
 }

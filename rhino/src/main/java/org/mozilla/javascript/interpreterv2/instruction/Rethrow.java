@@ -2,6 +2,7 @@ package org.mozilla.javascript.interpreterv2.instruction;
 
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 
 public class Rethrow implements Instruction {
     private final int localBlockRef;
@@ -20,5 +21,10 @@ public class Rethrow implements Instruction {
     @Override
     public int stackChange() {
         return 0;
+    }
+
+    @Override
+    public String toDebugString() {
+        return InstructionFormatter.formatInstruction(this, "localBlockRef", localBlockRef);
     }
 }

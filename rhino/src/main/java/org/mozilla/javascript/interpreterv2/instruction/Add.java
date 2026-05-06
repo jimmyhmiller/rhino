@@ -1,9 +1,3 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript.interpreterv2.instruction;
 
 import static org.mozilla.javascript.UniqueTag.DOUBLE_MARK;
@@ -19,7 +13,6 @@ import org.mozilla.javascript.interpreterv2.InstructionSimplification;
 import org.mozilla.javascript.interpreterv2.KnownType;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
-/** Addition instruction for both numeric and string concatenation. */
 public class Add implements Instruction {
     private final Operand lhs;
     private final Operand rhs;
@@ -72,13 +65,18 @@ public class Add implements Instruction {
                 return;
             }
             leftRightOrder = true;
+            // fallthrough to object + number code
         } else if (lhs == DOUBLE_MARK) {
             resultDouble = lDouble;
             lhs = rhs;
             leftRightOrder = false;
+            // fallthrough to object + number code
         } else {
             if (lhs instanceof Scriptable || rhs instanceof Scriptable) {
                 frame.push(ScriptRuntime.add(lhs, rhs, cx));
+
+                // the next two else if branches are a bit more tricky
+                // to reduce method calls
             } else if (lhs instanceof CharSequence) {
                 if (rhs instanceof CharSequence) {
                     frame.push(new ConsString((CharSequence) lhs, (CharSequence) rhs));
@@ -103,6 +101,7 @@ public class Add implements Instruction {
             return;
         }
 
+        // handle object(lhs) + number(d) code
         if (lhs instanceof Scriptable) {
             rhs = ScriptRuntime.wrapNumber(resultDouble);
             if (!leftRightOrder) {

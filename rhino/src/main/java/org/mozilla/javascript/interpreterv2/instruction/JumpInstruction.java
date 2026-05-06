@@ -1,6 +1,7 @@
 package org.mozilla.javascript.interpreterv2.instruction;
 
 import java.util.Set;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 
 public abstract class JumpInstruction implements Instruction {
     protected int offset;
@@ -23,6 +24,7 @@ public abstract class JumpInstruction implements Instruction {
 
     @Override
     public String toDebugString() {
-        return this.getClass().getSimpleName() + "(offset: " + offset + ")";
+        return InstructionFormatter.formatInstruction(
+                this, "offset", InstructionFormatter.formatOffset(offset));
     }
 }

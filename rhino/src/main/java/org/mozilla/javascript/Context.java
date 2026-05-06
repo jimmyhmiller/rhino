@@ -2911,7 +2911,7 @@ public class Context implements Closeable {
     private EvaluationMethod evaluationMethod;
     private int maximumInterpreterStackDepth;
     private WrapFactory wrapFactory;
-    Debugger debugger;
+    public Debugger debugger;
     private Object debuggerData;
     private int enterCount;
     private Object propertyListeners;
@@ -2927,11 +2927,11 @@ public class Context implements Closeable {
 
     // For the interpreter to store the last frame for error reports
     // etc. Previous frames can all be derived from this.
-    Object lastInterpreterFrame;
+    public Object lastInterpreterFrame;
 
     // For instruction counting (interpreter only)
-    int instructionCount;
-    int instructionThreshold;
+    public int instructionCount;
+    public int instructionThreshold;
 
     // It can be used to return the second uint32 result from function
     long scratchUint32;

@@ -4,6 +4,7 @@ import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
 public class CatchScope implements Instruction {
@@ -22,6 +23,9 @@ public class CatchScope implements Instruction {
     @Override
     public void interpret(Context cx, CallFrameV2 frame) {
         frame.pc += 1;
+        // stack top: exception object
+        // stringReg: name of exception variable
+        // indexReg: local for exception scope
 
         boolean afterFirstScope = scopeIndex > 0;
         Throwable caughtException = (Throwable) exception.retrieve(cx, frame);
@@ -40,5 +44,19 @@ public class CatchScope implements Instruction {
     @Override
     public int stackChange() {
         return exception.stackChange();
+    }
+
+    @Override
+    public String toDebugString() {
+        return InstructionFormatter.formatInstruction(
+                this,
+                "exception",
+                exception,
+                "name",
+                name,
+                "localIndex",
+                localIndex,
+                "scopeIndex",
+                scopeIndex);
     }
 }

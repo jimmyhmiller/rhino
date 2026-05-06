@@ -4,6 +4,7 @@ import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
 public class SetName implements Instruction {
@@ -34,6 +35,6 @@ public class SetName implements Instruction {
 
     @Override
     public String toDebugString() {
-        return "SetName{lhs=" + lhs + ", name=" + name + ", rhs=" + rhs + "}";
+        return InstructionFormatter.formatInstruction(this, "lhs", lhs, "name", name, "rhs", rhs);
     }
 }

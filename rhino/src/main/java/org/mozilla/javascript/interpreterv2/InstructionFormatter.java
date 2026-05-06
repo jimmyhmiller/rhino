@@ -1,9 +1,3 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript.interpreterv2;
 
 import java.math.BigInteger;
@@ -36,7 +30,6 @@ public class InstructionFormatter {
     /**
      * Format multiple operands as a comma-separated parameter list.
      *
-     * @param instruction The instruction being formatted
      * @param operands variable number of key-value pairs (key1, value1, key2, value2, ...)
      * @return formatted parameter list (e.g., "args=2, receiver=true")
      */
@@ -89,12 +82,6 @@ public class InstructionFormatter {
         }
     }
 
-    /**
-     * Append a string value with proper escaping.
-     *
-     * @param sb The string builder
-     * @param value The string value
-     */
     public static void appendString(StringBuilder sb, String value) {
         sb.append('"').append(escape(value)).append('"');
     }

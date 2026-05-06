@@ -1,154 +1,590 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript;
 
 import static org.mozilla.javascript.UniqueTag.DOUBLE_MARK;
 
 import java.math.BigInteger;
+import java.util.List;
+import java.util.Objects;
 import org.mozilla.javascript.ast.ScriptNode;
+import org.mozilla.javascript.debug.DebuggableScript;
+import org.mozilla.javascript.interpreterv2.Compiler;
 import org.mozilla.javascript.interpreterv2.CompilerData;
-import org.mozilla.javascript.interpreterv2.instruction.Instruction;
+import org.mozilla.javascript.interpreterv2.ContinuationJump;
+import org.mozilla.javascript.interpreterv2.GeneratorState;
 import org.mozilla.javascript.interpreterv2.instruction.JumpInstruction;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
-/**
- * InterpreterV2 is the instruction-based interpreter for Rhino.
- *
- * <p>This is a stub implementation that will be expanded in a later commit.
- */
-public class InterpreterV2 implements Evaluator {
+public class InterpreterV2 extends Icode implements Evaluator {
+    private final Interpreter interpreter = new Interpreter();
 
-    // Cost added to instruction count for invocation operations
+    private static final int EX_CATCH_STATE = 2; // Can execute JS catch
+    private static final int EX_FINALLY_STATE = 1; // Can execute JS finally
+    private static final int EX_NO_JS_STATE = 0; // Terminate JS execution
+
     public static final int INVOCATION_COST = 100;
+    // arbitrary exception cost for instruction counting
+    private static final int EXCEPTION_COST = 100;
+    private CompilerData<?> compilerData;
+    private JSDescriptor.Builder<?> itsDescBuilder;
 
-    /** Main entry point for interpreting a function or script. */
-    public static Object interpret(
-            InterpretedFunctionV2 ifun,
-            InterpreterDataV2<?> idata,
+    public InterpreterV2() {}
+
+    public static Object interpretV2(Context cx, CallFrameV2 frame, Object throwable) {
+        final Object oldFrame = cx.lastInterpreterFrame;
+        try {
+            return interpretV2Inner(cx, frame, throwable);
+        } finally {
+            cx.lastInterpreterFrame = oldFrame;
+        }
+    }
+
+    private static Object interpretV2Inner(Context cx, CallFrameV2 frame, Object throwable) {
+        cx.lastInterpreterFrame = frame;
+
+        GeneratorState generatorState = null;
+        if (throwable != null) {
+            if (throwable instanceof GeneratorState) {
+                generatorState = (GeneratorState) throwable;
+
+                // reestablish this call frame
+                enterFrame(cx, frame, ScriptRuntime.emptyArgs, true);
+                frame.generatorState = generatorState;
+                throwable = null;
+            } else if (!(throwable instanceof ContinuationJump)) {
+                // It should be continuation
+                Kit.codeBug();
+            }
+        }
+
+        boolean instructionCounting = cx.instructionThreshold != 0;
+        // Try is here just because for dev this is nicer
+        var instructions = frame.compilerData.instructions;
+        int previousLineNumber = -1;
+        while (frame.pc < instructions.length) {
+            if (frame.throwable != null) {
+                int exState = getExState(cx, frame.throwable);
+                ContinuationJump cjump =
+                        frame.throwable instanceof ContinuationJump
+                                ? (ContinuationJump) frame.throwable
+                                : null;
+                exState = handleDebugAndInstructionCount(cx, frame, exState);
+                if (exState == EX_NO_JS_STATE) {
+                    cjump = null;
+                }
+                var exceptionHandlerOffset = searchAndProcessFrame(cx, frame, exState, cjump);
+                frame =
+                        processThrowable(
+                                cx,
+                                frame.throwable,
+                                frame,
+                                exceptionHandlerOffset,
+                                instructionCounting,
+                                cjump);
+                frame.throwable = null;
+            }
+
+            // We could make this faster via, for example, a subclass "DebuggableInterpreter" and a
+            // virtual function... but I'm not sure if it would be worth it. Anyway, The JVM should
+            // make this very cheap.
+            if (cx.debugger != null) {
+                // We have reached a new instruction - let's see if we have reached new lines as
+                // well, and in that case invoke the debugger to trigger breakpoints
+                List<Integer> lines = frame.compilerData.getLineSetFromPc(frame.pc);
+                if (lines != null && !lines.isEmpty()) {
+                    for (int line : lines) {
+                        if (line != -1 && line != previousLineNumber) {
+                            frame.debuggerFrame.onLineChange(cx, line);
+                            previousLineNumber = line;
+                        }
+                    }
+                }
+            }
+
+            try {
+                var pcBefore = frame.pc;
+                var instruction = instructions[frame.pc];
+                instruction.interpret(cx, frame);
+
+                assert instruction instanceof JumpInstruction
+                                || frame.pc != pcBefore
+                                || frame.throwable != null
+                        : ("Instruction did not advance PC: "
+                                + instruction.getClass().getName()
+                                + " at PC: "
+                                + frame.pc);
+
+                if (frame.shouldYieldToParent) {
+                    frame.shouldYieldToParent = false;
+                    break;
+                }
+
+            } catch (Throwable ex) {
+                if (frame.throwable != null) {
+                    // This is serious bug and it is better to track it ASAP
+                    ex.printStackTrace(System.err);
+                    throw new IllegalStateException();
+                }
+                frame.throwable = ex;
+            }
+        }
+
+        exitFrame(cx, frame, frame.throwable);
+        var interpreterResult = frame.result;
+        var interpreterResultDbl = frame.resultDbl;
+        if (frame.parentFrame != null) {
+            frame = frame.parentFrame;
+            if (frame.frozen) {
+                frame = frame.cloneFrozen();
+            }
+            // TODO(jimmy)
+            // Need to figure out when this should happen
+            // or if the way we do things makes this unnecessary
+            // setCallResult(frame, interpreterResult, interpreterResultDbl);
+        }
+
+        return frame.result == DOUBLE_MARK
+                ? ScriptRuntime.wrapNumber(frame.resultDbl)
+                : frame.result;
+    }
+
+    private static int handleDebugAndInstructionCount(Context cx, CallFrameV2 frame, int exState) {
+        boolean instructionCounting = cx.instructionThreshold != 0;
+        var throwable = frame.throwable;
+        if (instructionCounting) {
+            try {
+                addInstructionCount(cx, frame, EXCEPTION_COST);
+            } catch (RuntimeException ex) {
+                throwable = ex;
+                exState = EX_FINALLY_STATE;
+            } catch (Error ex) {
+                // Error from instruction counting
+                //     => unconditionally terminate JS
+                frame.throwable = ex;
+                exState = EX_NO_JS_STATE;
+            }
+        }
+        if (frame.debuggerFrame != null && throwable instanceof RuntimeException) {
+            // Call debugger only for RuntimeException
+            RuntimeException rex = (RuntimeException) throwable;
+            try {
+                frame.debuggerFrame.onExceptionThrown(cx, rex);
+            } catch (Throwable ex) {
+                // Any exception from debugger
+                //     => unconditionally terminate JS
+                frame.throwable = ex;
+                exState = EX_NO_JS_STATE;
+            }
+        }
+        return exState;
+    }
+
+    private static void exitFrame(Context cx, CallFrameV2 frame, Object throwable) {
+        if (frame.compilerData.needsActivation) {
+            ScriptRuntime.exitActivationFunction(cx);
+        }
+
+        if (frame.debuggerFrame != null) {
+            try {
+                if (throwable instanceof Throwable) {
+                    frame.debuggerFrame.onExit(cx, true, throwable);
+                } else {
+                    Object result;
+                    ContinuationJump cjump = (ContinuationJump) throwable;
+                    if (cjump == null) {
+                        result = frame.result;
+                    } else {
+                        result = cjump.result;
+                    }
+                    if (result == DOUBLE_MARK) {
+                        double resultDbl;
+                        if (cjump == null) {
+                            resultDbl = frame.resultDbl;
+                        } else {
+                            resultDbl = cjump.resultDbl;
+                        }
+                        result = ScriptRuntime.wrapNumber(resultDbl);
+                    }
+                    frame.debuggerFrame.onExit(cx, false, result);
+                }
+            } catch (Throwable ex) {
+                System.err.println("RHINO USAGE WARNING: onExit terminated with exception");
+                ex.printStackTrace(System.err);
+            }
+        }
+    }
+
+    private static int searchAndProcessFrame(
+            Context cx, CallFrameV2 frame, int exState, ContinuationJump cjump) {
+        var throwable = frame.throwable;
+        for (; ; ) {
+            if (exState != EX_NO_JS_STATE) {
+                boolean onlyFinally = (exState != EX_CATCH_STATE);
+                var exceptionHandlerOffset = getExceptionHandler(frame, onlyFinally);
+                if (exceptionHandlerOffset >= 0) {
+                    // We caught an exception, restart the loop
+                    // with exception pending the processing at the loop
+                    // start
+                    return exceptionHandlerOffset;
+                }
+            }
+            // No allowed exception handlers in this frame, unwind
+            // to parent and try to look there
+
+            frame.throwable = null;
+            exitFrame(cx, frame, throwable);
+
+            frame = frame.parentFrame;
+            if (frame == null) {
+                break;
+            }
+            if (cjump != null && Objects.equals(cjump.branchFrame, frame)) {
+                // Continuation branch point was hit,
+                // restart the state loop to reenter continuation
+                return -1;
+            }
+        }
+
+        if (throwable instanceof RuntimeException) {
+            throw (RuntimeException) throwable;
+        }
+        // Must be instance of Error or code bug
+        throw (Error) throwable;
+    }
+
+    private static int getExState(Context cx, Object throwable) {
+        int exState;
+
+        // TODO: Get generators working
+        // if (generatorState != null
+        //         && generatorState.operation == NativeGenerator.GENERATOR_CLOSE
+        //         && throwable == generatorState.value) {
+        //     exState = EX_FINALLY_STATE;
+        // } else
+        //
+        if (throwable instanceof JavaScriptException) {
+            exState = EX_CATCH_STATE;
+        } else if (throwable instanceof EcmaError) {
+            // an offical ECMA error object,
+            exState = EX_CATCH_STATE;
+        } else if (throwable instanceof EvaluatorException) {
+            exState = EX_CATCH_STATE;
+        } else if (throwable instanceof ContinuationPending) {
+            exState = EX_NO_JS_STATE;
+        } else if (throwable instanceof RuntimeException) {
+            exState = false ? EX_CATCH_STATE : EX_FINALLY_STATE;
+        } else if (throwable instanceof Error) {
+            exState = false ? EX_CATCH_STATE : EX_NO_JS_STATE;
+        } else if (throwable instanceof ContinuationJump) {
+            // It must be ContinuationJump
+            exState = EX_FINALLY_STATE;
+        } else {
+            exState =
+                    cx.hasFeature(Context.FEATURE_ENHANCED_JAVA_ACCESS)
+                            ? EX_CATCH_STATE
+                            : EX_FINALLY_STATE;
+        }
+        return exState;
+    }
+
+    private static CallFrameV2 processThrowable(
+            Context cx,
+            Object throwable,
+            CallFrameV2 frame,
+            int exceptionHandlerOffset,
+            boolean instructionCounting,
+            ContinuationJump cjump) {
+        // Recovering from exception, exceptionHandlerOffset contains
+        // the index of handler
+
+        if (exceptionHandlerOffset >= 0) {
+            // Normal exception handler, transfer
+            // control appropriately
+
+            if (frame.frozen) {
+                // XXX Deal with exceptios!!!
+                frame = frame.cloneFrozen();
+            }
+
+            int[] table = frame.compilerData.exceptionTable;
+
+            frame.pc = table[exceptionHandlerOffset + CompilerData.EXCEPTION_HANDLER_SLOT];
+            if (instructionCounting) {
+                frame.pcPrevBranch = frame.pc;
+            }
+
+            frame.stackTop = frame.emptyStackTop;
+            int scopeLocal =
+                    frame.localShift
+                            + table[exceptionHandlerOffset + CompilerData.EXCEPTION_SCOPE_SLOT];
+            int exLocal =
+                    frame.localShift
+                            + table[exceptionHandlerOffset + CompilerData.EXCEPTION_LOCAL_SLOT];
+            frame.scope = (Scriptable) frame.stack[scopeLocal];
+            frame.stack[exLocal] = throwable;
+
+        } else {
+            // Continuation restoration
+            // Interpreter.ContinuationJump cjump = (Interpreter.ContinuationJump) throwable;
+            //
+            // Clear throwable to indicate that exceptions are OK
+
+            if (!Objects.equals(cjump.branchFrame, frame)) Kit.codeBug();
+
+            // Check that we have at least one frozen frame
+            // in the case of detached continuation restoration:
+            // unwind code ensure that
+            if (cjump.capturedFrame == null) Kit.codeBug();
+
+            // Need to rewind branchFrame, capturedFrame
+            // and all frames in between
+            int rewindCount = cjump.capturedFrame.frameIndex + 1;
+            if (cjump.branchFrame != null) {
+                rewindCount -= cjump.branchFrame.frameIndex;
+            }
+
+            int enterCount = 0;
+            CallFrameV2[] enterFrames = null;
+
+            CallFrameV2 x = cjump.capturedFrame;
+            for (int i = 0; i != rewindCount; ++i) {
+                if (!x.frozen) Kit.codeBug();
+                if (isFrameEnterExitRequired(x)) {
+                    if (enterFrames == null) {
+                        // Allocate enough space to store the rest
+                        // of rewind frames in case all of them
+                        // would require to enter
+                        enterFrames = new CallFrameV2[rewindCount - i];
+                    }
+                    enterFrames[enterCount] = x;
+                    ++enterCount;
+                }
+                x = x.parentFrame;
+            }
+
+            while (enterCount != 0) {
+                // execute enter: walk enterFrames in the reverse
+                // order since they were stored starting from
+                // the capturedFrame, not branchFrame
+                --enterCount;
+                x = enterFrames[enterCount];
+                enterFrame(cx, x, ScriptRuntime.emptyArgs, true);
+            }
+
+            // Continuation jump is almost done: capturedFrame
+            // points to the call to the function that captured
+            // continuation, so clone capturedFrame and
+            // emulate return that function with the suplied result
+            frame = cjump.capturedFrame.cloneFrozen();
+            setCallResult(frame, cjump.result, cjump.resultDbl);
+            // restart the execution
+        }
+        return frame;
+    }
+
+    private static boolean isFrameEnterExitRequired(CallFrameV2 frame) {
+        return frame.debuggerFrame != null || frame.compilerData.needsActivation;
+    }
+
+    private static void enterFrame(
+            Context cx, CallFrameV2 frame, Object[] args, boolean continuationRestart) {
+        boolean usesActivation = frame.compilerData.needsActivation;
+        boolean isDebugged = frame.debuggerFrame != null;
+        if (usesActivation || isDebugged) {
+            Scriptable scope = frame.scope;
+            if (scope == null) {
+                Kit.codeBug();
+            } else if (continuationRestart) {
+                // Walk the parent chain of frame.scope until a NativeCall is
+                // found. Normally, frame.scope is a NativeCall when called
+                // from initFrame() for a debugged or activatable function.
+                // However, when called from interpretLoop() as part of
+                // restarting a continuation, it can also be a NativeWith if
+                // the continuation was captured within a "with" or "catch"
+                // block ("catch" implicitly uses NativeWith to create a scope
+                // to expose the exception variable).
+                for (; ; ) {
+                    if (scope instanceof NativeWith) {
+                        scope = scope.getParentScope();
+                        if (scope == null
+                                || (frame.parentFrame != null
+                                        && frame.parentFrame.scope == scope)) {
+                            // If we get here, we didn't find a NativeCall in
+                            // the call chain before reaching parent frame's
+                            // scope. This should not be possible.
+                            Kit.codeBug();
+                            break; // Never reached, but keeps the static analyzer
+                            // happy about "scope" not being null 5 lines above.
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+            if (isDebugged) {
+                frame.debuggerFrame.onEnter(cx, scope, frame.thisObj, args);
+            }
+            // Enter activation only when itsNeedsActivation true,
+            // since debugger should not interfere with activation
+            // chaining
+            if (usesActivation) {
+                ScriptRuntime.enterActivationFunction(cx, scope);
+            }
+        }
+    }
+
+    private static void setCallResult(CallFrameV2 frame, Object callResult, double callResultDbl) {
+        throw new UnsupportedOperationException("Haven't implemented all the continuations stuff");
+        // TODO: Need to think about how to represent this given our setup
+        // if (frame.savedCallOp == Token.CALL || frame.savedCallOp == Icode_CALL_ON_SUPER) {
+        //     frame.stack[frame.savedStackTop] = callResult;
+        //     frame.doubleStack[frame.savedStackTop] = callResultDbl;
+        // } else if (frame.savedCallOp == Token.NEW) {
+        //     // If construct returns scriptable,
+        //     // then it replaces on stack top saved original instance
+        //     // of the object.
+        //     if (ScriptRuntime.isActualScriptable(callResult)) {
+        //         frame.stack[frame.savedStackTop] = callResult;
+        //     }
+        // } else {
+        //     Kit.codeBug();
+        // }
+        // frame.savedCallOp = 0;
+    }
+
+    private static int getExceptionHandler(CallFrameV2 frame, boolean onlyFinally) {
+        int[] exceptionTable = frame.compilerData.exceptionTable;
+        if (exceptionTable == null) {
+            // No exception handlers
+            return -1;
+        }
+
+        // OPT: use binary search
+        int best = -1, bestStart = 0, bestEnd = 0;
+        for (int i = 0; i != exceptionTable.length; i += CompilerData.EXCEPTION_SLOT_SIZE) {
+            int start = exceptionTable[i + CompilerData.EXCEPTION_TRY_START_SLOT];
+            int end = exceptionTable[i + CompilerData.EXCEPTION_TRY_END_SLOT];
+            if (!(start <= frame.pc && frame.pc < end)) {
+                continue;
+            }
+            if (onlyFinally && exceptionTable[i + CompilerData.EXCEPTION_TYPE_SLOT] != 1) {
+                continue;
+            }
+            if (best >= 0) {
+                // Since handlers always nest and they never have shared end
+                // although they can share start  it is sufficient to compare
+                // handlers ends
+                if (bestEnd < end) {
+                    continue;
+                }
+                // Check the above assumption
+                if (bestStart > start) Kit.codeBug(); // should be nested
+                if (bestEnd == end) Kit.codeBug(); // no ens sharing
+            }
+            best = i;
+            bestStart = start;
+            bestEnd = end;
+        }
+        return best;
+    }
+
+    public static boolean shouldOverrideNativeCall(
+            Object securityDomain, Callable fun, Scriptable funThisObj) {
+        if (fun instanceof KnownBuiltInFunction
+                && BaseFunction.isApplyOrCall((KnownBuiltInFunction) fun)) {
+            Callable applyCallable = ScriptRuntime.getCallable(funThisObj);
+            if (applyCallable instanceof JSFunction) {
+                JSFunction iApplyCallable = (JSFunction) applyCallable;
+                if (iApplyCallable.getDescriptor().getCode() instanceof CompilerData
+                        && securityDomain == iApplyCallable.getDescriptor().getSecurityDomain())
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    public static Scriptable getCurrentFrameHomeObject(CallFrameV2 frame) {
+        if (frame.scope instanceof NativeCall) {
+            return ((NativeCall) frame.scope).getHomeObject();
+        } else {
+            return null;
+        }
+    }
+
+    public static void initFunction(
+            Context cx, Scriptable scope, JSDescriptor<?> parent, int index) {
+        JSFunction fn = JSFunction.createFunction(cx, scope, parent, index, null);
+        ScriptRuntime.initFunction(
+                cx, scope, fn, fn.getDescriptor().getFunctionType(), parent.isEvalFunction());
+    }
+
+    public static <T extends ScriptOrFn<T>> Object interpret(
+            T fun,
+            CompilerData<T> data,
             Context cx,
             Scriptable scope,
             Scriptable thisObj,
             Object[] args) {
-
-        // Create a minimal call frame using the default constructor
-        // The CallFrameV2 constructor sets the final fields with default values
-        CallFrameV2 frame = new CallFrameV2();
-        frame.fnOrScript = ifun;
-        frame.compilerData = idata.compilerData;
-        frame.scope = scope;
-        frame.thisObj = thisObj;
-        frame.pc = 0;
-
-        // Initialize the stack
-        int stackSize = idata.maxVars + idata.maxLocals + idata.maxStack;
-        frame.stack = new Object[stackSize];
-        frame.stackAttributes = new int[stackSize];
-        frame.doubleStack = new double[stackSize];
-        frame.stackTop = idata.maxVars + idata.maxLocals - 1;
-
-        // Copy arguments
-        int argCount = Math.min(args.length, idata.maxVars);
-        System.arraycopy(args, 0, frame.stack, 0, argCount);
-
-        // Initialize undefined parameters
-        for (int i = argCount; i < idata.maxVars; i++) {
-            frame.stack[i] = Undefined.instance;
+        if (!ScriptRuntime.hasTopCall(cx)) {
+            Kit.codeBug();
         }
 
-        frame.result = Undefined.instance;
-        frame.varSource = frame;
-        frame.frozen = false;
-
-        return interpretLoop(cx, frame, null);
-    }
-
-    /** Main interpreter loop. */
-    private static Object interpretLoop(Context cx, CallFrameV2 frame, Object throwable) {
-        // Get InterpreterDataV2 from the function object
-        // For now, we need to get it differently since it's not directly in compilerData
-        InterpreterDataV2<?> idata = frame.fnOrScript.idata;
-        Instruction[] instructions = idata.instructions;
-
-        // Main interpreter loop
-        while (frame.pc < instructions.length) {
+        JSDescriptor<T> desc = fun.getDescriptor();
+        SecurityController securityController = desc.getSecurityController();
+        Object securityDomain = desc.getSecurityDomain();
+        if (securityController != null && cx.interpreterSecurityDomain != securityDomain) {
+            Object savedDomain = cx.interpreterSecurityDomain;
+            cx.interpreterSecurityDomain = securityDomain;
             try {
-                Instruction instruction = instructions[frame.pc];
-
-                // Save previous branch PC for debugging
-                if (instruction instanceof JumpInstruction) {
-                    frame.pcPrevBranch = frame.pc;
-                }
-
-                // Execute the instruction
-                instruction.interpret(cx, frame);
-
-                // Check for instruction count threshold
-                if (cx.instructionCount > cx.instructionThreshold) {
-                    cx.observeInstructionCount(cx.instructionCount);
-                    cx.instructionCount = 0;
-                }
-
-            } catch (JavaScriptException jse) {
-                // For now, just propagate JavaScript exceptions
-                throw jse;
-            } catch (Throwable ex) {
-                // Wrap other exceptions as JavaScript exceptions
-                throw new JavaScriptException(ex, null, 0);
+                return securityController.callWithDomain(
+                        securityDomain, cx, (Callable) fun, scope, thisObj, args);
+            } finally {
+                cx.interpreterSecurityDomain = savedDomain;
             }
         }
 
-        // Return the result
-        return frame.result;
+        var frame =
+                new CallFrameV2(
+                        cx,
+                        scope,
+                        thisObj,
+                        fun.getHomeObject(),
+                        args,
+                        null,
+                        0,
+                        args.length,
+                        fun,
+                        null,
+                        (ICallFrame) cx.lastInterpreterFrame);
+
+        enterFrame(cx, frame, args, false);
+
+        return InterpreterV2.interpretV2(cx, frame, null);
     }
 
-    /** Resume a generator (stub for now). */
     public static Object resumeGenerator(
-            Context cx, Scriptable scope, int operation, Object state, Object value) {
-        throw new UnsupportedOperationException("Generator support not yet implemented");
+            Context cx, Scriptable scope, int operation, Object savedState, Object value) {
+        CallFrameV2 frame = (CallFrameV2) savedState;
+        CallFrameV2 activeFrame = frame.shallowCloneFrozen((ICallFrame) cx.lastInterpreterFrame);
+        try {
+            GeneratorState generatorState = new GeneratorState(operation, value);
+            if (operation == NativeGenerator.GENERATOR_CLOSE) {
+                try {
+                    return interpretV2(cx, activeFrame, generatorState);
+                } catch (RuntimeException e) {
+                    // Only propagate exceptions other than closingException
+                    if (e != value) throw e;
+                }
+                return Undefined.instance;
+            }
+            Object result = interpretV2(cx, activeFrame, generatorState);
+            if (generatorState.returnedException != null) throw generatorState.returnedException;
+            return result;
+        } finally {
+            activeFrame.syncStateToFrame(frame);
+        }
     }
 
-    /**
-     * Get the home object for the current frame (for super property access).
-     *
-     * @param frame The current call frame
-     * @return The home object, or null if none
-     */
-    public static Scriptable getCurrentFrameHomeObject(CallFrameV2 frame) {
-        // Stub implementation - will be expanded later
-        return null;
-    }
-
-    /**
-     * Initialize a function in the given scope.
-     *
-     * @param cx The context
-     * @param scope The scope
-     * @param parent The parent function
-     * @param index The function index
-     */
-    public static void initFunction(
-            Context cx, Scriptable scope, InterpretedFunctionV2 parent, int index) {
-        CompilerData nestedData = parent.compilerData.nestedFunctions[index];
-        InterpretedFunctionV2 fn = new InterpretedFunctionV2(nestedData);
-        // TODO: Properly initialize nested function when InterpreterDataV2 supports nested
-        // functions
-        fn.setParentScope(scope);
-        fn.setPrototype(ScriptableObject.getFunctionPrototype(scope));
-    }
-
-    /**
-     * Perform shallow equality comparison (===).
-     *
-     * @param cx The context
-     * @param frame The current call frame
-     * @param left The left operand
-     * @param right The right operand
-     * @return true if strictly equal
-     */
     public static boolean doShallowEquals(
             Context cx, CallFrameV2 frame, Operand left, Operand right) {
         Object rhs;
@@ -185,15 +621,6 @@ public class InterpreterV2 implements Evaluator {
         return (lDouble == rDouble);
     }
 
-    /**
-     * Perform equality comparison (==).
-     *
-     * @param cx The context
-     * @param frame The current call frame
-     * @param left The left operand
-     * @param right The right operand
-     * @return true if equal
-     */
     public static boolean doEquals(Context cx, CallFrameV2 frame, Operand left, Operand right) {
         Object rhs;
         double rDouble = 0.0;
@@ -224,53 +651,76 @@ public class InterpreterV2 implements Evaluator {
     }
 
     @Override
+    public Object compile(
+            CompilerEnvirons compilerEnv,
+            ScriptNode tree,
+            String sourceString,
+            boolean returnFunction) {
+        var compiler = new Compiler();
+        compilerData = compiler.compile(compilerEnv, tree, sourceString, returnFunction);
+        itsDescBuilder = compiler.getDescriptorBuilder();
+        return compilerData;
+    }
+
+    @Override
+    public DebuggableScript getDebuggableScript(Object bytecode) {
+        return compilerData;
+    }
+
+    @Override
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public Function createFunctionObject(
+            Context cx, Scriptable scope, Object bytecode, Object staticSecurityDomain) {
+        if (bytecode != compilerData) {
+            Kit.codeBug();
+        }
+        JSDescriptor<JSFunction> desc =
+                (JSDescriptor<JSFunction>) (JSDescriptor) itsDescBuilder.build(d -> {});
+        return JSFunction.createFunction(cx, scope, desc, null, staticSecurityDomain);
+    }
+
+    @Override
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    public Script createScriptObject(Object bytecode, Object staticSecurityDomain) {
+        if (bytecode != compilerData) {
+            Kit.codeBug();
+        }
+        JSDescriptor<JSScript> desc =
+                (JSDescriptor<JSScript>) (JSDescriptor) itsDescBuilder.build(d -> {});
+        return JSFunction.createScript(desc, null, staticSecurityDomain);
+    }
+
+    @Override
     public void captureStackInfo(RhinoException ex) {
-        // Stub
+        interpreter.captureStackInfo(ex);
     }
 
     @Override
     public String getSourcePositionFromStack(Context cx, int[] linep) {
-        return null;
+        return interpreter.getSourcePositionFromStack(cx, linep);
     }
 
     @Override
     public String getPatchedStack(RhinoException ex, String nativeStackTrace) {
-        return null;
+        // TODO(Cam): This assumes we interpret using Interpreter#interpretLoop
+        return interpreter.getPatchedStack(ex, nativeStackTrace);
     }
 
     @Override
-    public java.util.List<String> getScriptStack(RhinoException ex) {
-        return java.util.Collections.emptyList();
+    public List<String> getScriptStack(RhinoException ex) {
+        return interpreter.getScriptStack(ex);
     }
 
     @Override
     public void setEvalScriptFlag(Script script) {
-        // Stub
+        throw new UnsupportedOperationException();
     }
 
-    @Override
-    public Object compile(
-            CompilerEnvirons compilerEnv,
-            ScriptNode tree,
-            String encodedSource,
-            boolean returnFunction) {
-        CompilerV2 compiler = new CompilerV2();
-        return compiler.compile(compilerEnv, tree, encodedSource, returnFunction);
-    }
-
-    @Override
-    public Script createScriptObject(Object bytecode, Object staticSecurityDomain) {
-        InterpreterDataV2<?> idata = (InterpreterDataV2<?>) bytecode;
-        return new InterpretedFunctionV2(idata);
-    }
-
-    @Override
-    public Function createFunctionObject(
-            Context cx, Scriptable scope, Object bytecode, Object staticSecurityDomain) {
-        InterpreterDataV2<?> idata = (InterpreterDataV2<?>) bytecode;
-        InterpretedFunctionV2 fn = new InterpretedFunctionV2(idata);
-        fn.setParentScope(scope);
-        fn.setPrototype(ScriptableObject.getFunctionPrototype(scope));
-        return fn;
+    public static void addInstructionCount(Context cx, CallFrameV2 frame, int extra) {
+        cx.instructionCount += frame.pc - frame.pcPrevBranch + extra;
+        if (cx.instructionCount > cx.instructionThreshold) {
+            cx.observeInstructionCount(cx.instructionCount);
+            cx.instructionCount = 0;
+        }
     }
 }

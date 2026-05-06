@@ -1,9 +1,3 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript.interpreterv2.instruction;
 
 import static org.mozilla.javascript.UniqueTag.DOUBLE_MARK;
@@ -16,7 +10,6 @@ import org.mozilla.javascript.Token;
 import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
-/** Relational comparison instruction (<, <=, >, >=). */
 public class Comparison implements Instruction {
     private final Operand lhs;
     private final int op;
@@ -74,7 +67,11 @@ public class Comparison implements Instruction {
 
             switch (op) {
                 case Token.GE:
+                    valBln = ScriptRuntime.compare(lhs, rhs, op);
+                    break;
                 case Token.GT:
+                    valBln = ScriptRuntime.compare(lhs, rhs, op);
+                    break;
                 case Token.LT:
                 case Token.LE:
                     valBln = ScriptRuntime.compare(lhs, rhs, op);

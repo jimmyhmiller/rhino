@@ -3,6 +3,7 @@ package org.mozilla.javascript.interpreterv2.instruction;
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ScriptRuntime;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 
 public class Name implements Instruction {
     private final String name;
@@ -24,6 +25,6 @@ public class Name implements Instruction {
 
     @Override
     public String toDebugString() {
-        return "Name{name=" + name + "}";
+        return InstructionFormatter.formatInstruction(this, "name", name);
     }
 }

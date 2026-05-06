@@ -11,7 +11,7 @@ import org.mozilla.javascript.debug.DebuggableScript;
 public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
     private final JSDescriptor<JSFunction> descriptor;
     private final Scriptable lexicalThis;
-    private final Scriptable homeObject;
+    private Scriptable homeObject;
 
     public JSFunction(
             Context cx,
@@ -210,7 +210,7 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
 
     @Override
     public void setHomeObject(Scriptable homeObject) {
-        throw new UnsupportedOperationException("Cannot set home object on JS function.");
+        this.homeObject = homeObject;
     }
 
     public Scriptable getFunctionThis(Scriptable functionThis) {
@@ -246,6 +246,19 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
             Context cx, VarScope scope, JSDescriptor<?> parent, int index, Scriptable homeObject) {
         JSDescriptor<JSFunction> desc = parent.getFunction(index);
         JSFunction f = new JSFunction(cx, scope, desc, null, homeObject);
+        return f;
+    }
+
+    /** Create function embedded in script or another function with lexicalThis. */
+    public static JSFunction createFunction(
+            Context cx,
+            Scriptable scope,
+            JSDescriptor<?> parent,
+            int index,
+            Scriptable lexicalThis,
+            Scriptable homeObject) {
+        JSDescriptor<JSFunction> desc = parent.getFunction(index);
+        JSFunction f = new JSFunction(cx, scope, desc, lexicalThis, homeObject);
         return f;
     }
 

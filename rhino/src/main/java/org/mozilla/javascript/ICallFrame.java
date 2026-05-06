@@ -30,4 +30,16 @@ public interface ICallFrame {
 
     /** Returns the debuggable script data associated with this frame. */
     DebuggableScript getData();
+
+    default int getParentPC() {
+        return -1;
+    }
+
+    default ICallFrame getPreviousInterpreterFrame() {
+        return null;
+    }
+
+    default ScriptOrFn<?> getFnOrScript() {
+        return null;
+    }
 }

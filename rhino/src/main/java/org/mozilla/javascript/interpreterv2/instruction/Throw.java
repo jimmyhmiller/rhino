@@ -3,6 +3,7 @@ package org.mozilla.javascript.interpreterv2.instruction;
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.JavaScriptException;
+import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
 public class Throw implements Instruction {
@@ -25,5 +26,10 @@ public class Throw implements Instruction {
     @Override
     public int stackChange() {
         return value.stackChange();
+    }
+
+    @Override
+    public String toDebugString() {
+        return InstructionFormatter.formatInstruction(this, "value", value, "line", lineNumber);
     }
 }

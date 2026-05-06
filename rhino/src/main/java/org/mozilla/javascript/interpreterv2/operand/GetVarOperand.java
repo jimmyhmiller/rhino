@@ -1,15 +1,8 @@
-/* -*- Mode: java; tab-width: 8; indent-tabs-mode: nil; c-basic-offset: 4 -*-
- *
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 package org.mozilla.javascript.interpreterv2.operand;
 
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
 
-/** Operand that retrieves a variable from the call frame. */
 public class GetVarOperand implements Operand {
     private final int index;
 
@@ -58,6 +51,7 @@ public class GetVarOperand implements Operand {
         if (!frame.useActivation) {
             return frame.getVarDouble(index);
         } else {
+            // When using activation, isDouble() returns false, so this should never be called
             throw new IllegalStateException(
                     "retrieveDouble should not be called when using activation frames");
         }
@@ -68,6 +62,7 @@ public class GetVarOperand implements Operand {
         if (!frame.useActivation) {
             return frame.isVarDouble(index);
         } else {
+            // When using activation, variables are always objects (not primitives)
             return false;
         }
     }
