@@ -138,10 +138,18 @@ public class CallFrameV2 implements ICallFrame, Serializable {
                     && !desc.requiresActivationFrame()) {
                 Kit.codeBug();
             }
-            for (int i = 0; i < compilerData.nestedFunctions.length; i++) {
-                var fdata = compilerData.nestedFunctions[i];
-                if (fdata.functionType == CompilerData.FunctionType.FunctionStatement) {
-                    initFunction(cx, this.scope, desc, i);
+            // Generators emit explicit ClosureStatement instructions for nested function
+            // declarations after evaluating their default parameter expressions, so that
+            // 'arguments' in a default-param scope binds to the arguments object rather
+            // than to a hoisted inner `function arguments(){}`. Skip frame-init hoisting
+            // for them.
+            boolean isGenerator = compilerData.isES6Generator;
+            if (!isGenerator) {
+                for (int i = 0; i < compilerData.nestedFunctions.length; i++) {
+                    var fdata = compilerData.nestedFunctions[i];
+                    if (fdata.functionType == CompilerData.FunctionType.FunctionStatement) {
+                        initFunction(cx, this.scope, desc, i);
+                    }
                 }
             }
         }

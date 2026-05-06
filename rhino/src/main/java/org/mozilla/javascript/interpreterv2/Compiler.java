@@ -395,6 +395,17 @@ public class Compiler {
                     paramInit = paramInit.getNext();
                 }
             }
+            // For generators, nested function declarations must be instantiated AFTER
+            // parameter initialization to prevent them from shadowing the 'arguments'
+            // object during default-parameter evaluation. CallFrameV2 skips its
+            // frame-init hoist for generators.
+            int functionCount = theFunction.getFunctionCount();
+            for (int i = 0; i < functionCount; i++) {
+                FunctionNode fn = theFunction.getFunctionNode(i);
+                if (fn.getFunctionType() == FunctionNode.FUNCTION_STATEMENT) {
+                    addInstruction(new ClosureStatement(i));
+                }
+            }
             addInstruction(new Generator((short) theFunction.getBaseLineno()));
             addInstruction(new ThawFrame(false, (short) theFunction.getBaseLineno()));
         }
