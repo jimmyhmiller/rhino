@@ -2,6 +2,8 @@ package org.mozilla.javascript.interpreterv2.instruction;
 
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
+import org.mozilla.javascript.ScriptRuntime;
+import org.mozilla.javascript.Symbol;
 import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
@@ -21,7 +23,9 @@ public class ComputedProperty implements Instruction {
         frame.pc += 1;
 
         var key = this.key.retrieveAndWrap(cx, frame);
-        ids[index] = key;
+        // ToPropertyKey: must be performed before evaluating the value expression
+        // (ECMA 13.2.5.5 PropertyDefinitionEvaluation step 1).
+        ids[index] = key instanceof Symbol ? key : ScriptRuntime.toString(key);
     }
 
     @Override
