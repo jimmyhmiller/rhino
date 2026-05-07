@@ -294,18 +294,19 @@ public class InstructionDumpTest {
     public void computedProperties() {
         checkGeneratedOutput(
                 "o = {[f()]: 0};",
-                "function <anonymous> [maxStack=4, locals=0, instructions=9]:\n"
-                        + "  line number table: [0 -> [1],  8 -> [-1]]\n"
+                "function <anonymous> [maxStack=4, locals=0, instructions=10]:\n"
+                        + "  line number table: [0 -> [1],  9 -> [-1]]\n"
                         + "%0  : BindName(name=\"o\")\n"
                         + "%1  : NewObjectLiteral(keys=[\"#\"], literalValues=[0],"
                         + " copyKeys=true)\n"
                         + "%2  : NameAndThis(name=\"f\")\n"
                         + "%3  : Call(callType=Call, lookupResult=pop, args=[])\n"
-                        + "%4  : LitSetAt(slot=0, key=pop, value=null, kind=0)\n"
-                        + "%5  : ObjectLit(object=peek(offset=0))\n"
-                        + "%6  : SetName(lhs=pop, name=\"o\", rhs=pop)\n"
-                        + "%7  : PopResult\n"
-                        + "%8  : ReturnResult\n"
+                        + "%4  : ToPropertyKey\n"
+                        + "%5  : LitSetAt(slot=0, key=pop, value=null, kind=0)\n"
+                        + "%6  : ObjectLit(object=peek(offset=0))\n"
+                        + "%7  : SetName(lhs=pop, name=\"o\", rhs=pop)\n"
+                        + "%8  : PopResult\n"
+                        + "%9  : ReturnResult\n"
                         + "\n");
     }
 

@@ -151,6 +151,7 @@ import org.mozilla.javascript.interpreterv2.instruction.ThawFrame;
 import org.mozilla.javascript.interpreterv2.instruction.This;
 import org.mozilla.javascript.interpreterv2.instruction.ThisFunction;
 import org.mozilla.javascript.interpreterv2.instruction.Throw;
+import org.mozilla.javascript.interpreterv2.instruction.ToPropertyKey;
 import org.mozilla.javascript.interpreterv2.instruction.Typeof;
 import org.mozilla.javascript.interpreterv2.instruction.TypeofName;
 import org.mozilla.javascript.interpreterv2.instruction.UnsignedRightShift;
@@ -2062,6 +2063,9 @@ public class Compiler {
             boolean keyExprEmitted;
             if (pid instanceof Node) {
                 visitExpression(((Node) pid).getFirstChild(), 0);
+                // ToPropertyKey must happen before the value expression is evaluated
+                // (ECMA 13.2.5.5 step 1 before step 6).
+                addInstruction(ToPropertyKey.instance);
                 keyOp = PopOperand.instance;
                 keyExprEmitted = true;
             } else {

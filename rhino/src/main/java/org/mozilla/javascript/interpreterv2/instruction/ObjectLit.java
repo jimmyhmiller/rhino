@@ -24,14 +24,17 @@ public class ObjectLit implements Instruction {
     public void interpret(Context cx, CallFrameV2 frame) {
         frame.pc += 1;
         var storage = (NewLiteralStorage) frame.pop();
+        Object[] keys = storage.getKeys();
+        Object[] values = storage.getValues();
+        int[] getterSetters = storage.getGetterSetters();
+        if (cx.getLanguageVersion() >= Context.VERSION_ES6 && keys != null) {
+            for (int i = 0; i < keys.length; i++) {
+                int gs = getterSetters == null ? 0 : getterSetters[i];
+                NewLiteralStorage.inferFunctionName(keys[i], values[i], gs);
+            }
+        }
         var object = (Scriptable) objectOperand.retrieve(cx, frame);
-        ScriptRuntime.fillObjectLiteral(
-                object,
-                storage.getKeys(),
-                storage.getValues(),
-                storage.getGetterSetters(),
-                cx,
-                frame.scope);
+        ScriptRuntime.fillObjectLiteral(object, keys, values, getterSetters, cx, frame.scope);
     }
 
     @Override

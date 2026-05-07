@@ -3,6 +3,7 @@ package org.mozilla.javascript.interpreterv2.instruction;
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ES6Generator;
+import org.mozilla.javascript.NativeGenerator;
 import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 
 public class Generator implements Instruction {
@@ -25,16 +26,19 @@ public class Generator implements Instruction {
             frame.pc += 1;
             CallFrameV2 generatorFrame = captureFrameForGenerator(frame);
             generatorFrame.frozen = true;
-            // if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
-            frame.result =
-                    new ES6Generator(
-                            frame.scope,
-                            (org.mozilla.javascript.JSFunction) generatorFrame.fnOrScript,
-                            generatorFrame);
-            /*} else {
+            if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
                 frame.result =
-                        new NativeGenerator(frame.scope, generatorFrame.fnOrScript, generatorFrame);
-            }*/
+                        new ES6Generator(
+                                frame.scope,
+                                (org.mozilla.javascript.JSFunction) generatorFrame.fnOrScript,
+                                generatorFrame);
+            } else {
+                frame.result =
+                        new NativeGenerator(
+                                frame.scope,
+                                (org.mozilla.javascript.JSFunction) generatorFrame.fnOrScript,
+                                generatorFrame);
+            }
             frame.shouldYieldToParent = true;
         }
     }
