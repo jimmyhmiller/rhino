@@ -60,6 +60,24 @@ public abstract class NewLiteralStorage {
         }
     }
 
+    public void setKeyAt(int idx, Object key) {
+        keys[idx] = key;
+    }
+
+    public void setValueAt(int idx, Object value) {
+        values[idx] = value;
+    }
+
+    public void setGetterAt(int idx, Object value) {
+        getterSetters[idx] = -1;
+        values[idx] = value;
+    }
+
+    public void setSetterAt(int idx, Object value) {
+        getterSetters[idx] = +1;
+        values[idx] = value;
+    }
+
     public void spread(Context cx, VarScope scope, Object source, int sourcePosition) {
         int indexBefore = index;
         if (keys == null) {

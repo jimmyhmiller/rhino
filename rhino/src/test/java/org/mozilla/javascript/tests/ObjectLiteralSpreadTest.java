@@ -131,4 +131,15 @@ public class ObjectLiteralSpreadTest {
                         + "result[0] + result[1] + result[2] + ':' + Object.keys(result).length";
         Utils.assertWithAllModes_ES6("abc:3", script);
     }
+
+    @Test
+    public void testObjectSpreadInterleavedSideEffects() {
+        String script =
+                "var counter = 1;\n"
+                        + "var a = { get x() { return counter; } };\n"
+                        + "function g() { counter = 2; return 42; }\n"
+                        + "var o = { ...a, y: g() };\n"
+                        + "o.x + ':' + o.y";
+        Utils.assertWithAllModes_ES6("1:42", script);
+    }
 }
