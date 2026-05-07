@@ -268,9 +268,15 @@ public class InterpreterV2 extends Icode implements Evaluator {
         } else if (throwable instanceof ContinuationPending) {
             exState = EX_NO_JS_STATE;
         } else if (throwable instanceof RuntimeException) {
-            exState = false ? EX_CATCH_STATE : EX_FINALLY_STATE;
+            exState =
+                    cx.hasFeature(Context.FEATURE_ENHANCED_JAVA_ACCESS)
+                            ? EX_CATCH_STATE
+                            : EX_FINALLY_STATE;
         } else if (throwable instanceof Error) {
-            exState = false ? EX_CATCH_STATE : EX_NO_JS_STATE;
+            exState =
+                    cx.hasFeature(Context.FEATURE_ENHANCED_JAVA_ACCESS)
+                            ? EX_CATCH_STATE
+                            : EX_NO_JS_STATE;
         } else if (throwable instanceof ContinuationJump) {
             // It must be ContinuationJump
             exState = EX_FINALLY_STATE;
