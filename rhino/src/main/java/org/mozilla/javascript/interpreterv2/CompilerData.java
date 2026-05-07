@@ -12,6 +12,7 @@ import org.mozilla.javascript.InstructionArray;
 import org.mozilla.javascript.InterpreterV2;
 import org.mozilla.javascript.JSCode;
 import org.mozilla.javascript.ScriptOrFn;
+import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.config.RhinoConfig;
 import org.mozilla.javascript.debug.DebuggableScript;
@@ -152,7 +153,7 @@ public class CompilerData<T extends ScriptOrFn<T>> extends JSCode<T> implements 
 
     @Override
     public boolean isGeneratedScript() {
-        return sourceFile != null && sourceFile.startsWith("_GeneratedScript_");
+        return ScriptRuntime.isGeneratedScript(sourceFile);
     }
 
     @Override
