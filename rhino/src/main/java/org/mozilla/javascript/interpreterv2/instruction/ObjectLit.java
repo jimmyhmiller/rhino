@@ -11,82 +11,109 @@ import org.mozilla.javascript.Token;
 import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
+/**
+ * Builds an object literal, routing construction through {@link NewLiteralStorage} so that both
+ * plain and spread entries ({@code {...expr}}) are handled uniformly.
+ */
 public class ObjectLit implements Instruction {
     private final Operand objectOperand;
-    private final int[] getterSetters;
+    private final Object[] keys;
     private final Operand[] values;
-    private final Object[] ids;
-    private final boolean copyArray;
+    private final int[] getterSetters;
+
+    /** Null when no spread is present. Otherwise parallel to {@code values}. */
+    private final boolean[] isSpread;
+
+    /**
+     * Number of non-spread entries; equals {@code values.length} when {@link #isSpread} is null.
+     */
+    private final int nonSpreadCount;
+
+    private final boolean copyKeys;
 
     public ObjectLit(
             Operand objectOperand,
-            int[] getterSetters,
+            Object[] keys,
             Operand[] values,
-            Object[] ids,
-            boolean copyArray) {
+            int[] getterSetters,
+            boolean[] isSpread,
+            int nonSpreadCount,
+            boolean copyKeys) {
         this.objectOperand = objectOperand;
-        this.getterSetters = getterSetters;
+        this.keys = keys;
         this.values = values;
-        this.ids = ids;
-        this.copyArray = copyArray;
+        this.getterSetters = getterSetters;
+        this.isSpread = isSpread;
+        this.nonSpreadCount = nonSpreadCount;
+        this.copyKeys = copyKeys;
     }
 
     @Override
     public void interpret(Context cx, CallFrameV2 frame) {
         frame.pc += 1;
 
-        Object[] ids = this.ids;
-        if (copyArray) {
-            ids = Arrays.copyOf(this.ids, ids.length);
-        }
-
-        Object[] values;
-
-        if (this.values.length == 0) {
-            values = ScriptRuntime.emptyArgs;
+        Object[] vals;
+        if (values.length == 0) {
+            vals = ScriptRuntime.emptyArgs;
         } else {
-            values = new Object[this.values.length];
-
-            var totalPops = 0;
-            for (var value : this.values) {
-                totalPops += value.stackChange();
+            vals = new Object[values.length];
+            int totalPops = 0;
+            for (var v : values) {
+                totalPops += v.stackChange();
             }
-
-            var pops = totalPops;
+            int pops = totalPops;
             for (int i = 0; i < values.length; i++) {
-                var value = this.values[i];
-                values[i] = value.viewValue(cx, frame, pops);
-                pops -= this.values[i].stackChange();
+                vals[i] = values[i].viewValue(cx, frame, pops);
+                pops -= values[i].stackChange();
             }
-
             frame.popN(-totalPops);
         }
 
-        if (cx.getLanguageVersion() >= Context.VERSION_ES6) {
-            for (int i = 0; i < values.length; i++) {
-                int gs = getterSetters == null ? 0 : getterSetters[i];
-                NewLiteralStorage.inferFunctionName(ids[i], values[i], gs);
+        Object[] keys = copyKeys ? Arrays.copyOf(this.keys, this.keys.length) : this.keys;
+
+        var storage = NewLiteralStorage.create(cx, nonSpreadCount, true);
+        for (int i = 0; i < values.length; i++) {
+            if (isSpread != null && isSpread[i]) {
+                storage.spread(cx, frame.scope, vals[i], i);
+            } else {
+                storage.pushKey(keys[i]);
+                switch (getterSetters[i]) {
+                    case -1:
+                        storage.pushGetter(vals[i]);
+                        break;
+                    case 1:
+                        storage.pushSetter(vals[i]);
+                        break;
+                    default:
+                        storage.pushValue(vals[i]);
+                        break;
+                }
             }
         }
 
         var object = (Scriptable) objectOperand.retrieve(cx, frame);
-        ScriptRuntime.fillObjectLiteral(object, ids, values, getterSetters, cx, frame.scope);
+        ScriptRuntime.fillObjectLiteral(
+                object,
+                storage.getKeys(),
+                storage.getValues(),
+                storage.getGetterSetters(),
+                cx,
+                frame.scope);
     }
 
     @Override
     public int stackChange() {
         int count = 0;
-        for (var value : values) {
-            count += value.stackChange();
+        for (var v : values) {
+            count += v.stackChange();
         }
         return objectOperand.stackChange() + count;
     }
 
     @Override
     public String toDebugString() {
-        // Replace the computed property placeholders with a "#"
         Object[] cleanedProperties =
-                Arrays.stream(ids)
+                Arrays.stream(keys)
                         .map(
                                 p ->
                                         p instanceof Node
@@ -96,13 +123,25 @@ public class ObjectLit implements Instruction {
                                                 : p)
                         .toArray();
 
+        if (isSpread != null) {
+            return InstructionFormatter.formatInstruction(
+                    this,
+                    "object",
+                    objectOperand,
+                    "spread",
+                    isSpread,
+                    "keys",
+                    cleanedProperties,
+                    "nonSpreadCount",
+                    nonSpreadCount);
+        }
         return InstructionFormatter.formatInstruction(
                 this,
                 "object",
                 objectOperand,
                 "properties",
                 cleanedProperties,
-                "copyArray",
-                copyArray);
+                "copyKeys",
+                copyKeys);
     }
 }

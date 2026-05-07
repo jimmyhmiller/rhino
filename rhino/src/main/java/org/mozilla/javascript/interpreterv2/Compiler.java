@@ -101,7 +101,6 @@ import org.mozilla.javascript.interpreterv2.instruction.Not;
 import org.mozilla.javascript.interpreterv2.instruction.NotEqual;
 import org.mozilla.javascript.interpreterv2.instruction.Num;
 import org.mozilla.javascript.interpreterv2.instruction.ObjectLit;
-import org.mozilla.javascript.interpreterv2.instruction.ObjectLitWithSpread;
 import org.mozilla.javascript.interpreterv2.instruction.ObjectRest;
 import org.mozilla.javascript.interpreterv2.instruction.Pop;
 import org.mozilla.javascript.interpreterv2.instruction.PopResult;
@@ -1638,175 +1637,107 @@ public class Compiler {
                 {
                     Object[] propertyIds = (Object[]) node.getProp(Node.OBJECT_IDS_PROP);
                     int count = propertyIds == null ? 0 : propertyIds.length;
+                    int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
+                    int nonSpreadCount = count - numberOfSpread;
+                    boolean hasSpread = numberOfSpread > 0;
                     boolean hasAnyComputedProperty =
                             propertyIds != null
                                     && Arrays.stream(propertyIds)
-                                            .anyMatch(id -> id instanceof Node);
+                                            .anyMatch(
+                                                    id ->
+                                                            id instanceof Node
+                                                                    && ((Node) id).getType()
+                                                                            != Token.DOTDOTDOT);
 
                     // dedup not supported in open-source
-
-                    int numberOfSpread = node.getIntProp(Node.NUMBER_OF_SPREAD, 0);
-                    if (numberOfSpread > 0) {
-                        updateLineNumber(node);
-                        addInstruction(EmptyObjectLiteral.instance);
-
-                        int nonSpreadCount = count - numberOfSpread;
-                        var isSpread = new boolean[count];
-                        var spreadKeys = new Object[count];
-                        var spreadGetterSetters = new int[count];
-                        var spreadValues = new Operand[count];
-                        int spreadStackChange = 0;
-                        boolean hasComputedInSpread = false;
-
-                        int si = 0;
-                        Node spreadChild = child;
-                        while (spreadChild != null) {
-                            updateLineNumber(spreadChild);
-                            Object propertyId = propertyIds == null ? null : propertyIds[si];
-
-                            if (propertyId instanceof Node
-                                    && ((Node) propertyId).getType() == Token.DOTDOTDOT) {
-                                // Spread entry — source is the first child of the DOTDOTDOT node
-                                isSpread[si] = true;
-                                spreadValues[si] =
-                                        getOperand(((Node) propertyId).getFirstChild(), 0);
-                            } else if (propertyId instanceof Node) {
-                                // Computed key entry
-                                hasComputedInSpread = true;
-                                Node computedPropertyNode = (Node) propertyId;
-                                var key = getOperand(computedPropertyNode.getFirstChild(), 0);
-                                addInstruction(new ComputedProperty(key, spreadKeys, si));
-                                spreadValues[si] = getOperand(spreadChild, 0);
-                            } else {
-                                // Static key entry
-                                spreadKeys[si] = propertyId;
-                                var childType = spreadChild.getType();
-                                switch (childType) {
-                                    case Token.GET:
-                                    case Token.SET:
-                                    case Token.METHOD:
-                                        spreadGetterSetters[si] =
-                                                childType == Token.GET
-                                                        ? -1
-                                                        : childType == Token.SET ? 1 : 0;
-                                        var sfunc = spreadChild.getFirstChild();
-                                        assert (sfunc.getType() == Token.FUNCTION);
-                                        int sfnIndex = sfunc.getExistingIntProp(Node.FUNCTION_PROP);
-                                        FunctionNode sfn = scriptOrFn.getFunctionNode(sfnIndex);
-                                        if (sfn.getFunctionType()
-                                                        != FunctionNode.FUNCTION_EXPRESSION
-                                                && sfn.getFunctionType()
-                                                        != FunctionNode.ARROW_FUNCTION) {
-                                            throw Kit.codeBug();
-                                        }
-                                        addInstruction(new ClosureExpression(sfnIndex));
-                                        if (sfn.isMethodDefinition()) {
-                                            addInstruction(
-                                                    new FunctionStoreHomeObject(
-                                                            PeekOperand.instance,
-                                                            new PeekOperand(
-                                                                    spreadStackChange - 1)));
-                                        }
-                                        spreadValues[si] = PopOperand.instance;
-                                        break;
-                                    default:
-                                        spreadValues[si] = getOperand(spreadChild, 0);
-                                        break;
-                                }
-                            }
-
-                            spreadStackChange += spreadValues[si].stackChange();
-                            spreadChild = spreadChild.getNext();
-                            si++;
-                        }
-
-                        addInstruction(
-                                new ObjectLitWithSpread(
-                                        PeekOperand.instance,
-                                        isSpread,
-                                        spreadKeys,
-                                        spreadValues,
-                                        spreadGetterSetters,
-                                        nonSpreadCount,
-                                        hasComputedInSpread));
-                        return;
-                    }
 
                     updateLineNumber(node);
                     addInstruction(EmptyObjectLiteral.instance);
 
-                    int i = 0;
+                    // When there is no spread, reuse propertyIds directly so ComputedProperty
+                    // writes into it (ObjectLit clones via copyKeys when needed). When there is
+                    // a spread, the propertyIds entries for spread slots are DOTDOTDOT nodes
+                    // that must not leak into the keys array, so use a fresh array.
+                    Object[] keys = hasSpread ? new Object[count] : propertyIds;
+                    int[] getterSetters = new int[count];
+                    Operand[] values = new Operand[count];
+                    boolean[] isSpread = hasSpread ? new boolean[count] : null;
                     int stackChange = 0;
-                    var getterSetters = new int[count];
-                    var values = new Operand[count];
 
+                    int i = 0;
                     while (child != null) {
                         updateLineNumber(child);
-                        // Computed key
                         Object propertyId = propertyIds == null ? null : propertyIds[i];
-                        if (propertyId instanceof Node) {
-                            // Will be a node of type Token.COMPUTED_PROPERTY wrapping the actual
-                            // expression
-                            Node computedPropertyNode = (Node) propertyId;
-                            var key = getOperand(computedPropertyNode.getFirstChild(), 0);
-                            addInstruction(new ComputedProperty(key, propertyIds, i));
-                        }
 
-                        // Value
-                        var childType = child.getType();
-                        switch (childType) {
-                            case Token.GET:
-                            case Token.SET:
-                            case Token.METHOD:
-                                switch (childType) {
-                                    case Token.GET:
-                                        {
-                                            getterSetters[i] = -1;
-                                            break;
-                                        }
-                                    case Token.SET:
-                                        {
-                                            getterSetters[i] = 1;
-                                            break;
-                                        }
-                                    case Token.METHOD:
-                                        {
-                                            getterSetters[i] = 0;
-                                            break;
-                                        }
-                                    default:
+                        if (hasSpread
+                                && propertyId instanceof Node
+                                && ((Node) propertyId).getType() == Token.DOTDOTDOT) {
+                            // Spread entry — source is the first child of the DOTDOTDOT node
+                            isSpread[i] = true;
+                            values[i] = getOperand(((Node) propertyId).getFirstChild(), 0);
+                        } else {
+                            if (propertyId instanceof Node) {
+                                // Computed key — Token.COMPUTED_PROPERTY wrapping the expression
+                                Node computedPropertyNode = (Node) propertyId;
+                                var key = getOperand(computedPropertyNode.getFirstChild(), 0);
+                                addInstruction(new ComputedProperty(key, keys, i));
+                            } else if (hasSpread) {
+                                keys[i] = propertyId;
+                            }
+
+                            var childType = child.getType();
+                            switch (childType) {
+                                case Token.GET:
+                                case Token.SET:
+                                case Token.METHOD:
+                                    switch (childType) {
+                                        case Token.GET:
+                                            {
+                                                getterSetters[i] = -1;
+                                                break;
+                                            }
+                                        case Token.SET:
+                                            {
+                                                getterSetters[i] = 1;
+                                                break;
+                                            }
+                                        case Token.METHOD:
+                                            {
+                                                getterSetters[i] = 0;
+                                                break;
+                                            }
+                                        default:
+                                            throw Kit.codeBug();
+                                    }
+
+                                    var func = child.getFirstChild();
+                                    assert (func.getType() == Token.FUNCTION);
+
+                                    int fnIndex = func.getExistingIntProp(Node.FUNCTION_PROP);
+                                    FunctionNode fn = scriptOrFn.getFunctionNode(fnIndex);
+                                    // See comments in visitStatement for Token.FUNCTION case
+                                    if (fn.getFunctionType() != FunctionNode.FUNCTION_EXPRESSION
+                                            && fn.getFunctionType()
+                                                    != FunctionNode.ARROW_FUNCTION) {
                                         throw Kit.codeBug();
-                                }
-
-                                var func = child.getFirstChild();
-                                assert (func.getType() == Token.FUNCTION);
-
-                                int fnIndex = func.getExistingIntProp(Node.FUNCTION_PROP);
-                                FunctionNode fn = scriptOrFn.getFunctionNode(fnIndex);
-                                // See comments in visitStatement for Token.FUNCTION case
-                                if (fn.getFunctionType() != FunctionNode.FUNCTION_EXPRESSION
-                                        && fn.getFunctionType() != FunctionNode.ARROW_FUNCTION) {
-                                    throw Kit.codeBug();
-                                }
-                                addInstruction(new ClosureExpression(fnIndex));
-                                if (fn.isMethodDefinition()) {
-                                    addInstruction(
-                                            new FunctionStoreHomeObject(
-                                                    PeekOperand.instance,
-                                                    new PeekOperand(stackChange - 1)));
-                                }
-                                values[i] = PopOperand.instance;
-
-                                break;
-
-                            default:
-                                getterSetters[i] = 0;
-                                values[i] = getOperand(child, 0);
-                                break;
+                                    }
+                                    addInstruction(new ClosureExpression(fnIndex));
+                                    if (fn.isMethodDefinition()) {
+                                        addInstruction(
+                                                new FunctionStoreHomeObject(
+                                                        PeekOperand.instance,
+                                                        new PeekOperand(stackChange - 1)));
+                                    }
+                                    values[i] = PopOperand.instance;
+                                    break;
+                                default:
+                                    getterSetters[i] = 0;
+                                    values[i] = getOperand(child, 0);
+                                    break;
+                            }
                         }
 
                         stackChange += values[i].stackChange();
-
                         child = child.getNext();
                         i++;
                     }
@@ -1814,9 +1745,11 @@ public class Compiler {
                     addInstruction(
                             new ObjectLit(
                                     PeekOperand.instance,
-                                    getterSetters,
+                                    keys,
                                     values,
-                                    propertyIds,
+                                    getterSetters,
+                                    isSpread,
+                                    nonSpreadCount,
                                     hasAnyComputedProperty));
                     return;
                 }

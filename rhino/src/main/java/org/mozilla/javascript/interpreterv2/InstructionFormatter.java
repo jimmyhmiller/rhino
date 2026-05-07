@@ -1,6 +1,7 @@
 package org.mozilla.javascript.interpreterv2;
 
 import java.math.BigInteger;
+import java.util.Arrays;
 import org.mozilla.javascript.interpreterv2.instruction.Instruction;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
@@ -71,6 +72,8 @@ public class InstructionFormatter {
                 formatOperandValue(sb, operands[i]);
             }
             sb.append(']');
+        } else if (value instanceof boolean[]) {
+            sb.append(Arrays.toString((boolean[]) value));
         } else if (value instanceof Operand) {
             ((Operand) value).appendDebugString(sb);
         } else if (value instanceof String) {
