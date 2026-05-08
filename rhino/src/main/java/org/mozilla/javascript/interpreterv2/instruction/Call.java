@@ -9,6 +9,7 @@ import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.ScriptableObject;
+import org.mozilla.javascript.VarScope;
 import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
@@ -61,7 +62,7 @@ public class Call implements Instruction {
             frame.push(ScriptRuntime.callRef(fun, funThisObj, args, cx));
             return;
         }
-        Scriptable calleeScope = frame.scope;
+        VarScope calleeScope = frame.scope;
         if (frame.useActivation) {
             calleeScope = ScriptableObject.getTopLevelScope(frame.scope);
         }

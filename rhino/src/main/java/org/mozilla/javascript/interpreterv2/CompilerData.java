@@ -14,6 +14,7 @@ import org.mozilla.javascript.JSCode;
 import org.mozilla.javascript.ScriptOrFn;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.VarScope;
 import org.mozilla.javascript.config.RhinoConfig;
 import org.mozilla.javascript.debug.DebuggableScript;
 import org.mozilla.javascript.interpreterv2.instruction.Instruction;
@@ -322,7 +323,7 @@ public class CompilerData<T extends ScriptOrFn<T>> extends JSCode<T> implements 
             Context cx,
             T executableObject,
             Object newTarget,
-            Scriptable scope,
+            VarScope scope,
             Object thisObj,
             Object[] args) {
         return InterpreterV2.interpret(
@@ -334,7 +335,7 @@ public class CompilerData<T extends ScriptOrFn<T>> extends JSCode<T> implements 
             Context cx,
             T executableObject,
             Object state,
-            Scriptable scope,
+            VarScope scope,
             int operation,
             Object value) {
         return InterpreterV2.resumeGenerator(cx, scope, operation, state, value);

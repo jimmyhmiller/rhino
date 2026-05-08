@@ -322,7 +322,7 @@ public class InterpreterV2 extends Icode implements Evaluator {
             int exLocal =
                     frame.localShift
                             + table[exceptionHandlerOffset + CompilerData.EXCEPTION_LOCAL_SLOT];
-            frame.scope = (Scriptable) frame.stack[scopeLocal];
+            frame.scope = (VarScope) frame.stack[scopeLocal];
             frame.stack[exLocal] = throwable;
 
         } else {
@@ -393,7 +393,7 @@ public class InterpreterV2 extends Icode implements Evaluator {
         boolean usesActivation = frame.compilerData.needsActivation;
         boolean isDebugged = frame.debuggerFrame != null;
         if (usesActivation || isDebugged) {
-            Scriptable scope = frame.scope;
+            VarScope scope = frame.scope;
             if (scope == null) {
                 Kit.codeBug();
             } else if (continuationRestart) {
@@ -401,12 +401,12 @@ public class InterpreterV2 extends Icode implements Evaluator {
                 // found. Normally, frame.scope is a NativeCall when called
                 // from initFrame() for a debugged or activatable function.
                 // However, when called from interpretLoop() as part of
-                // restarting a continuation, it can also be a NativeWith if
+                // restarting a continuation, it can also be a WithScope if
                 // the continuation was captured within a "with" or "catch"
-                // block ("catch" implicitly uses NativeWith to create a scope
+                // block ("catch" implicitly uses WithScope to create a scope
                 // to expose the exception variable).
                 for (; ; ) {
-                    if (scope instanceof NativeWith) {
+                    if (scope instanceof WithScope) {
                         scope = scope.getParentScope();
                         if (scope == null
                                 || (frame.parentFrame != null
@@ -514,8 +514,7 @@ public class InterpreterV2 extends Icode implements Evaluator {
         }
     }
 
-    public static void initFunction(
-            Context cx, Scriptable scope, JSDescriptor<?> parent, int index) {
+    public static void initFunction(Context cx, VarScope scope, JSDescriptor<?> parent, int index) {
         JSFunction fn = JSFunction.createFunction(cx, scope, parent, index, null);
         ScriptRuntime.initFunction(
                 cx, scope, fn, fn.getDescriptor().getFunctionType(), parent.isEvalFunction());
@@ -525,7 +524,7 @@ public class InterpreterV2 extends Icode implements Evaluator {
             T fun,
             CompilerData<T> data,
             Context cx,
-            Scriptable scope,
+            VarScope scope,
             Scriptable thisObj,
             Object[] args) {
         if (!ScriptRuntime.hasTopCall(cx)) {
@@ -560,15 +559,22 @@ public class InterpreterV2 extends Icode implements Evaluator {
                         null,
                         (ICallFrame) cx.lastInterpreterFrame);
 
-        enterFrame(cx, frame, args, false);
-
-        return InterpreterV2.interpretV2(cx, frame, null);
+        boolean parentStrictness = ScriptRuntime.enterFunctionStrictness(cx, desc.isStrict());
+        try {
+            enterFrame(cx, frame, args, false);
+            return InterpreterV2.interpretV2(cx, frame, null);
+        } finally {
+            ScriptRuntime.exitFunctionStrictness(cx, parentStrictness);
+        }
     }
 
     public static Object resumeGenerator(
-            Context cx, Scriptable scope, int operation, Object savedState, Object value) {
+            Context cx, VarScope scope, int operation, Object savedState, Object value) {
         CallFrameV2 frame = (CallFrameV2) savedState;
         CallFrameV2 activeFrame = frame.shallowCloneFrozen((ICallFrame) cx.lastInterpreterFrame);
+        boolean parentStrictness =
+                ScriptRuntime.enterFunctionStrictness(
+                        cx, activeFrame.fnOrScript.getDescriptor().isStrict());
         try {
             GeneratorState generatorState = new GeneratorState(operation, value);
             if (operation == NativeGenerator.GENERATOR_CLOSE) {
@@ -587,6 +593,7 @@ public class InterpreterV2 extends Icode implements Evaluator {
             if (generatorState.returnedException != null) throw generatorState.returnedException;
             return result;
         } finally {
+            ScriptRuntime.exitFunctionStrictness(cx, parentStrictness);
             activeFrame.syncStateToFrame(frame);
         }
     }
@@ -676,7 +683,7 @@ public class InterpreterV2 extends Icode implements Evaluator {
     @Override
     @SuppressWarnings({"unchecked", "rawtypes"})
     public Function createFunctionObject(
-            Context cx, Scriptable scope, Object bytecode, Object staticSecurityDomain) {
+            Context cx, VarScope scope, Object bytecode, Object staticSecurityDomain) {
         if (bytecode != compilerData) {
             Kit.codeBug();
         }
@@ -715,11 +722,6 @@ public class InterpreterV2 extends Icode implements Evaluator {
     @Override
     public List<String> getScriptStack(RhinoException ex) {
         return interpreter.getScriptStack(ex);
-    }
-
-    @Override
-    public void setEvalScriptFlag(Script script) {
-        throw new UnsupportedOperationException();
     }
 
     public static void addInstructionCount(Context cx, CallFrameV2 frame, int extra) {

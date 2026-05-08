@@ -19,8 +19,8 @@ public class In implements Instruction {
     public void interpret(Context cx, CallFrameV2 frame) {
         frame.pc += 1;
 
-        var rhs = this.rhs.retrieve(cx, frame);
-        var lhs = this.lhs.retrieve(cx, frame);
+        var rhs = this.rhs.retrieveAndWrap(cx, frame);
+        var lhs = this.lhs.retrieveAndWrap(cx, frame);
         boolean valBln = ScriptRuntime.in(lhs, rhs, cx);
         frame.push(ScriptRuntime.wrapBoolean(valBln));
     }

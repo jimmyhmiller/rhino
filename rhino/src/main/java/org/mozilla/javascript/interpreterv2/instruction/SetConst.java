@@ -3,7 +3,7 @@ package org.mozilla.javascript.interpreterv2.instruction;
 import org.mozilla.javascript.CallFrameV2;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.ScriptRuntime;
-import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.VarScope;
 import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
 
@@ -23,7 +23,7 @@ public class SetConst implements Instruction {
         frame.pc += 1;
 
         var rhs = this.rhs.retrieveAndWrap(cx, frame);
-        var lhs = (Scriptable) this.lhs.retrieve(cx, frame);
+        var lhs = (VarScope) this.lhs.retrieve(cx, frame);
 
         frame.push(ScriptRuntime.setConst(lhs, rhs, cx, name));
     }

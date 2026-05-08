@@ -252,7 +252,7 @@ public class JSFunction extends BaseFunction implements ScriptOrFn<JSFunction> {
     /** Create function embedded in script or another function with lexicalThis. */
     public static JSFunction createFunction(
             Context cx,
-            Scriptable scope,
+            VarScope scope,
             JSDescriptor<?> parent,
             int index,
             Scriptable lexicalThis,

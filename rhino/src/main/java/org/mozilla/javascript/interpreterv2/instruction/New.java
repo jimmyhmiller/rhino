@@ -8,6 +8,7 @@ import org.mozilla.javascript.Context;
 import org.mozilla.javascript.JSFunction;
 import org.mozilla.javascript.ScriptRuntime;
 import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.VarScope;
 import org.mozilla.javascript.interpreterv2.CompilerData;
 import org.mozilla.javascript.interpreterv2.InstructionFormatter;
 import org.mozilla.javascript.interpreterv2.operand.Operand;
@@ -65,7 +66,7 @@ public class New implements Instruction {
             }
         }
 
-        Scriptable frameScope = frame.scope;
+        VarScope frameScope = frame.scope;
         if (!(lhs instanceof Constructable)) {
             throw ScriptRuntime.notFunctionError(lhs);
         }

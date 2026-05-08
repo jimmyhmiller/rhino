@@ -29,7 +29,7 @@ public class CallFrameV2 implements ICallFrame, Serializable {
     public double resultDbl;
     public int pc;
     public int stackTop = -1;
-    public Scriptable scope;
+    public VarScope scope;
 
     public Scriptable thisObj;
 
@@ -46,7 +46,7 @@ public class CallFrameV2 implements ICallFrame, Serializable {
 
     public CallFrameV2(
             Context cx,
-            Scriptable callerScope,
+            VarScope callerScope,
             Scriptable thisObj,
             Scriptable homeObj,
             Object[] args,
@@ -104,7 +104,6 @@ public class CallFrameV2 implements ICallFrame, Serializable {
                                     cx,
                                     scope,
                                     args,
-                                    desc.isStrict(),
                                     desc.hasRestArg(),
                                     desc.requiresArgumentObject());
                 } else {
@@ -114,7 +113,6 @@ public class CallFrameV2 implements ICallFrame, Serializable {
                                     cx,
                                     scope,
                                     args,
-                                    desc.isStrict(),
                                     desc.hasRestArg(),
                                     desc.requiresArgumentObject());
                 }
@@ -124,10 +122,7 @@ public class CallFrameV2 implements ICallFrame, Serializable {
             // SNC: eval() inside a strict-mode function needs its own activation so that
             // `var` declarations do not leak to the caller's scope.
             if (desc.isEvalFunction() && desc.isStrict()) {
-                NativeObject evalScope = new NativeObject();
-                evalScope.setParentScope(scope);
-                evalScope.setPrototype(null);
-                scope = evalScope;
+                scope = new DeclarationScope(scope);
             }
 
             ScriptRuntime.initScript(fnOrScript, thisObj, cx, scope, desc.isEvalFunction());
