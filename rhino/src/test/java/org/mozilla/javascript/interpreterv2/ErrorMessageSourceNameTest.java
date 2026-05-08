@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Test;
 import org.mozilla.javascript.Context;
 import org.mozilla.javascript.LambdaFunction;
 import org.mozilla.javascript.RhinoException;
-import org.mozilla.javascript.Scriptable;
 import org.mozilla.javascript.SerializableCallable;
 import org.mozilla.javascript.testutils.Utils;
 
@@ -26,7 +25,7 @@ class ErrorMessageSourceNameTest {
                     String script = "throwErrorFromJava();";
                     String sourceName = "Process Automation.SCRIPT1";
 
-                    Scriptable scope = cx.initStandardObjects();
+                    var scope = cx.initStandardObjects();
 
                     // Function that throws from Java (like GlideRecord.setTableName does)
                     var throwFunc =

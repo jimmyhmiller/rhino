@@ -1,12 +1,12 @@
 package org.mozilla.javascript.interpreterv2;
 
-import static org.junit.Assert.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import org.mozilla.javascript.interpreterv2.instruction.Add;
 import org.mozilla.javascript.interpreterv2.instruction.AnyStringAdd;
 import org.mozilla.javascript.interpreterv2.instruction.Equal;
@@ -57,7 +57,7 @@ public class InstructionSimplificationTest {
         // because it's a jump target and we don't know what's on the stack
         Instruction simplified = instructions.get(3);
         String actualType = simplified.getClass().getSimpleName();
-        assertTrue("Expected AnyStringAdd got " + actualType, simplified instanceof AnyStringAdd);
+        assertTrue(simplified instanceof AnyStringAdd, "Expected AnyStringAdd got " + actualType);
     }
 
     @Test
@@ -82,8 +82,8 @@ public class InstructionSimplificationTest {
         Instruction simplified = instructions.get(1);
         String actualType = simplified.getClass().getSimpleName();
         assertTrue(
-                "Expected StringStringAdd got " + actualType,
-                simplified instanceof StringStringAdd);
+                simplified instanceof StringStringAdd,
+                "Expected StringStringAdd got " + actualType);
     }
 
     @Test
@@ -110,7 +110,7 @@ public class InstructionSimplificationTest {
         // the stack before instruction 1 (only that instruction 1 itself produces a string)
         Instruction simplified = instructions.get(2);
         String actualType = simplified.getClass().getSimpleName();
-        assertTrue("Expected AnyStringAdd got " + actualType, simplified instanceof AnyStringAdd);
+        assertTrue(simplified instanceof AnyStringAdd, "Expected AnyStringAdd got " + actualType);
     }
 
     @Test
@@ -153,7 +153,7 @@ public class InstructionSimplificationTest {
         String actualType = simplified.getClass().getSimpleName();
         // Since position 5 is a jump target, we know one operand is a string literal
         // but can't be sure about the stack state, so it becomes AnyStringAdd
-        assertTrue("Expected AnyStringAdd got " + actualType, simplified instanceof AnyStringAdd);
+        assertTrue(simplified instanceof AnyStringAdd, "Expected AnyStringAdd got " + actualType);
     }
 
     @Test
@@ -185,8 +185,8 @@ public class InstructionSimplificationTest {
         Instruction simplified = instructions.get(2);
         String actualType = simplified.getClass().getSimpleName();
         assertTrue(
-                "Expected StringStringAdd got " + actualType,
-                simplified instanceof StringStringAdd);
+                simplified instanceof StringStringAdd,
+                "Expected StringStringAdd got " + actualType);
     }
 
     @Test
@@ -215,8 +215,8 @@ public class InstructionSimplificationTest {
         Instruction simplified = instructions.get(3);
         String actualType = simplified.getClass().getSimpleName();
         assertTrue(
-                "Expected StringStringAdd got " + actualType,
-                simplified instanceof StringStringAdd);
+                simplified instanceof StringStringAdd,
+                "Expected StringStringAdd got " + actualType);
     }
 
     @Test
@@ -267,7 +267,7 @@ public class InstructionSimplificationTest {
         // because it's a jump target that could receive different types from different branches
         Instruction simplified = instructions.get(8);
         String actualType = simplified.getClass().getSimpleName();
-        assertTrue("Expected Add got " + actualType, simplified instanceof Add);
+        assertTrue(simplified instanceof Add, "Expected Add got " + actualType);
     }
 
     @Test
@@ -300,7 +300,7 @@ public class InstructionSimplificationTest {
         // target)
         Instruction simplified = instructions.get(3);
         String actualType = simplified.getClass().getSimpleName();
-        assertTrue("Expected StringAnyAdd got " + actualType, simplified instanceof StringAnyAdd);
+        assertTrue(simplified instanceof StringAnyAdd, "Expected StringAnyAdd got " + actualType);
     }
 
     @Test
@@ -331,7 +331,7 @@ public class InstructionSimplificationTest {
         // so we can't know the full stack state (what was there before the jump)
         Instruction simplified = instructions.get(2);
         String actualType = simplified.getClass().getSimpleName();
-        assertTrue("Expected AnyStringAdd got " + actualType, simplified instanceof AnyStringAdd);
+        assertTrue(simplified instanceof AnyStringAdd, "Expected AnyStringAdd got " + actualType);
     }
 
     @Test
@@ -387,10 +387,10 @@ public class InstructionSimplificationTest {
 
         // All jump targets from SimpleSwitch should be tracked
         Set<Integer> jumpTargets = switchInst.getTargets(1);
-        assertTrue("Should have case jump target at 2", jumpTargets.contains(2));
-        assertTrue("Should have case jump target at 4", jumpTargets.contains(4));
-        assertTrue("Should have case jump target at 6", jumpTargets.contains(6));
-        assertTrue("Should have default jump target at 8", jumpTargets.contains(8));
+        assertTrue(jumpTargets.contains(2), "Should have case jump target at 2");
+        assertTrue(jumpTargets.contains(4), "Should have case jump target at 4");
+        assertTrue(jumpTargets.contains(6), "Should have case jump target at 6");
+        assertTrue(jumpTargets.contains(8), "Should have default jump target at 8");
         jumpTargets.add(9); // Also add the merge point
 
         InstructionSimplification simplifier =
@@ -401,6 +401,6 @@ public class InstructionSimplificationTest {
         // because it's a jump target from multiple places
         Instruction simplified = instructions.get(9);
         String actualType = simplified.getClass().getSimpleName();
-        assertTrue("Expected AnyStringAdd got " + actualType, simplified instanceof AnyStringAdd);
+        assertTrue(simplified instanceof AnyStringAdd, "Expected AnyStringAdd got " + actualType);
     }
 }

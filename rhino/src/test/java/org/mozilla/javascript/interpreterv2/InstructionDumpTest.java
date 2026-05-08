@@ -1,13 +1,13 @@
 package org.mozilla.javascript.interpreterv2;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import org.junit.After;
-import org.junit.Before;
-import org.junit.Ignore;
-import org.junit.Test;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.Test;
 import org.mozilla.javascript.Context;
 
 public class InstructionDumpTest {
@@ -16,7 +16,7 @@ public class InstructionDumpTest {
     private PrintStream originalErr;
     private boolean oldShouldDumpInstructions;
 
-    @Before
+    @BeforeEach
     public void setUp() throws Exception {
         cx = Context.enter();
         cx.setLanguageVersion(Context.VERSION_ECMASCRIPT);
@@ -30,7 +30,7 @@ public class InstructionDumpTest {
         oldShouldDumpInstructions = CompilerData.shouldDumpInstructions;
     }
 
-    @After
+    @AfterEach
     public void tearDown() throws Exception {
         CompilerData.shouldDumpInstructions = oldShouldDumpInstructions;
         System.setErr(originalErr);
@@ -46,7 +46,7 @@ public class InstructionDumpTest {
 
         String expected = "";
 
-        assertEquals("Output should be empty when dump is disabled", expected, output);
+        assertEquals(expected, output, "Output should be empty when dump is disabled");
     }
 
     @Test
@@ -472,7 +472,7 @@ public class InstructionDumpTest {
     }
 
     @Test
-    @Ignore(
+    @Disabled(
             "Compiler emits Equal(lhs=pop, rhs=\"boolean\") on rebase vs"
                     + " Equal(lhs=\"boolean\", rhs=pop) on integrate — operand evaluation order"
                     + " divergence to investigate.")
@@ -583,7 +583,7 @@ public class InstructionDumpTest {
     }
 
     @Test
-    @Ignore(
+    @Disabled(
             "InstructionFormatter doesn't render Undefined.instance as \"undefined\" upstream;"
                     + " falls through to default Object.toString().")
     public void nullUndefinedLiterals() {
@@ -798,7 +798,7 @@ public class InstructionDumpTest {
     }
 
     @Test
-    @Ignore(
+    @Disabled(
             "InstructionFormatter doesn't render RECompiled as \"/.../flags\" upstream; falls"
                     + " through to default Object.toString().")
     public void regexpLiteral() {
@@ -813,7 +813,7 @@ public class InstructionDumpTest {
     }
 
     @Test
-    @Ignore(
+    @Disabled(
             "InstructionFormatter doesn't render RECompiled as \"/.../flags\" upstream; falls"
                     + " through to default Object.toString().")
     public void regexpLiteralwithFlags() {

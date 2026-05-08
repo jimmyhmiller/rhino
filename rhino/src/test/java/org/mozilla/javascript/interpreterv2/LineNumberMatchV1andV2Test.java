@@ -44,7 +44,7 @@ public class LineNumberMatchV1andV2Test {
             LineTrackingDebugger debugger = new LineTrackingDebugger();
             cx.setDebugger(debugger, null);
 
-            Scriptable scope = cx.initStandardObjects();
+            var scope = cx.initStandardObjects();
 
             try {
                 cx.evaluateString(scope, code, "test", 1, null);
